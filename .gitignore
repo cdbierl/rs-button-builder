@@ -1,0 +1,11 @@
+# Cargo build output
+/target/
+/debug/
+
+# rustfmt backup files
+**/*.rs.bk
+
+# Windows debug symbols
+*.pdb
+
+# Keep Cargo.lock tracked for this executable application.

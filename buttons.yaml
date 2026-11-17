@@ -1,0 +1,78 @@
+rows: 3
+columns: 3
+buttons:
+- label: Run Top
+  command: /usr/bin/top
+  arguments: ''
+  working_directory: ''
+  shell: false
+  foreground: null
+  background: null
+- label: mavlink-router
+  command: docker logs mavlink-router -f
+  arguments: ''
+  working_directory: ''
+  shell: true
+  foreground: null
+  background: null
+- label: Button 3
+  command: ''
+  arguments: ''
+  working_directory: ''
+  shell: false
+  foreground: null
+  background: null
+- label: Button 4
+  command: ''
+  arguments: ''
+  working_directory: ''
+  shell: false
+  foreground: null
+  background: null
+- label: Button 5
+  command: ''
+  arguments: ''
+  working_directory: ''
+  shell: false
+  foreground: null
+  background: null
+- label: Button 6
+  command: ''
+  arguments: ''
+  working_directory: ''
+  shell: false
+  foreground: null
+  background: null
+- label: Button 7
+  command: ''
+  arguments: ''
+  working_directory: ''
+  shell: false
+  foreground: null
+  background: null
+- label: Button 8
+  command: ''
+  arguments: ''
+  working_directory: ''
+  shell: false
+  foreground: null
+  background: null
+- label: Button 9
+  command: ''
+  arguments: ''
+  working_directory: ''
+  shell: false
+  foreground: null
+  background: null
+terminal:
+  font: JetBrains Mono
+  font_size: 14.0
+  line_spacing: 1.15
+  foreground:
+  - 220
+  - 227
+  - 238
+  background:
+  - 15
+  - 19
+  - 27

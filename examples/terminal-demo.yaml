@@ -1,0 +1,44 @@
+# Small local commands demonstrate colors, redraws, Unicode, and keyboard input.
+rows: 2
+columns: 2
+terminal:
+  font: Monospace
+  font_size: 16
+  line_spacing: 1.25
+  foreground: [235, 230, 220]
+  background: [25, 22, 20]
+buttons:
+  - label: Terminal Colors
+    shell: true
+    command: |
+      printf '\033[1;31mRed\033[0m  \033[1;32mGreen\033[0m  \033[1;34mBlue\033[0m\n'
+      printf '\033[4mUnderlined\033[0m and \033[7mreversed\033[0m text\n'
+      printf 'Standard output\n'
+      printf 'Standard error is displayed too\n' >&2
+    foreground: [255, 230, 225]
+    background: [115, 45, 40]
+  - label: Progress Demo
+    shell: true
+    command: |
+      n=1
+      while [ "$n" -le 10 ]; do
+        printf '\rProgress: %3s%%' "${n}0"
+        n=$((n + 1))
+        sleep 0.1
+      done
+      printf '\nComplete.\n'
+    foreground: [230, 255, 230]
+    background: [45, 95, 50]
+  - label: Unicode Text
+    command: /usr/bin/printf
+    arguments: "'café • αβγ • 界 • é\\n'"
+    foreground: [230, 235, 255]
+    background: [45, 60, 115]
+  - label: Input Echo
+    shell: true
+    command: |
+      printf 'Your name: '
+      IFS= read -r name
+      printf 'Hello, %s!\n' "$name"
+    foreground: [255, 245, 220]
+    background: [105, 80, 35]

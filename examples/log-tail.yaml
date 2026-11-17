@@ -1,0 +1,16 @@
+# Show the last 50 syslog lines, then follow new entries and log rotation.
+# Runs until Ctrl+C or Stop; the current user needs read access to the log.
+rows: 1
+columns: 1
+terminal:
+  font: Monospace
+  font_size: 14
+  line_spacing: 1.2
+  foreground: [220, 240, 230]
+  background: [12, 22, 18]
+buttons:
+  - label: Follow Syslog
+    command: /usr/bin/tail
+    arguments: -n 50 -F /var/log/syslog
+    foreground: [235, 255, 245]
+    background: [35, 105, 75]

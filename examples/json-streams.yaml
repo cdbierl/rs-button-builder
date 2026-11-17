@@ -1,0 +1,57 @@
+# Generated local JSON demonstrates shell pipelines without a network connection.
+# These examples require /usr/bin/jq already available locally.
+rows: 2
+columns: 3
+terminal:
+  font: Monospace
+  font_size: 15
+  line_spacing: 1.2
+  foreground: [225, 230, 245]
+  background: [15, 18, 30]
+buttons:
+  - label: Pretty JSON
+    shell: true
+    command: |
+      printf '%s\n' '{"service":"demo","healthy":true,"ports":[8080,9090]}' |
+        /usr/bin/jq -C .
+    foreground: [245, 240, 255]
+    background: [75, 55, 120]
+  - label: Stream Events
+    shell: true
+    command: |
+      n=1
+      while [ "$n" -le 6 ]; do
+        printf '{"event":"tick","sequence":%s}\n' "$n"
+        n=$((n + 1))
+        sleep 0.2
+      done | /usr/bin/jq -C --unbuffered .
+    foreground: [225, 255, 245]
+    background: [25, 100, 80]
+  - label: Errors Only
+    shell: true
+    command: |
+      printf '%s\n' \
+        '{"level":"info","message":"started"}' \
+        '{"level":"error","message":"example failure"}' \
+        '{"level":"info","message":"finished"}' |
+        /usr/bin/jq -C 'select(.level == "error")'
+    foreground: [255, 235, 235]
+    background: [120, 45, 55]
+  - label: Select Names
+    shell: true
+    command: |
+      printf '%s\n' '[{"name":"Ada"},{"name":"Grace"},{"name":"Linus"}]' |
+        /usr/bin/jq -r '.[].name'
+    background: [40, 70, 120]
+  - label: Summarize Values
+    shell: true
+    command: |
+      printf '%s\n' '[{"value":10},{"value":20},{"value":30}]' |
+        /usr/bin/jq -C '{total: (map(.value) | add), count: length}'
+    background: [75, 55, 120]
+  - label: Text to JSON
+    shell: true
+    command: |
+      printf '%s\n' alpha beta gamma |
+        /usr/bin/jq -R -C '{text: ., length: length}'
+    background: [40, 70, 120]
