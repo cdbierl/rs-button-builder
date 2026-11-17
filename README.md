@@ -1,6 +1,10 @@
 # Button Builder
 
 A Linux egui app with a configurable command grid and an embedded terminal.
+The interface uses `egui-material3` controls with an orange accent, warm dark
+surfaces, and small corners on buttons, dialogs, inputs, and menus. Dialog frames
+use the Material theme with a shared 6-pixel radius. Text and numeric inputs use a matching theme.
+Fonts and theme colors are loaded locally; optional downloadable assets are disabled.
 
 ```sh
 cargo run --offline
@@ -13,15 +17,17 @@ right-click a button, or enable **Edit buttons** to configure its label and acti
 Uncheck **Edit buttons** to launch commands. Saving a button does not run it.
 The editor also has **Text color** and **Background** pickers, a live button preview,
 and **Reset colors** to restore the theme defaults. Colors are saved per button.
+When only a background is set, the label automatically uses contrasting black or white text.
 
 Use **Rows** and **Columns** above the grid to change its dimensions (1–12 rows,
 1–8 columns; initially 3×3). The grid scrolls when it exceeds the available space.
 Buttons keep their order from left to right, then top to bottom. Shrinking hides
 extra buttons without deleting their labels or commands; expanding restores them.
-Use **Save layout** to persist the dimensions along with the button definitions.
+Use **Save layout** in the header toolbar to persist the dimensions along with the
+button definitions. An asterisk marks unsaved layout or appearance changes.
 
-Click **Load config…** to browse local YAML files or enter a path. The chooser's
-**Examples** button opens the bundled [example layouts](examples/README.md): system
+Click **Load config…** in the header toolbar to browse local YAML files or enter a
+path. The chooser's **Examples** button opens the bundled [example layouts](examples/README.md): system
 monitoring, local JSON pipelines, terminal demonstrations, and a live log tail. Loading restores the
 grid, button definitions/colors, and terminal appearance, and selects that file as
 the save destination. A running process continues in the terminal. Unsaved changes

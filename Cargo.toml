@@ -7,6 +7,7 @@ edition = "2024"
 dotenvy = "0.15"
 eframe = { version = "0.33", default-features = false, features = ["default_fonts", "glow", "wayland", "x11"] }
 egui = "0.33.0"
+egui-material3 = { version = "0.0.9", default-features = false }
 env_logger = "0.11"
 fontdb = { version = "0.23", default-features = false, features = ["fs", "fontconfig"] }
 libc = "0.2"

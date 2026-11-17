@@ -7,7 +7,10 @@ buttons:
   working_directory: ''
   shell: false
   foreground: null
-  background: null
+  background:
+  - 123
+  - 250
+  - 255
 - label: mavlink-router
   command: docker logs mavlink-router -f
   arguments: ''

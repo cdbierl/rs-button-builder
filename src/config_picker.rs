@@ -1,3 +1,5 @@
+use crate::ui::{filled_button, outlined_button, text_button};
+use egui_material3::{MaterialCheckbox, get_global_color};
 use std::path::{Path, PathBuf};
 
 struct Entry {
@@ -99,99 +101,118 @@ impl ConfigPicker {
 
     pub fn show(&mut self, ctx: &egui::Context, unsaved: bool, running: bool) -> Action {
         let mut action = Action::None;
-        let mut open = true;
         let mut browse = None;
         let mut refresh = false;
         let mut load = false;
-        egui::Window::new("Load buttons config")
-            .id(egui::Id::new("config_picker"))
-            .open(&mut open)
-            .collapsible(false)
-            .default_width(560.0)
-            .vscroll(true)
-            .show(ctx, |ui| {
-                ui.label("Config file (.yaml or .yml)");
-                let response = ui.add(
-                    egui::TextEdit::singleline(&mut self.path)
-                        .hint_text("Select a file below or enter its path")
-                        .desired_width(f32::INFINITY),
-                );
-                if response.lost_focus() && ui.input(|input| input.key_pressed(egui::Key::Enter)) {
-                    load = true;
-                }
-                ui.add_space(6.0);
-                ui.horizontal(|ui| {
-                    if ui
-                        .add_enabled(
-                            self.directory.parent().is_some(),
-                            egui::Button::new("Parent folder"),
-                        )
-                        .clicked()
+        let dialog = crate::ui::dialog(
+            ctx,
+            "config_picker",
+            "Load buttons config",
+            500.0_f32.min(ctx.content_rect().width() - 64.0)..=640.0,
+            |ui| {
+                crate::ui::form(ui, ctx, "config_picker_form", |ui| {
+                    ui.label("Config file (.yaml or .yml)");
+                    let response = ui.add(
+                        crate::ui::text_input(&mut self.path)
+                            .hint_text("Select a file below or enter its path"),
+                    );
+                    if response.lost_focus()
+                        && ui.input(|input| input.key_pressed(egui::Key::Enter))
                     {
-                        browse = self.directory.parent().map(Path::to_owned);
+                        load = true;
                     }
-                    let examples = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("examples");
-                    if ui
-                        .add_enabled(examples.is_dir(), egui::Button::new("Examples"))
-                        .clicked()
-                    {
-                        browse = Some(examples);
-                    }
-                    refresh = ui.button("Refresh").clicked();
-                });
-                ui.small(self.directory.display().to_string());
-                egui::ScrollArea::vertical()
-                    .id_salt("config_files")
-                    .max_height(230.0)
-                    .auto_shrink([false, true])
-                    .show(ui, |ui| {
-                        if self.entries.is_empty() {
-                            ui.label("No YAML files or folders here.");
+                    ui.add_space(6.0);
+                    ui.horizontal(|ui| {
+                        if ui
+                            .add_enabled(
+                                self.directory.parent().is_some(),
+                                text_button("Parent folder").small(),
+                            )
+                            .clicked()
+                        {
+                            browse = self.directory.parent().map(Path::to_owned);
                         }
-                        for entry in &self.entries {
-                            if entry.directory {
-                                if ui.button(format!("Folder: {}", entry.name)).clicked() {
-                                    browse = Some(entry.path.clone());
-                                }
-                            } else {
-                                let selected = self.selected_path().as_ref() == Some(&entry.path);
-                                let response = ui.selectable_label(selected, &entry.name);
-                                if response.clicked() {
-                                    self.path = entry.path.display().to_string();
-                                }
-                                if response.double_clicked() {
-                                    load = true;
+                        let examples = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("examples");
+                        if ui
+                            .add_enabled(examples.is_dir(), text_button("Examples").small())
+                            .clicked()
+                        {
+                            browse = Some(examples);
+                        }
+                        refresh = ui.add(text_button("Refresh").small()).clicked();
+                    });
+                    ui.small(self.directory.display().to_string());
+                    egui::ScrollArea::vertical()
+                        .id_salt("config_files")
+                        .max_height(230.0)
+                        .auto_shrink([false, true])
+                        .show(ui, |ui| {
+                            if self.entries.is_empty() {
+                                ui.label("No YAML files or folders here.");
+                            }
+                            for entry in &self.entries {
+                                if entry.directory {
+                                    if ui
+                                        .add(text_button(format!("Folder: {}", entry.name)).small())
+                                        .clicked()
+                                    {
+                                        browse = Some(entry.path.clone());
+                                    }
+                                } else {
+                                    let selected =
+                                        self.selected_path().as_ref() == Some(&entry.path);
+                                    let mut button = text_button(&entry.name).small();
+                                    if selected {
+                                        button = button
+                                            .fill(get_global_color("primaryContainer"))
+                                            .text_color(get_global_color("onPrimaryContainer"));
+                                    }
+                                    let response =
+                                        ui.add_sized([ui.available_width(), 36.0], button);
+                                    if response.clicked() {
+                                        self.path = entry.path.display().to_string();
+                                    }
+                                    if response.double_clicked() {
+                                        load = true;
+                                    }
                                 }
                             }
+                        });
+                    ui.add_space(8.0);
+                    if unsaved {
+                        ui.label("There are unsaved layout changes or an open button edit.");
+                        ui.add(MaterialCheckbox::new(
+                            &mut self.replace_unsaved,
+                            "Replace unsaved changes",
+                        ));
+                        if ui
+                            .add(outlined_button("Save current layout first").small())
+                            .clicked()
+                        {
+                            action = Action::SaveCurrent;
                         }
-                    });
-                ui.add_space(8.0);
-                if unsaved {
-                    ui.label("There are unsaved layout changes or an open button edit.");
-                    ui.checkbox(&mut self.replace_unsaved, "Replace unsaved changes");
-                    if ui.button("Save current layout first").clicked() {
-                        action = Action::SaveCurrent;
                     }
-                }
-                if running {
-                    ui.small("The running process will continue after loading.");
-                }
-                if let Some(error) = &self.error {
-                    ui.colored_label(egui::Color32::LIGHT_RED, error);
-                }
+                    if running {
+                        ui.small("The running process will continue after loading.");
+                    }
+                    if let Some(error) = &self.error {
+                        ui.colored_label(egui::Color32::LIGHT_RED, error);
+                    }
+                });
                 let can_load = (!unsaved || self.replace_unsaved) && self.selected_path().is_some();
-                ui.horizontal(|ui| {
-                    load |= ui
-                        .add_enabled(can_load, egui::Button::new("Load selected config"))
-                        .clicked();
-                    if ui.button("Cancel").clicked() {
+                crate::ui::dialog_footer(ui, |ui| {
+                    if ui.add(text_button("Cancel")).clicked() {
                         action = Action::Cancel;
                     }
+                    load |= ui
+                        .add_enabled(can_load, filled_button("Load selected config"))
+                        .clicked();
                 });
                 if load && can_load {
                     action = Action::Load(self.selected_path().unwrap());
                 }
-            });
+            },
+        );
         if let Some(directory) = browse {
             self.directory = directory;
             self.path.clear();
@@ -199,7 +220,7 @@ impl ConfigPicker {
         } else if refresh {
             self.refresh();
         }
-        if !open {
+        if dialog.should_close() {
             action = Action::Cancel;
         }
         action

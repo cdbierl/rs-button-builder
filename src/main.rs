@@ -4,6 +4,7 @@ mod config;
 mod config_picker;
 mod fonts;
 mod terminal;
+mod ui;
 
 use std::env;
 use std::io::ErrorKind;

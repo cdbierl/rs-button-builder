@@ -1,7 +1,11 @@
 use crate::config::{ButtonConfig, Config, MAX_GRID_COLUMNS, MAX_GRID_ROWS, TerminalStyle};
 use crate::config_picker::{Action as PickerAction, ConfigPicker};
 use crate::terminal::{Terminal, screen::Cell};
+use crate::ui::{CORNER_RADIUS, filled_button, outlined_button, text_button};
 use egui::{Color32, FontFamily, FontId, RichText, Stroke, Vec2};
+use egui_material3::{
+    MaterialButton, MaterialCheckbox, MaterialSlider, MaterialToolbar, get_global_color,
+};
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -32,12 +36,7 @@ pub struct ButtonBuilder {
 
 impl ButtonBuilder {
     pub fn new(ctx: &egui::Context, config_path: PathBuf, config: Config) -> Self {
-        ctx.set_visuals(egui::Visuals::dark());
-        ctx.all_styles_mut(|style| {
-            style
-                .text_styles
-                .insert(egui::TextStyle::Small, FontId::proportional(14.0));
-        });
+        crate::ui::setup(ctx);
         let fonts = crate::fonts::load(ctx);
         Self {
             config,
@@ -146,14 +145,48 @@ impl ButtonBuilder {
         }
     }
 
+    fn header(&mut self, ui: &mut egui::Ui) {
+        ui.add(
+            MaterialToolbar::new()
+                .top(true)
+                .min_height(64.0)
+                .padding(Vec2::new(20.0, 12.0))
+                .item_fn(|ui| ui.heading("Button Builder"))
+                .item_fn(|ui| {
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui
+                            .add(
+                                filled_button(if self.dirty {
+                                    "Save layout *"
+                                } else {
+                                    "Save layout"
+                                })
+                                .small()
+                                .min_size(Vec2::new(0.0, 40.0)),
+                            )
+                            .on_hover_text(format!("Save to {}", self.config_path.display()))
+                            .clicked()
+                        {
+                            self.save();
+                        }
+                        let response = ui.add(
+                            outlined_button("Load config…")
+                                .small()
+                                .min_size(Vec2::new(0.0, 40.0)),
+                        );
+                        if response.clicked() {
+                            self.config_picker = Some(ConfigPicker::new(&self.config_path));
+                        }
+                        response
+                    })
+                    .inner
+                }),
+        );
+    }
+
     fn buttons_panel(&mut self, ui: &mut egui::Ui) {
         ui.add_space(10.0);
         ui.heading("Your buttons");
-        ui.add_space(4.0);
-        ui.label(format!(
-            "{} shortcuts. One terminal.",
-            self.config.visible_buttons()
-        ));
         ui.add_space(8.0);
         let (mut rows, mut columns) = (self.config.rows, self.config.columns);
         ui.horizontal(|ui| {
@@ -177,7 +210,10 @@ impl ButtonBuilder {
             }
         }
         ui.add_space(12.0);
-        ui.checkbox(&mut self.edit_mode, "Edit buttons");
+        ui.add(MaterialCheckbox::new(&mut self.edit_mode, "Edit buttons"))
+            .on_hover_text(
+                "Click buttons to edit instead of running them. Right-click also edits.",
+            );
         ui.add_space(12.0);
         let running = self.running();
         let columns = self.config.columns;
@@ -187,8 +223,8 @@ impl ButtonBuilder {
         let mut edit = None;
         egui::ScrollArea::both()
             .id_salt("grid_scroll")
-            .auto_shrink([false, true])
-            .max_height((ui.available_height() - 150.0).max(100.0))
+            .auto_shrink([false, false])
+            .max_height(ui.available_height())
             .show(ui, |ui| {
                 egui::Grid::new(("button_grid", columns))
                     .num_columns(columns)
@@ -210,17 +246,21 @@ impl ButtonBuilder {
                             };
                             let response = ui
                                 .add_enabled_ui(self.edit_mode || !running || !configured, |ui| {
-                                    ui.add_sized(
-                                        [width, 88.0],
-                                        styled_button(button, caption).wrap().selected(selected),
-                                    )
+                                    let mut widget = styled_button(button, caption).wrap();
+                                    if selected {
+                                        widget = widget.stroke(Stroke::new(
+                                            2.0_f32,
+                                            get_global_color("primary"),
+                                        ));
+                                    }
+                                    ui.add_sized([width, 88.0], widget)
                                 })
                                 .inner;
                             if response.clicked() {
                                 clicked = Some(index);
                             }
                             response.context_menu(|ui| {
-                                if ui.button("Edit button").clicked() {
+                                if ui.add(text_button("Edit button").small()).clicked() {
                                     edit = Some(index);
                                     ui.close();
                                 }
@@ -246,138 +286,92 @@ impl ButtonBuilder {
                 self.launch(index);
             }
         }
-        ui.add_space(16.0);
-        ui.small("Right-click any button to edit it.");
-        let hidden = self.config.buttons.len() - self.config.visible_buttons();
-        if hidden > 0 {
-            ui.small(format!(
-                "{hidden} hidden buttons kept. Expand the grid to restore them."
-            ));
-        }
-        if running {
-            ui.small("Stop or quit the current process to run another button.");
-        }
-        ui.add_space(12.0);
-        ui.separator();
-        ui.add_space(8.0);
-        ui.horizontal(|ui| {
-            if ui
-                .button(if self.dirty {
-                    "Save layout *"
-                } else {
-                    "Save layout"
-                })
-                .clicked()
-            {
-                self.save();
-            }
-            if ui.button("Load config…").clicked() {
-                self.config_picker = Some(ConfigPicker::new(&self.config_path));
-            }
-        });
-        ui.small(self.config_path.display().to_string());
-        ui.add_space(8.0);
-        ui.small(
-            "Buttons and terminal appearance are saved together. Commands run only when clicked.",
-        );
     }
 
     fn editor_window(&mut self, ctx: &egui::Context) {
         let Some(editor) = &mut self.editor else {
             return;
         };
-        let mut open = true;
         let mut save = false;
         let mut cancel = false;
-        egui::Window::new(format!("Edit button {}", editor.index + 1))
-            .id(egui::Id::new("button_editor"))
-            .open(&mut open)
-            .collapsible(false)
-            .default_width(480.0)
-            .vscroll(true)
-            .show(ctx, |ui| {
-                ui.label("Label");
-                ui.add(
-                    egui::TextEdit::singleline(&mut editor.button.label)
-                        .desired_width(f32::INFINITY),
-                );
-                ui.add_space(8.0);
-                ui.checkbox(&mut editor.button.shell, "Shell pipeline (/bin/sh)");
-                if editor.button.shell {
-                    ui.label("Command or pipeline");
-                    ui.add(
-                        egui::TextEdit::multiline(&mut editor.button.command)
-                            .font(egui::TextStyle::Monospace)
-                            .desired_rows(3)
-                            .desired_width(f32::INFINITY),
-                    );
-                    ui.small("Supports pipes, redirects, and shell quoting.");
-                } else {
-                    ui.label("Program (full path or a name on PATH)");
-                    ui.add(
-                        egui::TextEdit::singleline(&mut editor.button.command)
-                            .hint_text("/usr/bin/top")
-                            .desired_width(f32::INFINITY),
-                    );
-                    ui.label("Arguments (optional)");
-                    ui.add(
-                        egui::TextEdit::singleline(&mut editor.button.arguments)
-                            .hint_text("-d 1")
-                            .desired_width(f32::INFINITY),
-                    );
-                    ui.small("Quote arguments containing spaces: --name \"two words\"");
-                }
-                ui.add_space(8.0);
-                ui.label("Working directory (optional)");
-                ui.add(
-                    egui::TextEdit::singleline(&mut editor.button.working_directory)
-                        .hint_text("Defaults to the app's working directory")
-                        .desired_width(f32::INFINITY),
-                );
-                ui.small("Leave the command empty to make an unassigned button.");
-                ui.add_space(10.0);
-                ui.horizontal(|ui| {
-                    let text = ui.visuals().text_color();
-                    let fill = ui.visuals().widgets.inactive.bg_fill;
-                    let mut foreground =
-                        editor
-                            .button
-                            .foreground
-                            .unwrap_or([text.r(), text.g(), text.b()]);
-                    let mut background =
-                        editor
-                            .button
-                            .background
-                            .unwrap_or([fill.r(), fill.g(), fill.b()]);
-                    ui.label("Text color");
-                    if ui.color_edit_button_srgb(&mut foreground).changed() {
-                        editor.button.foreground = Some(foreground);
+        let dialog = crate::ui::dialog(
+            ctx,
+            "button_editor",
+            format!("Edit button {}", editor.index + 1),
+            480.0_f32.min(ctx.content_rect().width() - 64.0)..=560.0,
+            |ui| {
+                crate::ui::form(ui, ctx, "button_editor_form", |ui| {
+                    ui.label("Label");
+                    ui.add(crate::ui::text_input(&mut editor.button.label));
+                    ui.add_space(8.0);
+                    ui.add(MaterialCheckbox::new(
+                        &mut editor.button.shell,
+                        "Shell pipeline (/bin/sh)",
+                    ));
+                    if editor.button.shell {
+                        ui.label("Command or pipeline");
+                        ui.add(
+                            egui::TextEdit::multiline(&mut editor.button.command)
+                                .margin(egui::Margin::symmetric(10, 8))
+                                .font(egui::TextStyle::Monospace)
+                                .desired_rows(3)
+                                .desired_width(f32::INFINITY),
+                        );
+                        ui.small("Supports pipes, redirects, and shell quoting.");
+                    } else {
+                        ui.label("Program (full path or a name on PATH)");
+                        ui.add(
+                            crate::ui::text_input(&mut editor.button.command)
+                                .hint_text("/usr/bin/top"),
+                        );
+                        ui.label("Arguments (optional)");
+                        ui.add(
+                            crate::ui::text_input(&mut editor.button.arguments).hint_text("-d 1"),
+                        );
+                        ui.small("Quote arguments containing spaces: --name \"two words\"");
                     }
-                    ui.label("Background");
-                    if ui.color_edit_button_srgb(&mut background).changed() {
-                        editor.button.background = Some(background);
-                    }
-                    if ui.button("Reset colors").clicked() {
-                        editor.button.foreground = None;
-                        editor.button.background = None;
+                    ui.add_space(8.0);
+                    ui.label("Working directory (optional)");
+                    ui.add(
+                        crate::ui::text_input(&mut editor.button.working_directory)
+                            .hint_text("Defaults to the app's working directory"),
+                    );
+                    ui.small("Leave the command empty to make an unassigned button.");
+                    ui.add_space(10.0);
+                    ui.horizontal_wrapped(|ui| {
+                        let (text, fill) = button_colors(&editor.button);
+                        let mut foreground = [text.r(), text.g(), text.b()];
+                        let mut background = [fill.r(), fill.g(), fill.b()];
+                        ui.label("Text color");
+                        if ui.color_edit_button_srgb(&mut foreground).changed() {
+                            editor.button.foreground = Some(foreground);
+                        }
+                        ui.label("Background");
+                        if ui.color_edit_button_srgb(&mut background).changed() {
+                            editor.button.background = Some(background);
+                        }
+                        if ui.add(text_button("Reset colors").small()).clicked() {
+                            editor.button.foreground = None;
+                            editor.button.background = None;
+                        }
+                    });
+                    ui.horizontal(|ui| {
+                        ui.label("Preview");
+                        ui.add_sized(
+                            [180.0, 50.0],
+                            styled_button(&editor.button, editor.button.label.clone()).wrap(),
+                        );
+                    });
+                    if let Some(error) = &editor.error {
+                        ui.colored_label(Color32::LIGHT_RED, error);
                     }
                 });
-                ui.horizontal(|ui| {
-                    ui.label("Preview");
-                    ui.add_sized(
-                        [180.0, 50.0],
-                        styled_button(&editor.button, editor.button.label.clone()).wrap(),
-                    );
+                crate::ui::dialog_footer(ui, |ui| {
+                    cancel = ui.add(text_button("Cancel")).clicked();
+                    save = ui.add(filled_button("Save button")).clicked();
                 });
-                if let Some(error) = &editor.error {
-                    ui.colored_label(Color32::LIGHT_RED, error);
-                }
-                ui.add_space(12.0);
-                ui.horizontal(|ui| {
-                    save = ui.button("Save button").clicked();
-                    cancel = ui.button("Cancel").clicked();
-                });
-            });
+            },
+        );
         if save {
             let validation = if editor.button.label.trim().is_empty() {
                 Err("Enter a label for the button.".into())
@@ -403,54 +397,104 @@ impl ButtonBuilder {
                     }
                 }
             }
-        } else if !open || cancel {
+        } else if dialog.should_close() || cancel {
             self.editor = None;
         }
     }
 
     fn appearance_window(&mut self, ctx: &egui::Context) {
+        if !self.appearance_open {
+            return;
+        }
         let mut save = false;
         let mut refresh_fonts = false;
-        egui::Window::new("Terminal appearance")
-            .open(&mut self.appearance_open)
-            .collapsible(false)
-            .default_width(350.0)
-            .show(ctx, |ui| {
-                let style = &mut self.config.terminal;
-                egui::ComboBox::from_label("Font")
-                    .selected_text(&style.font)
-                    .show_ui(ui, |ui| {
-                        for name in &self.fonts {
-                            self.dirty |= ui
-                                .selectable_value(&mut style.font, name.clone(), name)
-                                .changed();
-                        }
+        let mut close = false;
+        let dialog = crate::ui::dialog(
+            ctx,
+            "terminal_appearance",
+            "Terminal appearance",
+            400.0_f32.min(ctx.content_rect().width() - 64.0)..=480.0,
+            |ui| {
+                crate::ui::form(ui, ctx, "appearance_form", |ui| {
+                    let style = &mut self.config.terminal;
+                    self.dirty |= crate::ui::font_picker(ui, &mut style.font, &self.fonts);
+                    refresh_fonts = ui.add(text_button("Refresh fonts").small()).clicked();
+                    if !self.fonts.contains(&style.font) {
+                        ui.small("The selected font is unavailable; using built-in Monospace.");
+                    }
+                    ui.label("Font size");
+                    ui.horizontal(|ui| {
+                        self.dirty |= ui
+                            .add(
+                                MaterialSlider::new(&mut style.font_size, 8.0..=32.0)
+                                    .show_value(false)
+                                    .width((ui.available_width() - 100.0).max(100.0)),
+                            )
+                            .changed();
+                        self.dirty |= ui
+                            .add(
+                                egui::DragValue::new(&mut style.font_size)
+                                    .range(8.0..=32.0)
+                                    .speed(0.25)
+                                    .fixed_decimals(1)
+                                    .suffix(" pt"),
+                            )
+                            .changed();
                     });
-                refresh_fonts = ui.button("Refresh fonts").clicked();
-                if !self.fonts.contains(&style.font) {
-                    ui.small("The selected font is unavailable; using built-in Monospace.");
-                }
-                self.dirty |= ui
-                    .add(egui::Slider::new(&mut style.font_size, 8.0..=32.0).text("Font size"))
-                    .changed();
-                self.dirty |= ui
-                    .add(egui::Slider::new(&mut style.line_spacing, 1.0..=1.8).text("Line spacing"))
-                    .changed();
-                ui.horizontal(|ui| {
-                    ui.label("Text");
-                    self.dirty |= ui.color_edit_button_srgb(&mut style.foreground).changed();
-                    ui.label("Background");
-                    self.dirty |= ui.color_edit_button_srgb(&mut style.background).changed();
+                    ui.label("Line spacing");
+                    ui.horizontal(|ui| {
+                        self.dirty |= ui
+                            .add(
+                                MaterialSlider::new(&mut style.line_spacing, 1.0..=1.8)
+                                    .show_value(false)
+                                    .width((ui.available_width() - 100.0).max(100.0)),
+                            )
+                            .changed();
+                        self.dirty |= ui
+                            .add(
+                                egui::DragValue::new(&mut style.line_spacing)
+                                    .range(1.0..=1.8)
+                                    .speed(0.01)
+                                    .fixed_decimals(2)
+                                    .suffix("×"),
+                            )
+                            .changed();
+                    });
+                    ui.horizontal(|ui| {
+                        ui.label("Text");
+                        self.dirty |= ui.color_edit_button_srgb(&mut style.foreground).changed();
+                        ui.label("Background");
+                        self.dirty |= ui.color_edit_button_srgb(&mut style.background).changed();
+                    });
                 });
-                ui.add_space(8.0);
-                ui.horizontal(|ui| {
-                    save = ui.button("Save appearance").clicked();
-                    if ui.button("Reset appearance").clicked() {
-                        *style = TerminalStyle::default();
+                crate::ui::dialog_footer(ui, |ui| {
+                    close = ui
+                        .add(text_button("Close").small().min_size(Vec2::new(0.0, 40.0)))
+                        .clicked();
+                    if ui
+                        .add(
+                            text_button("Reset appearance")
+                                .small()
+                                .min_size(Vec2::new(0.0, 40.0)),
+                        )
+                        .clicked()
+                    {
+                        self.config.terminal = TerminalStyle::default();
                         self.dirty = true;
                     }
+                    save = ui
+                        .add(
+                            filled_button("Save appearance")
+                                .small()
+                                .min_size(Vec2::new(0.0, 40.0)),
+                        )
+                        .clicked();
                 });
-            });
+            },
+        );
+        if dialog.should_close() || close {
+            self.appearance_open = false;
+        }
         if refresh_fonts {
             self.fonts = crate::fonts::load(ctx);
             self.notice = format!(
@@ -466,25 +510,26 @@ impl ButtonBuilder {
     fn terminal_panel(&mut self, ui: &mut egui::Ui) {
         ui.horizontal_wrapped(|ui| {
             ui.heading("Terminal");
-            if ui.button("Appearance").clicked() {
+            if ui.add(text_button("Appearance").small()).clicked() {
                 self.appearance_open = true;
             }
             if ui
-                .add_enabled(self.terminal.is_some(), egui::Button::new("Copy output"))
+                .add_enabled(self.terminal.is_some(), text_button("Copy output").small())
+                .on_hover_text("Copy terminal output (Ctrl+Shift+C)")
                 .clicked()
                 && let Some(terminal) = &self.terminal
             {
                 ui.ctx().copy_text(terminal.screen.text());
             }
             if ui
-                .add_enabled(self.running(), egui::Button::new("Ctrl+C"))
+                .add_enabled(self.running(), outlined_button("Ctrl+C").small())
                 .clicked()
                 && let Some(terminal) = &mut self.terminal
             {
                 terminal.send(b"\x03");
             }
             if ui
-                .add_enabled(self.running(), egui::Button::new("Stop"))
+                .add_enabled(self.running(), outlined_button("Stop").small())
                 .clicked()
                 && let Some(terminal) = &mut self.terminal
             {
@@ -496,17 +541,12 @@ impl ButtonBuilder {
                 .terminal
                 .as_ref()
                 .map(|t| t.status.as_str())
-                .unwrap_or("Choose a button to start a process");
+                .unwrap_or("Ready");
             ui.label(status);
         });
-        ui.horizontal_wrapped(|ui| {
-            ui.small(
-                "Click the terminal to type · Scroll for history · Ctrl+Shift+C copies output",
-            );
-            if self.scrollback > 0 && ui.small_button("Jump to live").clicked() {
-                self.scrollback = 0;
-            }
-        });
+        if self.scrollback > 0 && ui.add(text_button("Jump to live").small()).clicked() {
+            self.scrollback = 0;
+        }
         ui.add_space(4.0);
         let style = &self.config.terminal;
         let family = if style.font == "Monospace" || !self.fonts.contains(&style.font) {
@@ -527,7 +567,7 @@ impl ButtonBuilder {
         self.terminal_size = (cols, rows);
         let (response, painter) = ui.allocate_painter(size, egui::Sense::click());
         let rect = response.rect;
-        painter.rect_filled(rect, 5.0, rgb(style.background));
+        painter.rect_filled(rect, CORNER_RADIUS, rgb(style.background));
         if response.clicked() || self.focus_terminal {
             response.request_focus();
             self.focus_terminal = false;
@@ -546,7 +586,7 @@ impl ButtonBuilder {
             });
             painter.rect_stroke(
                 rect,
-                5.0,
+                CORNER_RADIUS,
                 Stroke::new(1.0_f32, Color32::from_rgb(76, 142, 205)),
                 egui::StrokeKind::Inside,
             );
@@ -556,7 +596,7 @@ impl ButtonBuilder {
             painter.text(
                 origin,
                 egui::Align2::LEFT_TOP,
-                "Your process output will appear here.\n\nTry Run Top, or configure a button.",
+                "No process output yet.",
                 font,
                 rgb(style.foreground),
             );
@@ -675,15 +715,9 @@ impl ButtonBuilder {
                     .saturating_add(terminal.screen.scrolled_lines.saturating_sub(previous));
             }
         }
-        egui::TopBottomPanel::top("header").show(ctx, |ui| {
-            ui.add_space(6.0);
-            ui.horizontal(|ui| {
-                ui.heading("Button Builder");
-                ui.separator();
-                ui.label("A home for your commands");
-            });
-            ui.add_space(6.0);
-        });
+        egui::TopBottomPanel::top("header")
+            .frame(egui::Frame::NONE)
+            .show(ctx, |ui| self.header(ui));
         egui::TopBottomPanel::bottom("status").show(ctx, |ui| {
             if let Some(error) = &self.error {
                 ui.colored_label(Color32::LIGHT_RED, error);
@@ -718,16 +752,39 @@ fn rgb(color: [u8; 3]) -> Color32 {
     Color32::from_rgb(color[0], color[1], color[2])
 }
 
-fn styled_button(button: &ButtonConfig, caption: String) -> egui::Button<'static> {
-    let mut text = RichText::new(caption).size(15.0);
-    if let Some(foreground) = button.foreground {
-        text = text.color(rgb(foreground));
-    }
-    let mut widget = egui::Button::new(text);
-    if let Some(background) = button.background {
-        widget = widget.fill(rgb(background));
-    }
-    widget
+fn styled_button(button: &ButtonConfig, caption: String) -> MaterialButton<'static> {
+    let (text, fill) = button_colors(button);
+    filled_button(RichText::new(caption).size(15.0))
+        .small()
+        .text_color(text)
+        .fill(fill)
+}
+
+fn button_colors(button: &ButtonConfig) -> (Color32, Color32) {
+    let (text, fill) = if button.command.trim().is_empty() {
+        ("onSecondaryContainer", "surfaceVariant")
+    } else {
+        ("onPrimary", "primary")
+    };
+    let fill = button
+        .background
+        .map(rgb)
+        .unwrap_or_else(|| get_global_color(fill));
+    let text = button.foreground.map(rgb).unwrap_or_else(|| {
+        if button.background.is_some() {
+            let linear = egui::Rgba::from(fill);
+            let luminance = 0.2126 * linear.r() + 0.7152 * linear.g() + 0.0722 * linear.b();
+            // Black or white gives at least 4.5:1 contrast against any opaque background.
+            if luminance > 0.179 {
+                Color32::BLACK
+            } else {
+                Color32::WHITE
+            }
+        } else {
+            get_global_color(text)
+        }
+    });
+    (text, fill)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -964,6 +1021,18 @@ mod tests {
             Some([20, 50, 80])
         );
         let output = frame(&mut app, &ctx, vec![]);
+        assert!(output.shapes.iter().any(|shape| matches!(
+            &shape.shape,
+            egui::Shape::Rect(rect) if rect.fill == rgb([20, 50, 80])
+        )));
+        assert!(output.shapes.iter().any(|shape| matches!(
+            &shape.shape,
+            egui::Shape::Text(text) if text.galley.job.text == "Local output"
+                && text.fallback_color == rgb([250, 230, 210])
+                && text.galley.job.sections.iter().all(|section|
+                    section.format.color == Color32::PLACEHOLDER
+                        || section.format.color == rgb([250, 230, 210]))
+        )));
         click(&mut app, &ctx, label_center(&output, "Local output"));
         assert!(app.terminal.is_some());
         let deadline = std::time::Instant::now() + Duration::from_secs(5);
@@ -981,6 +1050,229 @@ mod tests {
                 .text()
                 .contains("hello from a button")
         );
+    }
+
+    #[test]
+    fn material_font_selection_and_validation_keep_the_dialog_usable() {
+        let ctx = egui::Context::default();
+        let path = std::env::temp_dir().join(format!(
+            "rs-button-builder-material-test-{}.yaml",
+            std::process::id()
+        ));
+        let mut app = ButtonBuilder::new(&ctx, path, Config::default());
+        let mut definitions = egui::FontDefinitions::default();
+        definitions.families.insert(
+            FontFamily::Name("Test font".into()),
+            definitions.families[&FontFamily::Monospace].clone(),
+        );
+        ctx.set_fonts(definitions);
+        app.fonts = vec!["Monospace".into(), "Test font".into()];
+        app.appearance_open = true;
+        frame(&mut app, &ctx, vec![]);
+        let output = frame(&mut app, &ctx, vec![]);
+        assert!(
+            label_center(&output, "Terminal appearance").y + 12.0 < label_center(&output, "Font").y,
+            "The dialog title must stay above the font field"
+        );
+        click(&mut app, &ctx, label_center(&output, "Monospace"));
+        let output = frame(&mut app, &ctx, vec![]);
+        click(&mut app, &ctx, label_center(&output, "Test font"));
+        assert_eq!(app.config.terminal.font, "Test font");
+        assert!(app.appearance_open && app.dirty);
+        let output = frame(&mut app, &ctx, vec![]);
+        click(&mut app, &ctx, label_center(&output, "Save appearance"));
+        assert!(!app.dirty);
+        assert_eq!(
+            Config::load(&app.config_path).unwrap().terminal.font,
+            "Test font"
+        );
+        let output = frame(&mut app, &ctx, vec![]);
+        click(&mut app, &ctx, label_center(&output, "Close"));
+        assert!(!app.appearance_open);
+
+        app.edit(0);
+        app.editor.as_mut().unwrap().button.label.clear();
+        frame(&mut app, &ctx, vec![]);
+        let output = frame(&mut app, &ctx, vec![]);
+        assert!(
+            label_center(&output, "Edit button 1").y + 12.0 < label_center(&output, "Label").y,
+            "The dialog title must stay above the editor fields"
+        );
+        click(&mut app, &ctx, label_center(&output, "Save button"));
+        assert!(app.editor.as_ref().unwrap().error.is_some());
+        let output = frame(&mut app, &ctx, vec![]);
+        assert!(output.shapes.iter().any(|shape| matches!(
+            &shape.shape,
+            egui::Shape::Text(text) if text.galley.job.text == "Enter a label for the button."
+        )));
+        click(&mut app, &ctx, label_center(&output, "Cancel"));
+        assert!(app.editor.is_none());
+        assert_eq!(app.config.buttons[0].label, "Run Top");
+
+        app.edit(0);
+        let mut output = egui::FullOutput::default();
+        for _ in 0..3 {
+            output = ctx.run(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        Vec2::new(850.0, 500.0),
+                    )),
+                    ..Default::default()
+                },
+                |ctx| app.show(ctx),
+            );
+        }
+        let save = label_center(&output, "Save button");
+        assert!(
+            save.y < 500.0,
+            "Save must remain accessible in the minimum window size"
+        );
+        assert!(output.shapes.iter().any(|shape| shape.clip_rect.contains(save)
+            && matches!(&shape.shape, egui::Shape::Text(text) if text.galley.job.text == "Save button")));
+
+        app.editor = None;
+        for appearance in [true, false] {
+            app.appearance_open = appearance;
+            app.config_picker = if appearance {
+                None
+            } else {
+                app.dirty = true;
+                Some(ConfigPicker::new(&app.config_path))
+            };
+            for _ in 0..3 {
+                output = ctx.run(
+                    egui::RawInput {
+                        screen_rect: Some(egui::Rect::from_min_size(
+                            egui::Pos2::ZERO,
+                            Vec2::new(850.0, 500.0),
+                        )),
+                        ..Default::default()
+                    },
+                    |ctx| app.show(ctx),
+                );
+            }
+            let actions: &[&str] = if appearance {
+                &["Save appearance", "Reset appearance", "Close"]
+            } else {
+                &["Load selected config", "Cancel"]
+            };
+            for &action in actions {
+                let position = label_center(&output, action);
+                assert!(position.y < 500.0, "{action} must stay inside the window");
+                assert!(output.shapes.iter().any(|shape| shape.clip_rect.contains(position)
+                    && matches!(&shape.shape, egui::Shape::Text(text) if text.galley.job.text == action)),
+                    "{action} must remain visible without scrolling");
+            }
+        }
+    }
+
+    #[test]
+    fn dialog_footers_stay_compact_in_tall_windows() {
+        fn filled_rect_at(
+            shape: &egui::Shape,
+            fill: Color32,
+            pos: egui::Pos2,
+        ) -> Option<egui::Rect> {
+            match shape {
+                egui::Shape::Rect(rect) if rect.fill == fill && rect.rect.contains(pos) => {
+                    Some(rect.rect)
+                }
+                egui::Shape::Vec(shapes) => shapes
+                    .iter()
+                    .find_map(|shape| filled_rect_at(shape, fill, pos)),
+                _ => None,
+            }
+        }
+        let ctx = egui::Context::default();
+        let path = std::env::temp_dir().join("rs-button-builder-footer-preview.yaml");
+        let mut app = ButtonBuilder::new(&ctx, path, Config::default());
+        let mut time = 0.0;
+        for (title, action) in [
+            ("Edit button 1", "Save button"),
+            ("Terminal appearance", "Save appearance"),
+            ("Load buttons config", "Load selected config"),
+        ] {
+            app.editor = None;
+            app.appearance_open = title == "Terminal appearance";
+            app.config_picker = if title == "Load buttons config" {
+                Some(ConfigPicker::new(&app.config_path))
+            } else {
+                None
+            };
+            if title == "Edit button 1" {
+                app.edit(0);
+            }
+            let mut output = egui::FullOutput::default();
+            for _ in 0..3 {
+                time += 0.25;
+                output = ctx.run(
+                    egui::RawInput {
+                        time: Some(time),
+                        screen_rect: Some(egui::Rect::from_min_size(
+                            egui::Pos2::ZERO,
+                            Vec2::new(1600.0, 1200.0),
+                        )),
+                        ..Default::default()
+                    },
+                    |ctx| app.show(ctx),
+                );
+            }
+            let title_pos = label_center(&output, title);
+            let action_pos = label_center(&output, action);
+            let dialog = output
+                .shapes
+                .iter()
+                .find_map(|shape| {
+                    filled_rect_at(
+                        &shape.shape,
+                        get_global_color("surfaceContainerHigh"),
+                        title_pos,
+                    )
+                })
+                .unwrap();
+            let button = output
+                .shapes
+                .iter()
+                .find_map(|shape| {
+                    filled_rect_at(&shape.shape, get_global_color("primary"), action_pos)
+                })
+                .unwrap();
+            let bottom_gap = dialog.bottom() - button.bottom();
+            assert!(
+                bottom_gap <= 26.0,
+                "{title} adds {bottom_gap} pixels below its footer in a tall window"
+            );
+        }
+    }
+
+    #[test]
+    fn automatic_button_text_contrasts_with_custom_backgrounds() {
+        let luminance = |color: Color32| {
+            let linear = egui::Rgba::from(color);
+            0.2126 * linear.r() + 0.7152 * linear.g() + 0.0722 * linear.b()
+        };
+        let mut button = ButtonConfig::default();
+        for background in [
+            [0, 0, 0],
+            [255, 255, 255],
+            [128, 128, 128],
+            [31, 106, 72],
+            [35, 79, 128],
+            [120, 73, 20],
+            [75, 55, 120],
+        ] {
+            button.background = Some(background);
+            let (text, fill) = button_colors(&button);
+            let (text, fill) = (luminance(text), luminance(fill));
+            let contrast = (text.max(fill) + 0.05) / (text.min(fill) + 0.05);
+            assert!(
+                contrast >= 4.5,
+                "Low contrast on {background:?}: {contrast}"
+            );
+        }
+        button.foreground = Some([220, 180, 140]);
+        assert_eq!(button_colors(&button).0, rgb([220, 180, 140]));
     }
 
     #[test]
@@ -1039,8 +1331,11 @@ mod tests {
         let output = frame(&mut app, &ctx, vec![]);
         click(&mut app, &ctx, label_center(&output, "Load config…"));
         assert!(app.config_picker.is_some());
+        frame(&mut app, &ctx, vec![]);
         let output = frame(&mut app, &ctx, vec![]);
         click(&mut app, &ctx, label_center(&output, "Examples"));
+        assert!(app.config_picker.as_ref().unwrap().path.is_empty());
+        frame(&mut app, &ctx, vec![]);
         let output = frame(&mut app, &ctx, vec![]);
         click(&mut app, &ctx, label_center(&output, "json-streams.yaml"));
         let output = frame(&mut app, &ctx, vec![]);
