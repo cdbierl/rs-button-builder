@@ -48,6 +48,8 @@ receive a terminal size and keyboard input. Click the pane to type; `q` quits `t
 **Ctrl+C** sends an interrupt, and **Stop** forcibly ends the running process group.
 Only one command runs at a time. Closing the window stops the active process.
 Output remains visible after a command exits; starting another command replaces it.
+Keep shell commands in the foreground: background jobs that outlive their shell
+are no longer tracked by **Stop** or window cleanup.
 
 Use **Appearance** to change the monospace font, font size, line spacing, and text
 and background colors. Built-in monospace is always available. Installed monospace
@@ -59,8 +61,9 @@ return to current output. **Copy output** or Ctrl+Shift+C copies the retained te
 
 **Save button**, **Save appearance**, and **Save layout** write buttons and appearance
 to the selected YAML file (default: `./buttons.yaml`). Appearance changes preview
-immediately and need saving to persist. A missing file starts with the default
-layout; malformed files report an error rather than being overwritten.
+immediately and need saving to persist. If the default `buttons.yaml` is missing,
+the app starts with the default layout. An explicitly selected missing file or a
+malformed file reports an error rather than being overwritten.
 
 The embedded screen supports VT100 cursor movement, erase operations, scrolling
 regions, ANSI colors, Unicode, and common alternate-screen sequences. It is a small

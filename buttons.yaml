@@ -1,4 +1,4 @@
-rows: 3
+rows: 5
 columns: 3
 buttons:
 - label: Run Top
@@ -58,6 +58,69 @@ buttons:
   foreground: null
   background: null
 - label: Button 9
+  command: ''
+  arguments: ''
+  working_directory: ''
+  shell: false
+  foreground: null
+  background: null
+- label: Button 10
+  command: ''
+  arguments: ''
+  working_directory: ''
+  shell: false
+  foreground: null
+  background: null
+- label: Button 11
+  command: ''
+  arguments: ''
+  working_directory: ''
+  shell: false
+  foreground: null
+  background: null
+- label: Button 12
+  command: ''
+  arguments: ''
+  working_directory: ''
+  shell: false
+  foreground: null
+  background: null
+- label: Button 13
+  command: ''
+  arguments: ''
+  working_directory: ''
+  shell: false
+  foreground: null
+  background: null
+- label: Button 14
+  command: ''
+  arguments: ''
+  working_directory: ''
+  shell: false
+  foreground: null
+  background: null
+- label: Button 15
+  command: ''
+  arguments: ''
+  working_directory: ''
+  shell: false
+  foreground: null
+  background: null
+- label: Button 16
+  command: ''
+  arguments: ''
+  working_directory: ''
+  shell: false
+  foreground: null
+  background: null
+- label: Button 17
+  command: ''
+  arguments: ''
+  working_directory: ''
+  shell: false
+  foreground: null
+  background: null
+- label: Button 18
   command: ''
   arguments: ''
   working_directory: ''

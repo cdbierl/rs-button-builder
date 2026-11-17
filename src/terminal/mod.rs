@@ -115,6 +115,11 @@ impl Terminal {
         self.child.is_some()
     }
 
+    /// Keep polling until the child exits and its final output has been drained.
+    pub fn needs_poll(&self) -> bool {
+        self.is_running() || !self.eof
+    }
+
     pub fn send(&mut self, bytes: &[u8]) {
         if self.is_running() && self.input.len() + bytes.len() <= 65_536 {
             self.input.extend(bytes);
@@ -233,10 +238,11 @@ mod tests {
             ..Default::default()
         };
         let mut terminal = Terminal::start(&button, 80, 24).unwrap();
+        assert!(terminal.needs_poll());
         wait_for(&mut terminal, |t| t.screen.text().contains("24 80"));
         terminal.send(b"hello\r");
-        wait_for(&mut terminal, |t| !t.is_running());
-        terminal.poll();
+        wait_for(&mut terminal, |t| !t.needs_poll());
+        assert!(!terminal.is_running());
         assert!(terminal.screen.text().contains("received:hello"));
     }
 

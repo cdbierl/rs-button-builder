@@ -7,16 +7,12 @@ edition = "2024"
 dotenvy = "0.15"
 eframe = { version = "0.33", default-features = false, features = ["default_fonts", "glow", "wayland", "x11"] }
 egui = "0.33.0"
-egui-material3 = "0.0.9"
-fontdb = { version = "0.23", default-features = false, features = ["fs", "fontconfig"] }
-ttf-parser = "0.25"
 env_logger = "0.11"
-gstreamer = "0.23"
-gstreamer-app = "0.23"
-gstreamer-video = "0.23"
-log = "0.4"
+fontdb = { version = "0.23", default-features = false, features = ["fs", "fontconfig"] }
 libc = "0.2"
-shlex = "2.0"
-unicode-width = "0.2"
+log = "0.4"
 serde = { version = "1.0", features = ["derive"] }
 serde_yaml_ng = "0.10"
+shlex = "2.0"
+ttf-parser = "0.25"
+unicode-width = "0.2"

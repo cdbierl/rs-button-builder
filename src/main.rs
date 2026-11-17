@@ -38,12 +38,17 @@ fn run() -> Result<(), String> {
     match action {
         cli::Action::Help => print!("{}", cli::USAGE),
         cli::Action::Run { config } => {
-            let path: std::path::PathBuf = if config.is_empty() {
-                "buttons.yaml".into()
-            } else {
-                config.into()
+            let (path, settings) = match config {
+                Some(path) => {
+                    let settings = config::Config::load_existing(&path)?;
+                    (path, settings)
+                }
+                None => {
+                    let path = std::path::PathBuf::from("buttons.yaml");
+                    let settings = config::Config::load(&path)?;
+                    (path, settings)
+                }
             };
-            let settings = config::Config::load(&path)?;
             let options = eframe::NativeOptions {
                 viewport: egui::ViewportBuilder::default()
                     .with_inner_size([1200.0, 760.0])

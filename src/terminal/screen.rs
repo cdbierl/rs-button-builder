@@ -150,6 +150,11 @@ impl Screen {
     pub fn text(&self) -> String {
         self.history
             .iter()
+            .take(if self.is_alternate() {
+                0
+            } else {
+                self.history.len()
+            })
             .chain(self.buffer.lines.iter())
             .map(|line| {
                 line.iter()
@@ -659,7 +664,9 @@ mod tests {
         }
         assert_eq!(screen.history.len(), HISTORY_LIMIT);
         let text = screen.text();
-        screen.feed(b"\x1b[?1049hother\x1b[?1049l");
+        screen.feed(b"\x1b[?1049hother");
+        assert_eq!(screen.text().trim(), "other");
+        screen.feed(b"\x1b[?1049l");
         assert_eq!(screen.text(), text);
         screen.resize(5, 2);
         screen.feed(b"\x1b[999999999999;999999999999H!\x1b[9999999999P");

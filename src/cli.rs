@@ -1,4 +1,5 @@
 //! Parses command-line arguments and provides the application's usage text.
+use std::path::PathBuf;
 
 /// Command-line usage and options printed by the help action.
 pub const USAGE: &str = "Usage: rs_button_builder [OPTIONS] [CONFIG]
@@ -15,7 +16,7 @@ pub enum Action {
     Help,
     Run {
         /// The configuration value supplied on the command line.
-        config: String,
+        config: Option<PathBuf>,
     },
 }
 
@@ -26,12 +27,10 @@ pub fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Action, Stri
     for arg in args {
         match arg.as_str() {
             "-h" | "--help" => return Ok(Action::Help),
-            _ if !arg.starts_with('-') && config.is_none() => config = Some(arg),
+            _ if !arg.starts_with('-') && config.is_none() => config = Some(arg.into()),
             _ => return Err(format!("unexpected argument: {arg}")),
         }
     }
 
-    Ok(Action::Run {
-        config: config.unwrap_or_default(),
-    })
+    Ok(Action::Run { config })
 }

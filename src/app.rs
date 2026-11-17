@@ -664,9 +664,7 @@ impl ButtonBuilder {
             }
         }
     }
-}
 
-impl ButtonBuilder {
     fn show(&mut self, ctx: &egui::Context) {
         if let Some(terminal) = &mut self.terminal {
             let previous = terminal.screen.scrolled_lines;
@@ -676,7 +674,6 @@ impl ButtonBuilder {
                     .scrollback
                     .saturating_add(terminal.screen.scrolled_lines.saturating_sub(previous));
             }
-            ctx.request_repaint_after(Duration::from_millis(33));
         }
         egui::TopBottomPanel::top("header").show(ctx, |ui| {
             ui.add_space(6.0);
@@ -705,6 +702,9 @@ impl ButtonBuilder {
         self.editor_window(ctx);
         self.appearance_window(ctx);
         self.config_picker_window(ctx);
+        if self.terminal.as_ref().is_some_and(Terminal::needs_poll) {
+            ctx.request_repaint_after(Duration::from_millis(33));
+        }
     }
 }
 
