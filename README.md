@@ -17,7 +17,7 @@ GUI preview with generated sample output.
 
 ## Requirements
 
-- Linux desktop with X11 or Wayland and an OpenGL-capable graphics driver.
+- Linux 5.3 or newer with X11 or Wayland and an OpenGL-capable graphics driver.
 - Rust 1.88 or newer, Cargo, and a system C toolchain/linker to build from source.
 - The executables used by your buttons and permission to read their input files.
 
@@ -78,8 +78,11 @@ layout file. Dependency versions are recorded in [Cargo.lock](Cargo.lock);
   type; use the tab bar and its arrows to switch sessions.
 - **Adjust appearance:** **Appearance** changes the selected tab's font and colors
   and the defaults for new tabs. **Refresh fonts** discovers installed monospace fonts.
-- **Stop processes:** **Ctrl+C** interrupts; **Stop** ends the active process group.
-  **Close tab** stops that tab's process. **Exit** closes the app and stops all tabs.
+- **Stop processes:** **Ctrl+C** sends `SIGINT` to the foreground job, allowing it
+  to clean up; programs can ignore this signal. **Stop** sends `SIGKILL` and ends
+  local jobs in that terminal session. Pending output is discarded; displayed output
+  remains. **Close tab** uses the same forceful cleanup. **Exit** closes all tabs.
+  Process cleanup runs off the UI thread, so it does not wait for a stalled child.
 
 ## Configuration and examples
 
@@ -125,7 +128,9 @@ cargo fmt --all -- --check
 ```
 
 Tests use local Linux tools, including `/usr/bin/top` and `/usr/bin/jq`, and generated
-input. The log-follow test uses a temporary log file. Keep changes focused and
+input. They cover stalled input, ignored interrupts, raw terminal mode, continuous
+output, and cleanup of background jobs. The log-follow test uses a temporary log file.
+Keep changes focused and
 include updated GUI screenshots when changing the interface.
 
 Logging uses `RUST_LOG` (default: `info`). Startup loads an optional `.env` file;
@@ -136,8 +141,10 @@ child processes inherit the app's environment, including those values.
 Linux is the supported platform. The embedded terminal uses `TERM=vt100` and
 supports ANSI colors, Unicode, and alternate screens. Terminal graphics, mouse
 reporting, and full text reflow on width changes are not implemented.
-Keep shell commands in the foreground: background jobs that outlive their shell
-are no longer tracked by **Stop** or window cleanup.
+Session cleanup uses Linux pidfd APIs to avoid targeting reused process IDs.
+Jobs that detach into a new session and processes running on remote hosts can
+require separate cleanup. A process stuck in uninterruptible kernel I/O can take
+time to exit after `SIGKILL`; the UI does not wait for it.
 
 ## License
 

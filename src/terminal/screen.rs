@@ -1,5 +1,6 @@
 //! A bounded VT100 screen with common ANSI color and alternate-screen extensions.
 use std::collections::VecDeque;
+use std::time::Instant;
 use unicode_width::UnicodeWidthChar;
 
 pub const HISTORY_LIMIT: usize = 2000;
@@ -168,58 +169,76 @@ impl Screen {
             .join("\n")
     }
 
+    #[cfg(test)]
     pub fn feed(&mut self, bytes: &[u8]) -> Vec<u8> {
         let mut replies = Vec::new();
         for &byte in bytes {
-            let parser = std::mem::take(&mut self.parser);
-            match parser {
-                Parser::Ground => self.ground(byte),
-                Parser::Escape => match byte {
-                    b'[' => self.parser = Parser::Csi(Vec::new()),
-                    b']' | b'P' | b'^' | b'_' => self.parser = Parser::String { escaped: false },
-                    b'(' | b')' => self.parser = Parser::Charset(byte),
-                    b'7' => self.save_cursor(),
-                    b'8' => self.restore_cursor(),
-                    b'D' => self.line_feed(),
-                    b'E' => {
-                        self.buffer.x = 0;
-                        self.line_feed();
-                    }
-                    b'M' => {
-                        if self.buffer.y == self.buffer.top {
-                            self.scroll_down(1);
-                        } else {
-                            self.buffer.y = self.buffer.y.saturating_sub(1);
-                        }
-                    }
-                    b'c' => *self = Self::new(self.cols, self.rows),
-                    b'Z' => replies.extend_from_slice(b"\x1b[?1;2c"),
-                    0x1b => self.parser = Parser::Escape,
-                    _ => {}
-                },
-                Parser::Csi(mut sequence) => {
-                    if (0x40..=0x7e).contains(&byte) {
-                        self.csi(&sequence, byte, &mut replies);
-                    } else if byte == 0x1b {
-                        self.parser = Parser::Escape;
-                    } else {
-                        if sequence.len() < 256 {
-                            sequence.push(byte);
-                        }
-                        self.parser = Parser::Csi(sequence);
-                    }
-                }
-                Parser::String { escaped } => {
-                    if byte != 7 && !(escaped && byte == b'\\') {
-                        self.parser = Parser::String {
-                            escaped: byte == 0x1b,
-                        };
-                    }
-                }
-                Parser::Charset(which) => self.charsets[usize::from(which == b')')] = byte == b'0',
-            }
+            self.feed_byte(byte, &mut replies);
         }
         replies
+    }
+
+    pub fn feed_until(&mut self, bytes: &[u8], deadline: Instant) -> (usize, Vec<u8>) {
+        let mut replies = Vec::new();
+        let mut count = 0;
+        for &byte in bytes {
+            if Instant::now() >= deadline {
+                break;
+            }
+            self.feed_byte(byte, &mut replies);
+            count += 1;
+        }
+        (count, replies)
+    }
+
+    fn feed_byte(&mut self, byte: u8, replies: &mut Vec<u8>) {
+        let parser = std::mem::take(&mut self.parser);
+        match parser {
+            Parser::Ground => self.ground(byte),
+            Parser::Escape => match byte {
+                b'[' => self.parser = Parser::Csi(Vec::new()),
+                b']' | b'P' | b'^' | b'_' => self.parser = Parser::String { escaped: false },
+                b'(' | b')' => self.parser = Parser::Charset(byte),
+                b'7' => self.save_cursor(),
+                b'8' => self.restore_cursor(),
+                b'D' => self.line_feed(),
+                b'E' => {
+                    self.buffer.x = 0;
+                    self.line_feed();
+                }
+                b'M' => {
+                    if self.buffer.y == self.buffer.top {
+                        self.scroll_down(1);
+                    } else {
+                        self.buffer.y = self.buffer.y.saturating_sub(1);
+                    }
+                }
+                b'c' => *self = Self::new(self.cols, self.rows),
+                b'Z' => replies.extend_from_slice(b"\x1b[?1;2c"),
+                0x1b => self.parser = Parser::Escape,
+                _ => {}
+            },
+            Parser::Csi(mut sequence) => {
+                if (0x40..=0x7e).contains(&byte) {
+                    self.csi(&sequence, byte, replies);
+                } else if byte == 0x1b {
+                    self.parser = Parser::Escape;
+                } else {
+                    if sequence.len() < 256 {
+                        sequence.push(byte);
+                    }
+                    self.parser = Parser::Csi(sequence);
+                }
+            }
+            Parser::String { escaped } => {
+                if byte != 7 && !(escaped && byte == b'\\') {
+                    self.parser = Parser::String {
+                        escaped: byte == 0x1b,
+                    };
+                }
+            }
+            Parser::Charset(which) => self.charsets[usize::from(which == b')')] = byte == b'0',
+        }
     }
 
     fn ground(&mut self, byte: u8) {
@@ -301,7 +320,11 @@ impl Screen {
             } else {
                 x
             };
-            self.buffer.lines[self.buffer.y][x].text.push(ch);
+            // Repeated combining marks must not grow a cell without limit or stall text layout.
+            let text = &mut self.buffer.lines[self.buffer.y][x].text;
+            if text.len() + ch.len_utf8() <= 64 {
+                text.push(ch);
+            }
             return;
         }
         if self.auto_wrap
@@ -635,6 +658,41 @@ fn ansi_color(index: usize) -> [u8; 3] {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parsing_yields_at_a_deadline_and_preserves_partial_sequences() {
+        let mut screen = Screen::new(80, 24);
+        let bytes = "\x1b[32mé\x1b[0m".as_bytes();
+        assert_eq!(screen.feed_until(bytes, Instant::now()).0, 0);
+        assert!(screen.text().trim().is_empty());
+        for chunk in bytes.chunks(2) {
+            assert_eq!(
+                screen
+                    .feed_until(chunk, Instant::now() + std::time::Duration::from_secs(1))
+                    .0,
+                chunk.len()
+            );
+        }
+        assert_eq!(screen.line(0)[0].text, "é");
+        assert!(screen.line(0)[0].style.foreground.is_some());
+        let flood = vec![b'x'; 1_000_000];
+        let started = Instant::now();
+        let (count, _) = screen.feed_until(&flood, started + std::time::Duration::from_millis(1));
+        assert!(
+            count < flood.len(),
+            "A flood must yield before parsing the entire buffer"
+        );
+        assert!(started.elapsed() < std::time::Duration::from_millis(500));
+    }
+
+    #[test]
+    fn repeated_combining_marks_do_not_grow_a_cell_without_limit() {
+        let mut screen = Screen::new(80, 24);
+        screen.feed(format!("a{}b", "\u{301}".repeat(100_000)).as_bytes());
+        assert!(screen.line(0)[0].text.len() <= 64);
+        assert!(screen.line(0)[0].text.starts_with("a\u{301}"));
+        assert_eq!(screen.line(0)[1].text, "b");
+    }
 
     #[test]
     fn redraw_erase_colors_and_cursor_queries() {

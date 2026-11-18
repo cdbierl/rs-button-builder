@@ -56,7 +56,7 @@ fn run() -> Result<(), String> {
                     .with_min_inner_size([850.0, 500.0]),
                 ..Default::default()
             };
-            eframe::run_native(
+            let result = eframe::run_native(
                 "Button Builder",
                 options,
                 Box::new(move |cc| {
@@ -66,8 +66,9 @@ fn run() -> Result<(), String> {
                         settings,
                     )))
                 }),
-            )
-            .map_err(|error| error.to_string())?;
+            );
+            terminal::finish_cleanup();
+            result.map_err(|error| error.to_string())?;
         }
     }
 

@@ -9,7 +9,7 @@ use egui_material3::{
     MaterialButton, MaterialCheckbox, MaterialSlider, MaterialToolbar, get_global_color,
 };
 use std::path::PathBuf;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 struct Editor {
     index: usize,
@@ -49,6 +49,7 @@ pub struct ButtonBuilder {
     tabs: Vec<TerminalTab>,
     active_tab: Option<usize>,
     next_tab_id: u64,
+    next_poll_tab: usize,
     reveal_active_tab: bool,
     editor: Option<Editor>,
     edit_mode: bool,
@@ -74,6 +75,7 @@ impl ButtonBuilder {
             tabs: Vec::new(),
             active_tab: None,
             next_tab_id: 1,
+            next_poll_tab: 0,
             reveal_active_tab: false,
             editor: None,
             edit_mode: false,
@@ -106,7 +108,7 @@ impl ButtonBuilder {
     }
 
     fn close_tab(&mut self, index: usize) {
-        // Dropping a terminal stops and reaps its process group.
+        // Dropping a terminal requests termination; reaping happens off the UI thread.
         self.tabs.remove(index);
         self.active_tab = match self.active_tab {
             _ if self.tabs.is_empty() => None,
@@ -826,11 +828,11 @@ impl ButtonBuilder {
                         .clicked();
                     interrupt = ui
                         .add_enabled(running, toolbar_button("Ctrl+C"))
-                        .on_hover_text("Interrupt this tab's process")
+                        .on_hover_text("Send SIGINT to the foreground job; programs can ignore it")
                         .clicked();
                     stop = ui
                         .add_enabled(running, toolbar_button("Stop"))
-                        .on_hover_text("Stop this tab's process group")
+                        .on_hover_text("Force termination with SIGKILL; discard pending output")
                         .clicked();
                     close = ui
                         .add_enabled(active.is_some(), toolbar_button("Close tab"))
@@ -847,7 +849,7 @@ impl ButtonBuilder {
                 ui.ctx().copy_text(tab.terminal.screen.text());
             }
             if interrupt {
-                tab.terminal.send(b"\x03");
+                tab.terminal.interrupt();
             }
             if stop {
                 tab.terminal.stop();
@@ -1042,7 +1044,11 @@ impl ButtonBuilder {
                     _ => Vec::new(),
                 };
                 if !bytes.is_empty() {
-                    terminal.send(&bytes);
+                    if bytes == [3] {
+                        terminal.interrupt();
+                    } else {
+                        terminal.send(&bytes);
+                    }
                     tab.scrollback = 0;
                 }
             }
@@ -1050,8 +1056,16 @@ impl ButtonBuilder {
     }
 
     fn show(&mut self, ctx: &egui::Context) {
-        for tab in &mut self.tabs {
-            tab.poll();
+        // Share a frame budget and rotate the starting tab so noisy tabs cannot starve others.
+        let deadline = Instant::now() + Duration::from_millis(4);
+        let count = self.tabs.len();
+        for _ in 0..count {
+            if Instant::now() >= deadline {
+                break;
+            }
+            let index = self.next_poll_tab % count;
+            self.tabs[index].poll();
+            self.next_poll_tab = (index + 1) % count;
         }
         egui::TopBottomPanel::top("header")
             .frame(egui::Frame::NONE)
@@ -1513,6 +1527,11 @@ mod tests {
         click(&mut app, &ctx, label_center(&output, "Close tab"));
         assert_eq!(app.tabs.len(), 1);
         assert_eq!(app.active_tab, Some(0));
+        // Reaping is asynchronous; wait for the worker while the UI keeps rendering.
+        wait_for_tabs(&mut app, &ctx, |_| {
+            // SAFETY: signal zero only checks whether this test's child still exists.
+            (unsafe { libc::kill(pid, 0) }) == -1
+        });
         // SAFETY: signal zero only checks whether this test's now-reaped child exists.
         assert_eq!(unsafe { libc::kill(pid, 0) }, -1);
         assert_eq!(
@@ -1525,6 +1544,82 @@ mod tests {
         let output = frame(&mut app, &ctx, vec![]);
         click(&mut app, &ctx, label_center(&output, "Alpha"));
         assert_eq!(app.tabs[0].id, 3, "New tabs must not reuse old UI IDs");
+    }
+
+    #[test]
+    fn noisy_processes_can_be_interrupted_stopped_closed_and_run_alongside_new_tabs() {
+        let ctx = egui::Context::default();
+        let mut config = Config::default();
+        config.buttons[0] = ButtonConfig {
+            label: "Flood".into(),
+            command: "trap '' INT TERM; while :; do printf 'sample output line\\n'; done".into(),
+            shell: true,
+            ..Default::default()
+        };
+        config.buttons[1] = interactive_button("Quiet");
+        let mut app = ButtonBuilder::new(
+            &ctx,
+            "/tmp/rs-button-builder-flood-test.yaml".into(),
+            config,
+        );
+        frame(&mut app, &ctx, vec![]);
+        let output = frame(&mut app, &ctx, vec![]);
+        click(&mut app, &ctx, label_center(&output, "Flood"));
+        wait_for_tabs(&mut app, &ctx, |app| {
+            !app.tabs[0].terminal.screen.text().trim().is_empty()
+        });
+        let output = frame(&mut app, &ctx, vec![]);
+        click_with_modifiers(
+            &mut app,
+            &ctx,
+            label_center(&output, "Quiet"),
+            egui::Modifiers::CTRL,
+        );
+        assert_eq!(app.tabs.len(), 2);
+        wait_for_tabs(&mut app, &ctx, |app| {
+            app.tabs[1].terminal.screen.text().contains("Quiet-ready")
+        });
+        for _ in 0..10 {
+            let started = Instant::now();
+            frame(&mut app, &ctx, vec![]);
+            assert!(
+                started.elapsed() < Duration::from_millis(500),
+                "Output must not monopolize the UI"
+            );
+        }
+        let output = frame(&mut app, &ctx, vec![]);
+        click(&mut app, &ctx, label_center(&output, "1 · Flood"));
+        let output = frame(&mut app, &ctx, vec![]);
+        click(&mut app, &ctx, label_center(&output, "Ctrl+C"));
+        assert!(
+            app.tabs[0].terminal.is_running(),
+            "The flood deliberately ignores SIGINT"
+        );
+        let output = frame(&mut app, &ctx, vec![]);
+        click(&mut app, &ctx, label_center(&output, "Stop"));
+        assert_eq!(app.tabs[0].terminal.status, "Stopped");
+        assert!(!app.tabs[0].terminal.needs_poll());
+        assert!(app.tabs[1].terminal.is_running());
+        let output = frame(&mut app, &ctx, vec![]);
+        click(&mut app, &ctx, label_center(&output, "Flood"));
+        assert!(app.tabs[0].terminal.is_running());
+        let pid: i32 = app.tabs[0]
+            .terminal
+            .status
+            .split_whitespace()
+            .last()
+            .unwrap()
+            .parse()
+            .unwrap();
+        let output = frame(&mut app, &ctx, vec![]);
+        click(&mut app, &ctx, label_center(&output, "Close tab"));
+        assert_eq!(app.tabs.len(), 1);
+        assert_eq!(app.tabs[0].label, "Quiet");
+        wait_for_tabs(&mut app, &ctx, |_| {
+            // SAFETY: signal zero only observes this test's child.
+            (unsafe { libc::kill(pid, 0) }) == -1
+        });
+        assert!(app.tabs[0].terminal.is_running());
     }
 
     #[test]
