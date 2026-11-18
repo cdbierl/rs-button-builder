@@ -458,10 +458,14 @@ impl ButtonBuilder {
                     ui.label("Label");
                     ui.add(crate::ui::text_input(&mut editor.button.label));
                     ui.add_space(8.0);
-                    ui.add(MaterialCheckbox::new(
-                        &mut editor.button.shell,
-                        "Shell pipeline (/bin/sh)",
-                    ));
+                    ui.horizontal_wrapped(|ui| {
+                        ui.add(MaterialCheckbox::new(
+                            &mut editor.button.shell,
+                            "Shell pipeline (/bin/sh)",
+                        ));
+                        ui.add(MaterialCheckbox::new(&mut editor.button.log_output, "Log output"))
+                            .on_hover_text("Save this button's output to a file. Requires BUTTON_BUILDER_LOG_DIR in .env; applies to new runs.");
+                    });
                     if editor.button.shell {
                         ui.label("Command or pipeline");
                         ui.add(
@@ -862,12 +866,27 @@ impl ButtonBuilder {
                 self.close_tab(index);
             }
         }
-        let status = self
+        let mut status = self
             .active()
             .map(|tab| tab.terminal.status.as_str())
-            .unwrap_or("Ready · Ctrl-click a button to open another terminal tab");
-        ui.add(egui::Label::new(RichText::new(status).size(14.0)).truncate())
-            .on_hover_text(status);
+            .unwrap_or("Ready · Ctrl-click a button to open another terminal tab")
+            .to_owned();
+        let log_error = self.active().and_then(|tab| tab.terminal.log_error());
+        if let Some(error) = log_error {
+            status.push_str(&format!(" · Log error: {error}"));
+        }
+        let mut tooltip = status.clone();
+        if let Some(path) = self.active().and_then(|tab| tab.terminal.log_path()) {
+            tooltip.push_str(&format!("\nLog: {}", path.display()));
+        }
+        let text = RichText::new(status).size(14.0);
+        let text = if log_error.is_some() {
+            text.color(Color32::LIGHT_RED)
+        } else {
+            text
+        };
+        ui.add(egui::Label::new(text).truncate())
+            .on_hover_text(tooltip);
     }
 
     fn terminal_panel(&mut self, ui: &mut egui::Ui) {
@@ -2305,6 +2324,42 @@ mod tests {
         .unwrap();
         assert!(app.layout_name_edit.is_none());
         assert_eq!(app.config.display_name, "System Monitor");
+    }
+
+    #[test]
+    fn button_logging_checkbox_cancels_and_saves_per_button() {
+        let ctx = egui::Context::default();
+        let path = std::env::temp_dir().join(format!(
+            "rs-button-builder-log-checkbox-{}.yaml",
+            std::process::id()
+        ));
+        let mut app = ButtonBuilder::new(&ctx, path.clone(), Config::default());
+        app.edit(0);
+        frame(&mut app, &ctx, vec![]);
+        let output = frame(&mut app, &ctx, vec![]);
+        assert!(!app.editor.as_ref().unwrap().button.log_output);
+        click(&mut app, &ctx, label_center(&output, "Log output"));
+        assert!(app.editor.as_ref().unwrap().button.log_output);
+        let output = frame(&mut app, &ctx, vec![]);
+        click(&mut app, &ctx, label_center(&output, "Cancel"));
+        assert!(!app.config.buttons[0].log_output);
+
+        app.edit(0);
+        let output = frame(&mut app, &ctx, vec![]);
+        click(&mut app, &ctx, label_center(&output, "Log output"));
+        let output = frame(&mut app, &ctx, vec![]);
+        click(&mut app, &ctx, label_center(&output, "Save button"));
+        let saved = Config::load_existing(&path).unwrap();
+        assert!(saved.buttons[0].log_output);
+        assert!(!saved.buttons[1].log_output);
+
+        app.edit(0);
+        let output = frame(&mut app, &ctx, vec![]);
+        assert!(app.editor.as_ref().unwrap().button.log_output);
+        click(&mut app, &ctx, label_center(&output, "Log output"));
+        let output = frame(&mut app, &ctx, vec![]);
+        click(&mut app, &ctx, label_center(&output, "Save button"));
+        assert!(!Config::load_existing(&path).unwrap().buttons[0].log_output);
     }
 
     #[test]

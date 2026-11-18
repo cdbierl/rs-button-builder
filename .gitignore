@@ -1,7 +1,10 @@
+.env
+/logs/
+*.log
+
 # Cargo build output
 /target/
 /debug/
-
 # rustfmt backup files
 **/*.rs.bk
 

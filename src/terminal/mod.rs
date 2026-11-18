@@ -1,4 +1,5 @@
 //! Local Unix pseudo-terminal process management. No shell is implicitly invoked.
+mod logging;
 pub mod screen;
 
 use crate::config::ButtonConfig;
@@ -8,6 +9,7 @@ use std::fs::File;
 use std::io::{self, Read, Write};
 use std::os::fd::{AsRawFd, FromRawFd};
 use std::os::unix::process::{CommandExt, ExitStatusExt};
+use std::path::Path;
 use std::process::{Child, Command, ExitStatus, Stdio};
 use std::sync::{OnceLock, mpsc};
 use std::time::{Duration, Instant};
@@ -27,6 +29,7 @@ pub struct Terminal {
     input: VecDeque<u8>,
     output: VecDeque<u8>,
     eof: bool,
+    log: Option<logging::OutputLog>,
 }
 
 fn winsize(cols: usize, rows: usize) -> libc::winsize {
@@ -40,10 +43,30 @@ fn winsize(cols: usize, rows: usize) -> libc::winsize {
 
 impl Terminal {
     pub fn start(button: &ButtonConfig, cols: usize, rows: usize) -> Result<Self, String> {
+        let directory =
+            std::env::var_os("BUTTON_BUILDER_LOG_DIR").filter(|value| !value.is_empty());
+        Self::start_with_log_dir(button, cols, rows, directory.as_deref().map(Path::new))
+    }
+
+    fn start_with_log_dir(
+        button: &ButtonConfig,
+        cols: usize,
+        rows: usize,
+        directory: Option<&Path>,
+    ) -> Result<Self, String> {
         let args = button.args()?;
         let (cols, rows) = (cols.clamp(2, 500), rows.clamp(2, 200));
-        Self::spawn(button, args, cols, rows)
-            .map_err(|error| format!("Could not start {}: {error}", button.command))
+        let mut terminal = Self::spawn(button, args, cols, rows)
+            .map_err(|error| format!("Could not start {}: {error}", button.command))?;
+        if button.log_output
+            && let Some(directory) = directory
+        {
+            terminal.log = Some(
+                logging::OutputLog::start(directory, &button.label)
+                    .map_err(|error| format!("Could not start terminal logging: {error}"))?,
+            );
+        }
+        Ok(terminal)
     }
 
     fn spawn(
@@ -119,6 +142,7 @@ impl Terminal {
             input: VecDeque::new(),
             output: VecDeque::new(),
             eof: false,
+            log: None,
         })
     }
 
@@ -126,9 +150,20 @@ impl Terminal {
         self.child.is_some()
     }
 
-    /// Keep polling until the child exits and its final output has been drained.
+    /// Keep polling until final process output and queued log writes have finished.
     pub fn needs_poll(&self) -> bool {
-        self.is_running() || !self.eof || !self.output.is_empty()
+        self.is_running()
+            || !self.eof
+            || !self.output.is_empty()
+            || self.log.as_ref().is_some_and(|log| !log.finished)
+    }
+
+    pub fn log_path(&self) -> Option<&Path> {
+        self.log.as_ref().map(|log| log.path.as_path())
+    }
+
+    pub fn log_error(&self) -> Option<&str> {
+        self.log.as_ref().and_then(|log| log.error.as_deref())
     }
 
     pub fn send(&mut self, bytes: &[u8]) {
@@ -141,6 +176,11 @@ impl Terminal {
     pub fn poll(&mut self) {
         let deadline = Instant::now() + Duration::from_millis(2);
         self.check_exit();
+        if let Some(log) = &mut self.log
+            && !log.ready()
+        {
+            return;
+        }
         let mut processed = 0;
         while Instant::now() < deadline && processed < 16_384 {
             if self.output.is_empty() && !self.eof {
@@ -150,7 +190,14 @@ impl Terminal {
                 };
                 match master.read(&mut buffer) {
                     Ok(0) => self.eof = true,
-                    Ok(count) => self.output.extend(&buffer[..count]),
+                    Ok(count) => {
+                        self.output.extend(&buffer[..count]);
+                        if let Some(log) = &mut self.log
+                            && !log.record(&buffer[..count])
+                        {
+                            break;
+                        }
+                    }
                     Err(error) if error.kind() == io::ErrorKind::WouldBlock => break,
                     Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
                     // Linux reports EIO when the last slave descriptor closes.
@@ -189,6 +236,14 @@ impl Terminal {
                     self.input.clear();
                 }
             }
+        }
+        if !self.is_running()
+            && self.eof
+            && self.output.is_empty()
+            && let Some(log) = &mut self.log
+        {
+            log.close();
+            log.poll();
         }
     }
 
@@ -279,6 +334,9 @@ impl Terminal {
         self.eof = true;
         self.input.clear();
         self.output.clear();
+        if let Some(log) = &mut self.log {
+            log.close();
+        }
     }
 }
 
@@ -369,6 +427,7 @@ fn reap_in_background(child: Child) {
 /// Called after the GUI event loop ends, so queued session cleanup can finish before exit.
 /// A kernel-stalled child cannot make application shutdown wait indefinitely.
 pub fn finish_cleanup() {
+    logging::finish_writes();
     let Some(sender) = REAPER.get() else { return };
     let (reply, received) = mpsc::channel();
     if sender.send(Cleanup::Flush(reply)).is_ok()
@@ -460,6 +519,133 @@ mod tests {
             assert!(Instant::now() < deadline, "Process cleanup timed out");
             std::thread::sleep(Duration::from_millis(10));
         }
+    }
+
+    fn log_directory(name: &str) -> std::path::PathBuf {
+        std::env::temp_dir().join(format!(
+            "button-builder-{name}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos(),
+        ))
+    }
+
+    #[test]
+    fn logging_requires_both_button_opt_in_and_a_directory() {
+        let directory = log_directory("opt-in");
+        let mut button = ButtonConfig {
+            command: "/usr/bin/printf".into(),
+            arguments: "hello".into(),
+            ..Default::default()
+        };
+        let mut terminal = Terminal::start_with_log_dir(&button, 80, 24, Some(&directory)).unwrap();
+        wait_for(&mut terminal, |t| !t.needs_poll());
+        assert!(terminal.screen.text().contains("hello"));
+        assert!(terminal.log_path().is_none());
+        assert!(
+            !directory.exists(),
+            "Unchecked buttons must not create log directories"
+        );
+        button.log_output = true;
+        let mut terminal = Terminal::start_with_log_dir(&button, 80, 24, None).unwrap();
+        wait_for(&mut terminal, |t| !t.needs_poll());
+        assert!(terminal.screen.text().contains("hello"));
+        assert!(terminal.log_path().is_none());
+        assert!(!directory.exists());
+    }
+
+    #[test]
+    fn logs_preserve_all_output_after_scrollback_eviction_and_screen_redraws() {
+        let directory = log_directory("full-output");
+        let button = ButtonConfig {
+            label: "JSON / Events Stream".into(),
+            log_output: true,
+            command: "stty -onlcr; i=1; while [ \"$i\" -le 2300 ]; do printf 'line:%04d\\n' \"$i\"; i=$((i + 1)); done; printf '\\033[?1049h\\033[31mtransient λ\\033[0m\\rrewritten\\n\\033[?1049l'; printf 'stderr output\\n' >&2".into(),
+            shell: true,
+            ..Default::default()
+        };
+        let mut terminal = Terminal::start_with_log_dir(&button, 80, 24, Some(&directory)).unwrap();
+        wait_for(&mut terminal, |t| !t.needs_poll());
+        assert!(terminal.log_error().is_none());
+        assert_eq!(terminal.screen.history.len(), screen::HISTORY_LIMIT);
+        assert!(!terminal.screen.text().contains("line:0001"));
+        let path = terminal.log_path().unwrap();
+        assert_eq!(path.parent().unwrap(), directory.join("json_events_stream"));
+        let saved = std::fs::read_to_string(path).unwrap();
+        assert_eq!(
+            saved
+                .lines()
+                .filter(|line| line.starts_with("line:"))
+                .count(),
+            2300
+        );
+        assert!(saved.starts_with("line:0001\n"));
+        assert!(saved.contains("line:2300\n"));
+        assert!(saved.contains("\x1b[?1049h\x1b[31mtransient λ\x1b[0m\rrewritten\n\x1b[?1049l"));
+        assert!(saved.ends_with("stderr output\n"));
+    }
+
+    #[test]
+    fn concurrent_runs_log_live_output_separately_and_finish_after_stop_or_close() {
+        let directory = log_directory("concurrent-logs");
+        let mut terminals = Vec::new();
+        for name in ["alpha", "beta"] {
+            let button = ButtonConfig {
+                label: "Run Top".into(),
+                log_output: true,
+                command: format!("stty -onlcr; printf '{name}-ready\\n'; read line"),
+                shell: true,
+                ..Default::default()
+            };
+            terminals
+                .push(Terminal::start_with_log_dir(&button, 80, 24, Some(&directory)).unwrap());
+        }
+        for (terminal, name) in terminals.iter_mut().zip(["alpha", "beta"]) {
+            wait_for(terminal, |t| {
+                t.screen.text().contains("ready")
+                    && t.log_path()
+                        .and_then(|path| std::fs::read_to_string(path).ok())
+                        .is_some_and(|text| text == format!("{name}-ready\n"))
+            });
+            assert!(
+                terminal.is_running(),
+                "Logs must be visible while the process runs"
+            );
+        }
+        let paths: Vec<_> = terminals
+            .iter()
+            .map(|t| t.log_path().unwrap().to_owned())
+            .collect();
+        assert_ne!(paths[0], paths[1]);
+        terminals[0].stop();
+        drop(terminals);
+        finish_cleanup();
+        assert_eq!(std::fs::read_to_string(&paths[0]).unwrap(), "alpha-ready\n");
+        assert_eq!(std::fs::read_to_string(&paths[1]).unwrap(), "beta-ready\n");
+    }
+
+    #[test]
+    fn log_creation_errors_are_reported_without_blocking_process_controls() {
+        let directory = log_directory("log-failure");
+        std::fs::write(&directory, "not a directory").unwrap();
+        let button = ButtonConfig {
+            label: "Invalid log directory".into(),
+            log_output: true,
+            command: "printf ready; read line".into(),
+            shell: true,
+            ..Default::default()
+        };
+        let mut terminal = Terminal::start_with_log_dir(&button, 80, 24, Some(&directory)).unwrap();
+        wait_for(&mut terminal, |t| {
+            t.log_error().is_some() && t.screen.text().contains("ready")
+        });
+        let started = Instant::now();
+        terminal.stop();
+        assert!(started.elapsed() < Duration::from_millis(500));
+        assert!(!terminal.needs_poll());
+        assert!(terminal.log_error().is_some());
     }
 
     #[test]

@@ -13,6 +13,7 @@ GUI preview with generated sample output.
 - Named YAML layouts with configurable grid dimensions, button labels, actions, and colors.
 - Multiple process terminals with independent output, scrollback, fonts, and colors.
 - Interactive commands, shell pipelines, and log following through Unix pseudo-terminals.
+- Optional per-run output logs that retain output beyond the scrollback buffer.
 - Material controls with an orange accent and locally loaded fonts.
 
 ## Requirements
@@ -110,6 +111,36 @@ See [example layouts](examples/README.md) for system monitoring, JSON pipelines,
 terminal demos, and following `/var/log/syslog`. Copy an example before customizing
 it to preserve the original. JSON examples require `/usr/bin/jq`; log following
 requires read access to the log file.
+
+### Terminal output logs
+
+Set `BUTTON_BUILDER_LOG_DIR` in your environment or in `.env` at the project root
+(see [.env.example](.env.example)):
+
+```dotenv
+BUTTON_BUILDER_LOG_DIR=./logs
+```
+
+Enable **Log output** in a button's edit dialog, or set `log_output: true` in that
+button's YAML definition. It is unchecked by default, including when loading
+older layouts without this field. Changes apply to newly launched processes.
+
+Each opted-in process gets its own log, for example
+`logs/run_top/20261117_183100.log`. Button labels become lowercase directory names
+with underscores replacing spaces and punctuation. Directories are created as
+needed; runs started in the same second get a numeric filename suffix to avoid
+overwriting earlier logs. Relative paths resolve from the app's working directory.
+
+Logs capture the original terminal output stream, including stdout, stderr, ANSI
+colors, and screen updates, independently of the 2,000-row scrollback limit.
+Hover over the terminal status to see its log path. Write errors appear in that
+status. Logging requires both the button's opt-in and a nonempty directory setting.
+
+Writes run off the UI thread with bounded queues. If storage falls behind, process
+output pauses until writes catch up; Stop and Close tab remain available. Stopping
+or closing a tab finishes logging output already read from the process, while
+discarding unread output as usual. Exit allows queued writes to finish, with a
+two-second timeout if storage stalls. Log files and `.env` are excluded from Git.
 
 ## Development
 
