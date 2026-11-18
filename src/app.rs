@@ -43,12 +43,32 @@ impl TerminalTab {
     fn poll(&mut self) {
         let previous = self.terminal.screen.scrolled_lines;
         self.terminal.poll();
+        self.update_view(previous);
+    }
+
+    fn resize(&mut self, cols: usize, rows: usize) {
+        let previous = self.terminal.screen.scrolled_lines;
+        self.terminal.resize(cols, rows);
+        self.update_view(previous);
+    }
+
+    fn update_view(&mut self, previous_scrolled_lines: usize) {
         self.selection.prepare(&self.terminal.screen);
+        // Output and viewport resizing can both move the viewed text into history.
         if self.scrollback > 0 {
-            self.scrollback = self
-                .scrollback
-                .saturating_add(self.terminal.screen.scrolled_lines.saturating_sub(previous));
+            self.scrollback = self.scrollback.saturating_add(
+                self.terminal
+                    .screen
+                    .scrolled_lines
+                    .saturating_sub(previous_scrolled_lines),
+            );
         }
+    }
+
+    fn copy_text(&self) -> String {
+        self.selection
+            .text(&self.terminal.screen)
+            .unwrap_or_else(|| self.terminal.screen.text())
     }
 }
 
@@ -349,7 +369,7 @@ impl ButtonBuilder {
         }
     }
 
-    fn show(&mut self, ctx: &egui::Context) {
+    fn poll_terminals(&mut self, ctx: &egui::Context) {
         if self
             .completion_notice
             .as_ref()
@@ -379,6 +399,10 @@ impl ButtonBuilder {
                 ctx.request_repaint();
             }
         }
+    }
+
+    fn show(&mut self, ctx: &egui::Context) {
+        self.poll_terminals(ctx);
         egui::TopBottomPanel::top("header")
             .frame(egui::Frame::NONE)
             .show(ctx, |ui| self.header(ui));

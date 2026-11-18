@@ -2,7 +2,7 @@
 
 use super::terminal_selection::{SelectionViewport, live_row};
 use super::{CORNER_RADIUS, rgb};
-use crate::app::ButtonBuilder;
+use crate::app::{ButtonBuilder, TerminalTab};
 use crate::layout_config::TerminalStyle;
 use crate::terminal::screen::Cell;
 use egui::{Color32, FontFamily, FontId, Stroke, Vec2};
@@ -88,18 +88,10 @@ impl ButtonBuilder {
                     fonts.row_height(&tab_font) * tab.style.line_spacing,
                 )
             });
-            let previous = tab.terminal.screen.scrolled_lines;
-            tab.terminal.resize(
+            tab.resize(
                 ((content_width / width) as usize).clamp(2, 500),
                 (((size.y - 16.0) / height) as usize).clamp(2, 200),
             );
-            tab.selection.prepare(&tab.terminal.screen);
-            // Shrinking the viewport can move rows into history. Keep the viewed text anchored.
-            if tab.scrollback > 0 {
-                tab.scrollback = tab
-                    .scrollback
-                    .saturating_add(tab.terminal.screen.scrolled_lines.saturating_sub(previous));
-            }
         }
         let mut scrollbar_interacted = false;
         if let Some(index) = self.active_tab {
@@ -238,60 +230,60 @@ impl ButtonBuilder {
             );
         }
         if response.has_focus() {
-            let events = ui.input(|input| input.events.clone());
-            let copy_output = ui.input(|input| input.modifiers.ctrl && input.modifiers.shift)
-                && events.iter().any(|event| {
-                    matches!(
-                        event,
-                        egui::Event::Copy
-                            | egui::Event::Key {
-                                key: egui::Key::C,
-                                pressed: true,
-                                ..
-                            }
-                    )
-                });
-            if copy_output {
-                ui.ctx()
-                    .copy_text(tab.selection.text(screen).unwrap_or_else(|| screen.text()));
-            }
-            let copied = events
-                .iter()
-                .any(|event| matches!(event, egui::Event::Copy));
-            let cut = events.iter().any(|event| matches!(event, egui::Event::Cut));
-            for event in events {
-                let bytes = match event {
-                    egui::Event::Copy if !copy_output => vec![3],
-                    egui::Event::Cut => vec![24],
-                    egui::Event::Text(text) => text.into_bytes(),
-                    egui::Event::Paste(text) => {
-                        text.replace("\r\n", "\n").replace('\n', "\r").into_bytes()
-                    }
-                    egui::Event::Key {
-                        key,
+            handle_terminal_input(ui, tab);
+        }
+    }
+}
+
+fn handle_terminal_input(ui: &egui::Ui, tab: &mut TerminalTab) {
+    let events = ui.input(|input| input.events.clone());
+    let copy_output = ui.input(|input| input.modifiers.ctrl && input.modifiers.shift)
+        && events.iter().any(|event| {
+            matches!(
+                event,
+                egui::Event::Copy
+                    | egui::Event::Key {
+                        key: egui::Key::C,
                         pressed: true,
-                        modifiers,
                         ..
-                    } => {
-                        if (key == egui::Key::C && (copied || copy_output))
-                            || (key == egui::Key::X && cut)
-                        {
-                            continue;
-                        }
-                        key_bytes(key, modifiers, terminal.screen.application_cursor)
                     }
-                    _ => Vec::new(),
-                };
-                if !bytes.is_empty() {
-                    if bytes == [3] {
-                        terminal.interrupt();
-                    } else {
-                        terminal.send(&bytes);
-                    }
-                    tab.scrollback = 0;
-                    tab.selection.clear();
+            )
+        });
+    if copy_output {
+        ui.ctx().copy_text(tab.copy_text());
+    }
+    let copied = events
+        .iter()
+        .any(|event| matches!(event, egui::Event::Copy));
+    let cut = events.iter().any(|event| matches!(event, egui::Event::Cut));
+    for event in events {
+        let bytes = match event {
+            egui::Event::Copy if !copy_output => vec![3],
+            egui::Event::Cut => vec![24],
+            egui::Event::Text(text) => text.into_bytes(),
+            egui::Event::Paste(text) => text.replace("\r\n", "\n").replace('\n', "\r").into_bytes(),
+            egui::Event::Key {
+                key,
+                pressed: true,
+                modifiers,
+                ..
+            } => {
+                if (key == egui::Key::C && (copied || copy_output)) || (key == egui::Key::X && cut)
+                {
+                    continue;
                 }
+                key_bytes(key, modifiers, tab.terminal.screen.application_cursor)
             }
+            _ => Vec::new(),
+        };
+        if !bytes.is_empty() {
+            if bytes == [3] {
+                tab.terminal.interrupt();
+            } else {
+                tab.terminal.send(&bytes);
+            }
+            tab.scrollback = 0;
+            tab.selection.clear();
         }
     }
 }

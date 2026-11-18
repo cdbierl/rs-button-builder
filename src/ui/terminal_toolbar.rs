@@ -56,11 +56,7 @@ impl ButtonBuilder {
         if let Some(index) = active {
             let tab = &mut self.tabs[index];
             if copy {
-                ui.ctx().copy_text(
-                    tab.selection
-                        .text(&tab.terminal.screen)
-                        .unwrap_or_else(|| tab.terminal.screen.text()),
-                );
+                ui.ctx().copy_text(tab.copy_text());
             }
             if interrupt {
                 tab.terminal.interrupt();
