@@ -8,7 +8,7 @@ use crate::config_picker::ConfigPicker;
 use crate::layout_config::{ButtonConfig, Config, DEFAULT_LAYOUT_NAME, TerminalStyle};
 use crate::settings::SettingsStore;
 use crate::terminal::Terminal;
-use egui::Color32;
+use crate::theme::ThemeSettings;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
@@ -77,6 +77,8 @@ pub struct ButtonBuilder {
     config_path: Option<PathBuf>,
     title_display_name: Option<String>,
     settings: SettingsStore,
+    theme: ThemeSettings,
+    applied_theme: Option<(ThemeSettings, bool)>,
     config_picker: Option<ConfigPicker>,
     save_as: Option<SaveAs>,
     new_layout_requested: bool,
@@ -115,6 +117,8 @@ impl ButtonBuilder {
             config_path,
             title_display_name: None,
             settings: SettingsStore::default(),
+            theme: ThemeSettings::default(),
+            applied_theme: Some((ThemeSettings::default(), true)),
             config_picker: None,
             save_as: None,
             new_layout_requested: false,
@@ -145,6 +149,7 @@ impl ButtonBuilder {
     }
 
     pub fn with_settings(mut self, settings: SettingsStore) -> Self {
+        self.theme = settings.theme();
         if settings.warning.is_some() {
             self.error = settings.warning.clone();
         }
@@ -435,19 +440,12 @@ impl ButtonBuilder {
     }
 
     fn show(&mut self, ctx: &egui::Context) {
+        self.sync_theme(ctx);
         self.poll_terminals(ctx);
         egui::TopBottomPanel::top("header")
             .frame(egui::Frame::NONE)
             .show(ctx, |ui| self.header(ui));
-        egui::TopBottomPanel::bottom("status").show(ctx, |ui| {
-            if let Some(error) = &self.error {
-                ui.colored_label(Color32::LIGHT_RED, error);
-            } else if let Some((message, _)) = &self.completion_notice {
-                ui.small(message);
-            } else {
-                ui.small(&self.notice);
-            }
-        });
+        egui::TopBottomPanel::bottom("status").show(ctx, |ui| self.footer(ui));
         egui::SidePanel::left("buttons")
             .resizable(true)
             .default_width(330.0)

@@ -1,6 +1,7 @@
 //! Local application preferences and startup layout selection.
 
 use crate::layout_config::{Config, save_yaml};
+use crate::theme::ThemeSettings;
 use serde::{Deserialize, Serialize};
 use std::ffi::OsString;
 use std::fs;
@@ -11,6 +12,7 @@ use std::path::{Path, PathBuf};
 #[serde(default)]
 struct Settings {
     last_layout: Option<PathBuf>,
+    theme: ThemeSettings,
 }
 
 /// An absent destination disables persistence, useful for isolated app instances.
@@ -97,6 +99,24 @@ impl SettingsStore {
         }
         let mut settings = self.settings.clone();
         settings.last_layout = Some(layout);
+        self.save(settings)
+    }
+
+    pub fn theme(&self) -> ThemeSettings {
+        self.settings.theme
+    }
+
+    pub fn remember_theme(&mut self, theme: ThemeSettings) -> Result<(), String> {
+        let mut settings = self.settings.clone();
+        settings.theme = theme;
+        self.save(settings)
+    }
+
+    fn save(&mut self, settings: Settings) -> Result<(), String> {
+        let Some(path) = &self.path else {
+            self.settings = settings;
+            return Ok(());
+        };
         let parent = path
             .parent()
             .ok_or_else(|| "The app settings file needs a parent directory.".to_owned())?;
@@ -106,9 +126,8 @@ impl SettingsStore {
                 parent.display()
             )
         })?;
-        save_yaml(&settings, path).map_err(|error| {
-            format!("The layout is open, but app settings were not saved. {error}")
-        })?;
+        save_yaml(&settings, path)
+            .map_err(|error| format!("Could not save app settings. {error}"))?;
         self.settings = settings;
         Ok(())
     }
@@ -281,5 +300,41 @@ mod tests {
                 .last_layout,
             Some(original)
         );
+    }
+
+    #[test]
+    fn theme_and_layout_preferences_persist_independently() {
+        use crate::theme::{Accent, Appearance};
+        let path = directory().join("settings.yaml");
+        let theme = ThemeSettings {
+            mode: Appearance::System,
+            accent: Accent::Blue,
+        };
+        let mut store = SettingsStore::open(path.clone());
+        store.remember_theme(theme).unwrap();
+        assert_eq!(SettingsStore::open(path.clone()).theme(), theme);
+        assert!(store.startup_layout(None).unwrap().0.is_none());
+        store
+            .remember_layout(Path::new("examples/system-monitor.yaml"))
+            .unwrap();
+        let mut restored = SettingsStore::open(path.clone());
+        assert_eq!(restored.theme(), theme);
+        assert_eq!(
+            restored.startup_layout(None).unwrap().1.display_name(),
+            "System Monitor"
+        );
+        restored.remember_theme(ThemeSettings::default()).unwrap();
+        assert_eq!(
+            SettingsStore::open(path.clone())
+                .startup_layout(None)
+                .unwrap()
+                .1
+                .display_name(),
+            "System Monitor"
+        );
+        let blocked = path.join("settings.yaml");
+        restored.path = Some(blocked);
+        assert!(restored.remember_theme(theme).is_err());
+        assert_eq!(restored.theme(), ThemeSettings::default());
     }
 }

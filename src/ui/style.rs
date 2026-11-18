@@ -1,5 +1,6 @@
 //! Shared Material styling for controls and the egui inputs used by the forms.
 use crate::layout_config::ButtonConfig;
+use crate::theme::ThemeSettings;
 use egui::{Color32, FontId, RichText, Stroke, TextStyle};
 use egui_material3::{MaterialThemeContext, ThemeMode, get_global_color, update_global_theme};
 
@@ -53,19 +54,23 @@ pub(in crate::app) fn button_colors(button: &ButtonConfig) -> (Color32, Color32)
         .unwrap_or_else(|| get_global_color(fill));
     let text = button.fg_color.map(rgb).unwrap_or_else(|| {
         if button.bg_color.is_some() {
-            let linear = egui::Rgba::from(fill);
-            let luminance = 0.2126 * linear.r() + 0.7152 * linear.g() + 0.0722 * linear.b();
-            // Black or white gives at least 4.5:1 contrast against any opaque background.
-            if luminance > 0.179 {
-                Color32::BLACK
-            } else {
-                Color32::WHITE
-            }
+            contrasting_text(fill)
         } else {
             get_global_color(text)
         }
     });
     (text, fill)
+}
+
+pub(super) fn contrasting_text(fill: Color32) -> Color32 {
+    let linear = egui::Rgba::from(fill);
+    let luminance = 0.2126 * linear.r() + 0.7152 * linear.g() + 0.0722 * linear.b();
+    // Black or white gives at least 4.5:1 contrast against any opaque background.
+    if luminance > 0.179 {
+        Color32::BLACK
+    } else {
+        Color32::WHITE
+    }
 }
 
 pub fn text_input(value: &mut String) -> egui::TextEdit<'_> {
@@ -165,48 +170,97 @@ pub fn dialog_footer(ui: &mut egui::Ui, actions: impl FnOnce(&mut egui::Ui)) {
 }
 
 pub fn setup(ctx: &egui::Context) {
+    apply_theme(ctx, ThemeSettings::default(), true);
+}
+
+pub(super) fn apply_theme(ctx: &egui::Context, settings: ThemeSettings, dark: bool) {
     // Use the crate's built-in theme and local fonts. Asset downloads are unnecessary.
     let mut theme = MaterialThemeContext {
-        theme_mode: ThemeMode::Dark,
+        theme_mode: if dark {
+            ThemeMode::Dark
+        } else {
+            ThemeMode::Light
+        },
         ..Default::default()
     };
-    for (role, color) in [
-        ("primary", [255, 183, 123]),
-        ("onPrimary", [79, 37, 0]),
-        ("primaryContainer", [112, 55, 0]),
-        ("onPrimaryContainer", [255, 220, 193]),
-        ("surfaceTint", [255, 183, 123]),
-        ("secondary", [222, 193, 167]),
-        ("onSecondary", [63, 45, 30]),
-        ("secondaryContainer", [85, 67, 52]),
-        ("onSecondaryContainer", [251, 221, 194]),
-        ("tertiary", [193, 203, 147]),
-        ("onTertiary", [43, 51, 11]),
-        ("tertiaryContainer", [65, 74, 31]),
-        ("onTertiaryContainer", [221, 231, 173]),
-        ("background", [25, 18, 13]),
-        ("onBackground", [240, 223, 211]),
-        ("surface", [25, 18, 13]),
-        ("onSurface", [240, 223, 211]),
-        ("surfaceVariant", [81, 68, 58]),
-        ("onSurfaceVariant", [214, 195, 180]),
-        ("surfaceContainerLowest", [17, 13, 9]),
-        ("surfaceContainerLow", [33, 27, 21]),
-        ("surfaceContainer", [37, 31, 25]),
-        ("surfaceContainerHigh", [48, 41, 34]),
-        ("surfaceContainerHighest", [59, 52, 44]),
-        ("outline", [159, 141, 128]),
-        ("outlineVariant", [81, 68, 58]),
-        ("inverseSurface", [240, 223, 211]),
-        ("inverseOnSurface", [55, 46, 39]),
-        ("inversePrimary", [143, 76, 0]),
-    ] {
+    let colors = if dark {
+        [
+            ("secondary", [222, 193, 167]),
+            ("onSecondary", [63, 45, 30]),
+            ("secondaryContainer", [85, 67, 52]),
+            ("onSecondaryContainer", [251, 221, 194]),
+            ("tertiary", [193, 203, 147]),
+            ("onTertiary", [43, 51, 11]),
+            ("tertiaryContainer", [65, 74, 31]),
+            ("onTertiaryContainer", [221, 231, 173]),
+            ("background", [25, 18, 13]),
+            ("onBackground", [240, 223, 211]),
+            ("surface", [25, 18, 13]),
+            ("onSurface", [240, 223, 211]),
+            ("surfaceVariant", [81, 68, 58]),
+            ("onSurfaceVariant", [214, 195, 180]),
+            ("surfaceContainerLowest", [17, 13, 9]),
+            ("surfaceContainerLow", [33, 27, 21]),
+            ("surfaceContainer", [37, 31, 25]),
+            ("surfaceContainerHigh", [48, 41, 34]),
+            ("surfaceContainerHighest", [59, 52, 44]),
+            ("outline", [159, 141, 128]),
+            ("outlineVariant", [81, 68, 58]),
+            ("inverseSurface", [240, 223, 211]),
+            ("inverseOnSurface", [55, 46, 39]),
+        ]
+    } else {
+        [
+            ("secondary", [112, 91, 72]),
+            ("onSecondary", [255, 255, 255]),
+            ("secondaryContainer", [251, 221, 194]),
+            ("onSecondaryContainer", [40, 24, 11]),
+            ("tertiary", [88, 98, 52]),
+            ("onTertiary", [255, 255, 255]),
+            ("tertiaryContainer", [221, 231, 173]),
+            ("onTertiaryContainer", [22, 30, 0]),
+            ("background", [255, 248, 244]),
+            ("onBackground", [33, 26, 20]),
+            ("surface", [255, 248, 244]),
+            ("onSurface", [33, 26, 20]),
+            ("surfaceVariant", [243, 223, 210]),
+            ("onSurfaceVariant", [81, 68, 58]),
+            ("surfaceContainerLowest", [255, 255, 255]),
+            ("surfaceContainerLow", [250, 242, 236]),
+            ("surfaceContainer", [244, 236, 230]),
+            ("surfaceContainerHigh", [238, 230, 225]),
+            ("surfaceContainerHighest", [232, 224, 219]),
+            ("outline", [131, 116, 105]),
+            ("outlineVariant", [214, 195, 180]),
+            ("inverseSurface", [55, 46, 39]),
+            ("inverseOnSurface", [255, 239, 228]),
+        ]
+    };
+    for (role, color) in colors {
         theme
             .selected_colors
             .insert(role.into(), Color32::from_rgb(color[0], color[1], color[2]));
     }
+    for (role, color) in [
+        "primary",
+        "onPrimary",
+        "primaryContainer",
+        "onPrimaryContainer",
+    ]
+    .into_iter()
+    .zip(settings.accent.colors(dark))
+    .chain([
+        ("surfaceTint", settings.accent.colors(dark)[0]),
+        ("inversePrimary", settings.accent.colors(!dark)[0]),
+    ]) {
+        theme.selected_colors.insert(role.into(), rgb(color));
+    }
     update_global_theme(theme);
-    ctx.set_visuals(egui::Visuals::dark());
+    ctx.set_visuals(if dark {
+        egui::Visuals::dark()
+    } else {
+        egui::Visuals::light()
+    });
     ctx.all_styles_mut(|style| {
         for (text_style, size) in [
             (TextStyle::Heading, 22.0),

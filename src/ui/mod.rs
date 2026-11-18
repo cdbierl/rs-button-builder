@@ -3,6 +3,7 @@
 mod appearance;
 mod button_editor;
 mod button_grid;
+mod footer;
 mod header;
 mod layout_dialogs;
 mod style;

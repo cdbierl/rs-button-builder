@@ -142,6 +142,76 @@ fn label_center(output: &egui::FullOutput, label: &str) -> egui::Pos2 {
         .unwrap_or_else(|| panic!("Missing UI label: {label}"))
 }
 
+#[test]
+fn footer_theme_picker_applies_persists_and_follows_system_appearance() {
+    use crate::theme::{Accent, Appearance};
+    let ctx = egui::Context::default();
+    let path = std::env::temp_dir().join(format!(
+        "button-builder-theme-{}-{}.yaml",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    let config = Config::default();
+    let original = serde_yaml_ng::to_string(&config).unwrap();
+    let mut app =
+        ButtonBuilder::new(&ctx, None, config).with_settings(SettingsStore::open(path.clone()));
+    ctx.all_styles_mut(|style| style.animation_time = 0.0);
+    frame(&mut app, &ctx, vec![]);
+    let output = frame(&mut app, &ctx, vec![]);
+    let palette = egui_material3::material_symbol::material_symbol_text("palette");
+    let trigger = label_center(&output, &palette);
+    assert!(trigger.x > 1100.0 && trigger.y > 700.0);
+    click(&mut app, &ctx, trigger);
+    let output = frame(&mut app, &ctx, vec![]);
+    let light = label_center(&output, "Light");
+    assert!(light.y < trigger.y, "The picker opens above the footer");
+    assert!(trigger.y - light.y < 120.0, "The picker stays compact");
+    click(&mut app, &ctx, light);
+    let output = frame(&mut app, &ctx, vec![]);
+    assert!(!ctx.style().visuals.dark_mode);
+    label_center(&output, "System");
+    let blue = output
+        .shapes
+        .iter()
+        .find_map(|shape| match &shape.shape {
+            egui::Shape::Rect(rect) if rect.fill == rgb(Accent::Blue.colors(false)[0]) => {
+                Some(rect.rect.center())
+            }
+            _ => None,
+        })
+        .unwrap();
+    click(&mut app, &ctx, blue);
+    frame(&mut app, &ctx, vec![]);
+    assert_eq!(
+        get_global_color("primary"),
+        rgb(Accent::Blue.colors(false)[0])
+    );
+    assert_eq!(SettingsStore::open(path.clone()).theme(), app.theme);
+    assert!(!app.dirty);
+    assert_eq!(serde_yaml_ng::to_string(&app.config).unwrap(), original);
+    let output = frame(&mut app, &ctx, vec![]);
+    click(&mut app, &ctx, label_center(&output, "System"));
+    for theme in [egui::Theme::Light, egui::Theme::Dark] {
+        let _ = ctx.run(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    Vec2::new(850.0, 500.0),
+                )),
+                system_theme: Some(theme),
+                ..Default::default()
+            },
+            |ctx| app.show(ctx),
+        );
+        assert_eq!(ctx.style().visuals.dark_mode, theme == egui::Theme::Dark);
+    }
+    assert_eq!(SettingsStore::open(path).theme().mode, Appearance::System);
+    crate::ui::setup(&ctx);
+}
+
 fn empty_button_centers(output: &egui::FullOutput) -> Vec<egui::Pos2> {
     output
         .shapes
@@ -1777,7 +1847,7 @@ fn button_run_options_cancel_and_save_per_button() {
     let output = frame(&mut app, &ctx, vec![]);
     assert!(!app.editor.as_ref().unwrap().button.log_output);
     assert!(!app.editor.as_ref().unwrap().button.auto_start);
-    click(&mut app, &ctx, label_center(&output, "Log output"));
+    click(&mut app, &ctx, label_center(&output, "Log Output"));
     click(&mut app, &ctx, label_center(&output, "Auto Start"));
     assert!(app.editor.as_ref().unwrap().button.log_output);
     assert!(app.editor.as_ref().unwrap().button.auto_start);
@@ -1788,7 +1858,7 @@ fn button_run_options_cancel_and_save_per_button() {
 
     app.edit(0);
     let output = frame(&mut app, &ctx, vec![]);
-    click(&mut app, &ctx, label_center(&output, "Log output"));
+    click(&mut app, &ctx, label_center(&output, "Log Output"));
     click(&mut app, &ctx, label_center(&output, "Auto Start"));
     let output = frame(&mut app, &ctx, vec![]);
     click(&mut app, &ctx, label_center(&output, "Save button"));
@@ -1802,7 +1872,7 @@ fn button_run_options_cancel_and_save_per_button() {
     let output = frame(&mut app, &ctx, vec![]);
     assert!(app.editor.as_ref().unwrap().button.log_output);
     assert!(app.editor.as_ref().unwrap().button.auto_start);
-    click(&mut app, &ctx, label_center(&output, "Log output"));
+    click(&mut app, &ctx, label_center(&output, "Log Output"));
     click(&mut app, &ctx, label_center(&output, "Auto Start"));
     let output = frame(&mut app, &ctx, vec![]);
     click(&mut app, &ctx, label_center(&output, "Save button"));

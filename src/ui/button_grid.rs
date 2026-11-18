@@ -1,5 +1,6 @@
 //! Layout heading, grid sizing, and command buttons.
 
+use super::style::{contrasting_text, rgb};
 use super::{CORNER_RADIUS, styled_button, text_button};
 use crate::app::ButtonBuilder;
 use crate::layout_config::{ButtonConfig, DEFAULT_LAYOUT_NAME, MAX_GRID_COLUMNS, MAX_GRID_ROWS};
@@ -137,10 +138,22 @@ impl ButtonBuilder {
                                 .wrap()
                                 .sense(egui::Sense::click_and_drag());
                             if selected {
+                                let (text, fill, outline) = if let Some(color) = button.bg_color {
+                                    let outline = rgb(color);
+                                    let fill = get_global_color("surface")
+                                        .lerp_to_gamma(outline, 0.25);
+                                    (contrasting_text(fill), fill, outline)
+                                } else {
+                                    (
+                                        get_global_color("onPrimaryContainer"),
+                                        get_global_color("primaryContainer"),
+                                        get_global_color("primary"),
+                                    )
+                                };
                                 widget = widget
-                                    .fill(get_global_color("primaryContainer"))
-                                    .text_color(get_global_color("onPrimaryContainer"))
-                                    .stroke(Stroke::new(3.0_f32, get_global_color("primary")));
+                                    .fill(fill)
+                                    .text_color(text)
+                                    .stroke(Stroke::new(3.0_f32, outline));
                             }
                             let response = ui.add_sized([width, 88.0], widget);
                             if !configured {

@@ -1,5 +1,6 @@
 //! Scrollable terminal tab strip and previous/next controls.
 
+use super::style::{contrasting_text, rgb};
 use super::{outlined_button, text_button};
 use crate::app::ButtonBuilder;
 use egui::{Color32, FontId, RichText, Vec2};
@@ -45,6 +46,26 @@ impl ButtonBuilder {
                                     for (index, tab) in self.tabs.iter().enumerate() {
                                         let active = self.active_tab == Some(index);
                                         let running = tab.terminal.is_running();
+                                        let (text, fill) = if active {
+                                            let custom_fill = tab
+                                                .button_index
+                                                .and_then(|index| self.config.buttons.get(index))
+                                                .and_then(|button| button.bg_color)
+                                                .map(rgb);
+                                            if let Some(fill) = custom_fill {
+                                                (contrasting_text(fill), fill)
+                                            } else {
+                                                (
+                                                    get_global_color("onPrimary"),
+                                                    get_global_color("primary"),
+                                                )
+                                            }
+                                        } else {
+                                            (
+                                                get_global_color("onSurfaceVariant"),
+                                                get_global_color("surfaceContainerLow"),
+                                            )
+                                        };
                                         let title = format!("{} · {}", tab.id, tab.label);
                                         let width = (ui
                                             .painter()
@@ -61,16 +82,8 @@ impl ButtonBuilder {
                                             .small()
                                             .truncate()
                                             .min_size(Vec2::new(0.0, 32.0))
-                                            .fill(get_global_color(if active {
-                                                "primary"
-                                            } else {
-                                                "surfaceContainerLow"
-                                            }))
-                                            .text_color(get_global_color(if active {
-                                                "onPrimary"
-                                            } else {
-                                                "onSurfaceVariant"
-                                            }));
+                                            .fill(fill)
+                                            .text_color(text);
                                         let response = ui
                                             .push_id(tab.id, |ui| {
                                                 ui.add_sized([width, 32.0], button)
@@ -83,11 +96,15 @@ impl ButtonBuilder {
                                         ui.painter().circle_filled(
                                             dot,
                                             2.5,
-                                            get_global_color(if running {
-                                                if active { "onPrimary" } else { "primary" }
+                                            if running {
+                                                if active {
+                                                    text
+                                                } else {
+                                                    get_global_color("primary")
+                                                }
                                             } else {
-                                                "outline"
-                                            }),
+                                                get_global_color("outline")
+                                            },
                                         );
                                         if active && self.reveal_active_tab {
                                             response.scroll_to_me(Some(egui::Align::Center));

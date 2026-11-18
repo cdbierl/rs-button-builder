@@ -97,6 +97,10 @@ select a YAML layout file. Dependency versions are recorded in [Cargo.lock](Carg
   and the defaults for new tabs. **Ctrl+mouse wheel** over the terminal adjusts its
   font size (8–32 pt); plain scrolling or dragging the right-hand scrollbar moves
   through output history. Drag to the bottom or click **Jump to live** to follow new output.
+- **Choose a UI theme:** the palette control at the right of the footer opens
+  Light, Dark, and System modes plus five accent colors. Changes apply immediately
+  and are saved in app settings; custom button colors and terminal appearance
+  remain separate. System mode follows the desktop appearance when available.
   **Refresh fonts** discovers installed monospace fonts.
 - **Stop processes:** **Ctrl+C** sends `SIGINT` to the foreground job, allowing it
   to clean up; programs can ignore this signal. **Stop** sends `SIGKILL` and ends
@@ -109,8 +113,8 @@ select a YAML layout file. Dependency versions are recorded in [Cargo.lock](Carg
 Without `--file`, the app reopens the last successfully loaded or saved layout.
 App settings live in `~/.config/rs_button_builder/settings.yaml`, or
 `$XDG_CONFIG_HOME/rs_button_builder/settings.yaml` when that variable contains an
-absolute path. Settings are separate from button layouts and can hold future app
-preferences. The remembered layout path is absolute, so startup works from another
+absolute path. Settings store the UI theme and last layout separately from button
+layouts. The remembered layout path is absolute, so startup works from another
 working directory.
 
 On first launch, the app starts with an

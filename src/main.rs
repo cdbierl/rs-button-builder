@@ -5,6 +5,7 @@ mod fonts;
 mod layout_config;
 mod settings;
 mod terminal;
+mod theme;
 
 use app::ui;
 use std::env;
