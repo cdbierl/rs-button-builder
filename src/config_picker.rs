@@ -11,32 +11,59 @@ struct Entry {
 pub enum Action {
     None,
     Load(PathBuf),
+    Save(PathBuf),
     SaveCurrent,
     Cancel,
 }
 
+#[derive(Clone, Copy, PartialEq)]
+enum Mode {
+    Load,
+    Save,
+}
+
 pub struct ConfigPicker {
+    mode: Mode,
     directory: PathBuf,
     pub path: String,
     entries: Vec<Entry>,
     pub error: Option<String>,
     pub replace_unsaved: bool,
+    overwrite_existing: bool,
 }
 
 impl ConfigPicker {
-    pub fn new(current: &Path) -> Self {
+    pub fn new(current: Option<&Path>) -> Self {
+        Self::with_mode(current, Mode::Load)
+    }
+
+    pub fn save(current: Option<&Path>) -> Self {
+        Self::with_mode(current, Mode::Save)
+    }
+
+    fn with_mode(current: Option<&Path>, mode: Mode) -> Self {
         let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-        let current = if current.is_absolute() {
-            current.to_owned()
-        } else {
-            cwd.join(current)
-        };
+        let current = current.map(|path| {
+            if path.is_absolute() {
+                path.to_owned()
+            } else {
+                cwd.join(path)
+            }
+        });
         let mut picker = Self {
-            directory: current.parent().unwrap_or(&cwd).to_owned(),
-            path: current.display().to_string(),
+            mode,
+            directory: current
+                .as_ref()
+                .and_then(|path| path.parent())
+                .unwrap_or(&cwd)
+                .to_owned(),
+            path: current
+                .map(|path| path.display().to_string())
+                .unwrap_or_default(),
             entries: Vec::new(),
             error: None,
             replace_unsaved: false,
+            overwrite_existing: false,
         };
         picker.refresh();
         picker
@@ -92,34 +119,57 @@ impl ConfigPicker {
             return None;
         }
         let path = PathBuf::from(text);
-        Some(if path.is_absolute() {
+        let mut path = if path.is_absolute() {
             path
         } else {
             self.directory.join(path)
-        })
+        };
+        if self.mode == Mode::Save
+            && !path.is_dir()
+            && path
+                .extension()
+                .is_none_or(|extension| extension.is_empty())
+        {
+            path.set_extension("yaml");
+        }
+        Some(path)
     }
 
     pub fn show(&mut self, ctx: &egui::Context, unsaved: bool, running: bool) -> Action {
         let mut action = Action::None;
         let mut browse = None;
         let mut refresh = false;
-        let mut load = false;
+        let mut submit = false;
+        let saving = self.mode == Mode::Save;
         let dialog = crate::ui::dialog(
             ctx,
-            "config_picker",
-            "Load buttons config",
+            if saving {
+                "config_save_picker"
+            } else {
+                "config_picker"
+            },
+            if saving {
+                "Save buttons config"
+            } else {
+                "Load buttons config"
+            },
             500.0_f32.min(ctx.content_rect().width() - 64.0)..=640.0,
             |ui| {
                 crate::ui::form(ui, ctx, "config_picker_form", |ui| {
                     ui.label("Config file (.yaml or .yml)");
-                    let response = ui.add(
-                        crate::ui::text_input(&mut self.path)
-                            .hint_text("Select a file below or enter its path"),
-                    );
+                    let response =
+                        ui.add(crate::ui::text_input(&mut self.path).hint_text(if saving {
+                            "Enter a filename or path"
+                        } else {
+                            "Select a file below or enter its path"
+                        }));
+                    if response.changed() {
+                        self.overwrite_existing = false;
+                    }
                     if response.lost_focus()
                         && ui.input(|input| input.key_pressed(egui::Key::Enter))
                     {
-                        load = true;
+                        submit = true;
                     }
                     ui.add_space(6.0);
                     ui.horizontal(|ui| {
@@ -171,15 +221,22 @@ impl ConfigPicker {
                                         ui.add_sized([ui.available_width(), 36.0], button);
                                     if response.clicked() {
                                         self.path = entry.path.display().to_string();
+                                        self.overwrite_existing = false;
                                     }
                                     if response.double_clicked() {
-                                        load = true;
+                                        submit = true;
                                     }
                                 }
                             }
                         });
                     ui.add_space(8.0);
-                    if unsaved {
+                    if saving && self.selected_path().is_some_and(|path| path.is_file()) {
+                        ui.add(MaterialCheckbox::new(
+                            &mut self.overwrite_existing,
+                            "Overwrite existing file",
+                        ));
+                    }
+                    if !saving && unsaved {
                         ui.label("There are unsaved layout changes or an open button edit.");
                         ui.add(MaterialCheckbox::new(
                             &mut self.replace_unsaved,
@@ -192,30 +249,50 @@ impl ConfigPicker {
                             action = Action::SaveCurrent;
                         }
                     }
-                    if running {
+                    if !saving && running {
                         ui.small("Running processes will continue after loading.");
                     }
                     if let Some(error) = &self.error {
                         ui.colored_label(egui::Color32::LIGHT_RED, error);
                     }
                 });
-                let can_load = (!unsaved || self.replace_unsaved) && self.selected_path().is_some();
+                let selected = self.selected_path();
+                let can_submit = selected.as_ref().is_some_and(|path| {
+                    if saving {
+                        !path.is_dir() && (!path.exists() || self.overwrite_existing)
+                    } else {
+                        !unsaved || self.replace_unsaved
+                    }
+                });
                 crate::ui::dialog_footer(ui, |ui| {
                     if ui.add(text_button("Cancel")).clicked() {
                         action = Action::Cancel;
                     }
-                    load |= ui
-                        .add_enabled(can_load, filled_button("Load selected config"))
+                    submit |= ui
+                        .add_enabled(
+                            can_submit,
+                            filled_button(if saving {
+                                "Save config"
+                            } else {
+                                "Load selected config"
+                            }),
+                        )
                         .clicked();
                 });
-                if load && can_load {
-                    action = Action::Load(self.selected_path().unwrap());
+                if submit && can_submit {
+                    let path = selected.unwrap();
+                    action = if saving {
+                        Action::Save(path)
+                    } else {
+                        Action::Load(path)
+                    };
                 }
             },
         );
         if let Some(directory) = browse {
             self.directory = directory;
             self.path.clear();
+            self.overwrite_existing = false;
             self.refresh();
         } else if refresh {
             self.refresh();
@@ -224,5 +301,50 @@ impl ConfigPicker {
             action = Action::Cancel;
         }
         action
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn save_paths_add_yaml_only_when_needed_and_load_paths_stay_exact() {
+        let directory = std::env::temp_dir().join(format!(
+            "rs-button-builder-config-extension-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir(&directory).unwrap();
+        let current = directory.join("selected.yaml");
+        let mut save = ConfigPicker::save(Some(&current));
+        let mut load = ConfigPicker::new(Some(&current));
+        for (input, expected) in [
+            ("targeting", "targeting.yaml"),
+            ("nested/My buttons", "nested/My buttons.yaml"),
+            ("layout.yaml", "layout.yaml"),
+            ("layout.yml", "layout.yml"),
+            ("layout.YAML", "layout.YAML"),
+            ("layout.custom", "layout.custom"),
+            (".layout", ".layout.yaml"),
+            ("layout.", "layout.yaml"),
+        ] {
+            save.path = input.into();
+            load.path = input.into();
+            assert_eq!(save.selected_path(), Some(directory.join(expected)));
+            assert_eq!(load.selected_path(), Some(directory.join(input)));
+        }
+        save.path = directory.join("Absolute path").display().to_string();
+        assert_eq!(
+            save.selected_path(),
+            Some(directory.join("Absolute path.yaml"))
+        );
+        save.path = directory.display().to_string();
+        assert_eq!(save.selected_path(), Some(directory));
+        save.path = "   ".into();
+        assert!(save.selected_path().is_none());
     }
 }

@@ -52,19 +52,19 @@ From the project directory:
 ```sh
 cargo build --locked --release
 ./target/release/rs_button_builder
-./target/release/rs_button_builder my-buttons.yaml
+./target/release/rs_button_builder --file my-buttons.yaml
 ```
 
 For development, Cargo can build and launch the GUI directly:
 
 ```sh
 cargo run --locked
-cargo run --locked -- my-buttons.yaml
+cargo run --locked -- -f my-buttons.yaml
 cargo run --locked -- --help
 ```
 
-`--help` prints command-line usage. The optional positional argument selects a YAML
-layout file. Dependency versions are recorded in [Cargo.lock](Cargo.lock);
+`--help` prints command-line usage. Use `-f <filepath>` or `--file <filepath>` to
+select a YAML layout file. Dependency versions are recorded in [Cargo.lock](Cargo.lock);
 `--locked` preserves those versions.
 
 ## Usage
@@ -73,13 +73,16 @@ layout file. Dependency versions are recorded in [Cargo.lock](Cargo.lock);
   **Edit buttons**. Set its label, executable, arguments, working directory, and colors.
   **Shell pipeline** runs the complete command through `/bin/sh`.
 - **Customize layouts:** change **Rows** and **Columns**, or click the heading above
-  the grid to rename the layout.
+  the grid to rename the layout. **New layout** creates an empty 3×3 grid and asks
+  how to handle unsaved changes. Existing terminal tabs stay open; the new layout's
+  first save asks for a filename.
 - **Manage terminals:** click a button to use the active terminal, or **Ctrl-click**
   to open another tab. Running tabs keep collecting output. Click the terminal to
   type; use the tab bar and its arrows to switch sessions.
 - **Adjust appearance:** **Appearance** changes the selected tab's font and colors
   and the defaults for new tabs. **Ctrl+mouse wheel** over the terminal adjusts its
-  font size (8–32 pt); plain scrolling moves through output history.
+  font size (8–32 pt); plain scrolling or dragging the right-hand scrollbar moves
+  through output history. Drag to the bottom or click **Jump to live** to follow new output.
   **Refresh fonts** discovers installed monospace fonts.
 - **Stop processes:** **Ctrl+C** sends `SIGINT` to the foreground job, allowing it
   to clean up; programs can ignore this signal. **Stop** sends `SIGKILL` and ends
@@ -89,11 +92,15 @@ layout file. Dependency versions are recorded in [Cargo.lock](Cargo.lock);
 
 ## Configuration and examples
 
-The default layout file is `./buttons.yaml`. If it is missing, the app starts with
-its built-in layout. An explicitly selected missing or invalid file reports an error.
+There is no default config file. Without a command-line config, the app starts with
+an [empty, unsaved grid](docs/images/unsaved-layout.png). Load a config or create
+buttons and choose a filename when saving. An explicitly selected missing or
+invalid file reports an error.
 **Load config…** selects a layout and makes it the destination for subsequent saves.
 **Save layout**, **Save button**, and **Save appearance** write to that file;
-unsaved changes are not automatically saved on exit.
+without a selected file, they open a save dialog. Unsaved changes are not
+automatically saved on exit.
+When a save filename has no extension, `.yaml` is added automatically.
 
 A minimal layout:
 

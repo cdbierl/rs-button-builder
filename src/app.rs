@@ -11,10 +11,21 @@ use egui_material3::{
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
+// Reserve the gutter even without history so the PTY width stays stable as output arrives.
+const TERMINAL_SCROLLBAR_WIDTH: f32 = 20.0;
+const UNSAVED_LAYOUT_NOTICE: &str = "Unsaved layout · Load a config or save a new layout";
+
 struct Editor {
     index: usize,
     button: ButtonConfig,
     error: Option<String>,
+}
+
+struct SaveAs {
+    picker: ConfigPicker,
+    config: Config,
+    close_editor: bool,
+    create_new_layout: bool,
 }
 
 struct TerminalTab {
@@ -42,8 +53,11 @@ impl TerminalTab {
 
 pub struct ButtonBuilder {
     config: Config,
-    config_path: PathBuf,
+    config_path: Option<PathBuf>,
     config_picker: Option<ConfigPicker>,
+    save_as: Option<SaveAs>,
+    new_layout_requested: bool,
+    new_layout_error: Option<String>,
     layout_name_edit: Option<String>,
     focus_layout_name: bool,
     tabs: Vec<TerminalTab>,
@@ -63,13 +77,20 @@ pub struct ButtonBuilder {
 }
 
 impl ButtonBuilder {
-    pub fn new(ctx: &egui::Context, config_path: PathBuf, config: Config) -> Self {
+    pub fn new(ctx: &egui::Context, config_path: Option<PathBuf>, config: Config) -> Self {
         crate::ui::setup(ctx);
         let fonts = crate::fonts::load(ctx);
+        let notice = match &config_path {
+            Some(path) => format!("Loaded {}", path.display()),
+            None => UNSAVED_LAYOUT_NOTICE.into(),
+        };
         Self {
             config,
             config_path,
             config_picker: None,
+            save_as: None,
+            new_layout_requested: false,
+            new_layout_error: None,
             layout_name_edit: None,
             focus_layout_name: false,
             tabs: Vec::new(),
@@ -82,7 +103,7 @@ impl ButtonBuilder {
             appearance_open: false,
             fonts,
             dirty: false,
-            notice: "Ready".into(),
+            notice,
             error: None,
             terminal_size: (80, 24),
             focus_terminal: false,
@@ -122,13 +143,59 @@ impl ButtonBuilder {
 
     fn save(&mut self) {
         self.apply_layout_name();
-        match self.config.save(&self.config_path) {
-            Ok(()) => {
-                self.dirty = false;
-                self.error = None;
-                self.notice = format!("Saved {}", self.config_path.display());
-            }
-            Err(error) => self.error = Some(error),
+        if let Err(error) = self.save_config(self.config.clone(), false) {
+            self.error = Some(error);
+        }
+    }
+
+    fn save_config(&mut self, config: Config, close_editor: bool) -> Result<(), String> {
+        if let Some(path) = &self.config_path {
+            config.save(path)?;
+            self.finish_save(config, path.clone(), close_editor);
+        } else {
+            self.save_as = Some(SaveAs {
+                picker: ConfigPicker::save(None),
+                config,
+                close_editor,
+                create_new_layout: false,
+            });
+        }
+        Ok(())
+    }
+
+    fn finish_save(&mut self, config: Config, path: PathBuf, close_editor: bool) {
+        self.config = config;
+        self.notice = format!("Saved {}", path.display());
+        self.config_path = Some(path);
+        self.dirty = false;
+        self.error = None;
+        if close_editor {
+            self.editor = None;
+        }
+        if let Some(picker) = &mut self.config_picker {
+            picker.error = None;
+        }
+    }
+
+    fn save_as_window(&mut self, ctx: &egui::Context) {
+        let Some(mut save_as) = self.save_as.take() else {
+            return;
+        };
+        match save_as.picker.show(ctx, false, false) {
+            PickerAction::Save(path) => match save_as.config.save(&path) {
+                Ok(()) => {
+                    self.finish_save(save_as.config, path, save_as.close_editor);
+                    if save_as.create_new_layout {
+                        self.create_new_layout();
+                    }
+                }
+                Err(error) => {
+                    save_as.picker.error = Some(error);
+                    self.save_as = Some(save_as);
+                }
+            },
+            PickerAction::Cancel => {}
+            _ => self.save_as = Some(save_as),
         }
     }
 
@@ -205,8 +272,21 @@ impl ButtonBuilder {
 
     fn load_config(&mut self, path: PathBuf) -> Result<(), String> {
         let config = Config::load_existing(&path)?;
+        self.replace_layout(config, Some(path));
+        Ok(())
+    }
+
+    fn replace_layout(&mut self, config: Config, path: Option<PathBuf>) {
         self.config = config;
+        self.notice = match &path {
+            Some(path) => format!("Loaded {}", path.display()),
+            None => UNSAVED_LAYOUT_NOTICE.into(),
+        };
         self.config_path = path;
+        self.config_picker = None;
+        self.save_as = None;
+        self.new_layout_requested = false;
+        self.new_layout_error = None;
         self.layout_name_edit = None;
         self.focus_layout_name = false;
         self.editor = None;
@@ -217,13 +297,87 @@ impl ButtonBuilder {
         }
         self.dirty = false;
         self.error = None;
-        self.notice = format!("Loaded {}", self.config_path.display());
-        Ok(())
+    }
+
+    fn has_unsaved_changes(&self) -> bool {
+        self.dirty || self.editor.is_some() || self.layout_name_edit.is_some()
+    }
+
+    fn request_new_layout(&mut self) {
+        self.new_layout_error = None;
+        if self.has_unsaved_changes() {
+            self.new_layout_requested = true;
+        } else {
+            self.create_new_layout();
+        }
+    }
+
+    fn create_new_layout(&mut self) {
+        self.replace_layout(Config::default(), None);
+    }
+
+    fn save_before_new_layout(&mut self) {
+        self.apply_layout_name();
+        let mut config = self.config.clone();
+        if let Some(editor) = &self.editor {
+            if let Err(error) = validate_button(&editor.button) {
+                self.new_layout_error = Some(error);
+                return;
+            }
+            config.buttons[editor.index] = editor.button.clone();
+        }
+        match self.save_config(config, true) {
+            Ok(()) => {
+                if let Some(save_as) = &mut self.save_as {
+                    save_as.create_new_layout = true;
+                } else {
+                    self.create_new_layout();
+                }
+            }
+            Err(error) => self.new_layout_error = Some(error),
+        }
+    }
+
+    fn new_layout_window(&mut self, ctx: &egui::Context) {
+        if !self.new_layout_requested {
+            return;
+        }
+        let mut save = false;
+        let mut discard = false;
+        let mut cancel = false;
+        let dialog = crate::ui::dialog(
+            ctx,
+            "new_layout",
+            "Create a new layout?",
+            480.0..=560.0,
+            |ui| {
+                ui.label("Save your changes before starting a new layout?");
+                if self.running() {
+                    ui.small("Running terminals will stay open.");
+                }
+                if let Some(error) = &self.new_layout_error {
+                    ui.colored_label(Color32::LIGHT_RED, error);
+                }
+                crate::ui::dialog_footer(ui, |ui| {
+                    cancel = ui.add(text_button("Cancel")).clicked();
+                    discard = ui.add(outlined_button("Create without saving")).clicked();
+                    save = ui.add(filled_button("Save and create")).clicked();
+                });
+            },
+        );
+        if save {
+            self.save_before_new_layout();
+        } else if discard {
+            self.create_new_layout();
+        } else if cancel || dialog.should_close() {
+            self.new_layout_requested = false;
+            self.new_layout_error = None;
+        }
     }
 
     fn config_picker_window(&mut self, ctx: &egui::Context) {
         let running = self.running();
-        let unsaved = self.dirty || self.editor.is_some() || self.layout_name_edit.is_some();
+        let unsaved = self.has_unsaved_changes();
         let Some(picker) = &mut self.config_picker else {
             return;
         };
@@ -243,7 +397,7 @@ impl ButtonBuilder {
                 }
             }
             PickerAction::Cancel => self.config_picker = None,
-            PickerAction::None => {}
+            PickerAction::None | PickerAction::Save(_) => {}
         }
     }
 
@@ -314,7 +468,9 @@ impl ButtonBuilder {
                         }
                         if ui
                             .add(
-                                filled_button(if self.dirty {
+                                filled_button(if self.config_path.is_none() {
+                                    "Save layout…"
+                                } else if self.dirty {
                                     "Save layout *"
                                 } else {
                                     "Save layout"
@@ -322,7 +478,10 @@ impl ButtonBuilder {
                                 .small()
                                 .min_size(Vec2::new(0.0, 40.0)),
                             )
-                            .on_hover_text(format!("Save to {}", self.config_path.display()))
+                            .on_hover_text(self.config_path.as_ref().map_or_else(
+                                || "Choose a file to save this layout".into(),
+                                |path| format!("Save to {}", path.display()),
+                            ))
                             .clicked()
                         {
                             self.save();
@@ -333,7 +492,19 @@ impl ButtonBuilder {
                                 .min_size(Vec2::new(0.0, 40.0)),
                         );
                         if response.clicked() {
-                            self.config_picker = Some(ConfigPicker::new(&self.config_path));
+                            self.config_picker =
+                                Some(ConfigPicker::new(self.config_path.as_deref()));
+                        }
+                        if ui
+                            .add(
+                                outlined_button("New layout")
+                                    .small()
+                                    .min_size(Vec2::new(0.0, 40.0)),
+                            )
+                            .on_hover_text("Create an empty, unsaved layout")
+                            .clicked()
+                        {
+                            self.request_new_layout();
                         }
                         response
                     })
@@ -531,27 +702,15 @@ impl ButtonBuilder {
             },
         );
         if save {
-            let validation = if editor.button.label.trim().is_empty() {
-                Err("Enter a label for the button.".into())
-            } else if !editor.button.command.trim().is_empty() {
-                editor.button.args().map(|_| ())
-            } else {
-                Ok(())
-            };
-            match validation {
+            match validate_button(&editor.button) {
                 Err(error) => editor.error = Some(error),
                 Ok(()) => {
                     let mut config = self.config.clone();
                     config.buttons[editor.index] = editor.button.clone();
-                    match config.save(&self.config_path) {
-                        Ok(()) => {
-                            self.config = config;
-                            self.dirty = false;
-                            self.notice = "Button saved".into();
-                            self.error = None;
-                            self.editor = None;
-                        }
-                        Err(error) => editor.error = Some(error),
+                    if let Err(error) = self.save_config(config, true)
+                        && let Some(editor) = &mut self.editor
+                    {
+                        editor.error = Some(error);
                     }
                 }
             }
@@ -906,7 +1065,8 @@ impl ButtonBuilder {
                     matches!(event, egui::Event::MouseWheel { modifiers, .. } if modifiers.ctrl)
                 })
         });
-        if response.hovered() && control_scroll {
+        let pane_hovered = ui.rect_contains_pointer(response.rect);
+        if pane_hovered && control_scroll {
             // Read wheel events directly: egui turns Ctrl+wheel into smoothed zoom input.
             // One wheel notch changes the font by 1 pt; pixel scrolling scales continuously.
             let delta: f32 = ui.input(|input| {
@@ -949,7 +1109,8 @@ impl ButtonBuilder {
                 fonts.row_height(&font) * style.line_spacing,
             )
         });
-        let cols = (((size.x - 16.0) / char_width) as usize).clamp(2, 500);
+        let content_width = (size.x - 16.0 - TERMINAL_SCROLLBAR_WIDTH).max(0.0);
+        let cols = ((content_width / char_width) as usize).clamp(2, 500);
         let rows = (((size.y - 16.0) / line_height) as usize).clamp(2, 200);
         self.terminal_size = (cols, rows);
         let rect = response.rect;
@@ -965,7 +1126,7 @@ impl ButtonBuilder {
             });
             let previous = tab.terminal.screen.scrolled_lines;
             tab.terminal.resize(
-                (((size.x - 16.0) / width) as usize).clamp(2, 500),
+                ((content_width / width) as usize).clamp(2, 500),
                 (((size.y - 16.0) / height) as usize).clamp(2, 200),
             );
             // Shrinking the viewport can move rows into history. Keep the viewed text anchored.
@@ -975,7 +1136,30 @@ impl ButtonBuilder {
                     .saturating_add(tab.terminal.screen.scrolled_lines.saturating_sub(previous));
             }
         }
-        if response.clicked() || self.focus_terminal {
+        let mut scrollbar_interacted = false;
+        if let Some(index) = self.active_tab {
+            let tab = &mut self.tabs[index];
+            let screen = &tab.terminal.screen;
+            let history_len = if screen.is_alternate() {
+                0
+            } else {
+                screen.history.len()
+            };
+            if pane_hovered && !control_scroll {
+                let delta = ui.input(|input| input.smooth_scroll_delta.y);
+                tab.scroll_fraction += delta / line_height;
+                let lines = tab.scroll_fraction.trunc() as isize;
+                tab.scroll_fraction -= lines as f32;
+                tab.scrollback = tab.scrollback.saturating_add_signed(lines);
+            }
+            tab.scrollback = tab.scrollback.min(history_len);
+            scrollbar_interacted =
+                terminal_scrollbar(ui, &response, rows, history_len, &mut tab.scrollback);
+            if scrollbar_interacted {
+                tab.scroll_fraction = 0.0;
+            }
+        }
+        if response.clicked() || scrollbar_interacted || self.focus_terminal {
             response.request_focus();
             self.focus_terminal = false;
         }
@@ -999,6 +1183,13 @@ impl ButtonBuilder {
             );
         }
         let origin = rect.min + Vec2::splat(8.0);
+        let painter = painter.with_clip_rect(egui::Rect::from_min_max(
+            origin,
+            egui::pos2(
+                (rect.right() - TERMINAL_SCROLLBAR_WIDTH - 8.0).max(origin.x),
+                rect.bottom() - 8.0,
+            ),
+        ));
         let Some(index) = self.active_tab else {
             painter.text(
                 origin,
@@ -1018,14 +1209,6 @@ impl ButtonBuilder {
         } else {
             screen.history.len()
         };
-        if response.hovered() && !control_scroll {
-            let delta = ui.input(|input| input.smooth_scroll_delta.y);
-            tab.scroll_fraction += delta / line_height;
-            let lines = tab.scroll_fraction.trunc() as isize;
-            tab.scroll_fraction -= lines as f32;
-            tab.scrollback = tab.scrollback.saturating_add_signed(lines);
-        }
-        tab.scrollback = tab.scrollback.min(history_len);
         let start = history_len.saturating_sub(tab.scrollback);
         for visible_row in 0..rows {
             let index = start + visible_row;
@@ -1148,9 +1331,19 @@ impl ButtonBuilder {
                 self.buttons_panel(ui);
             });
         egui::CentralPanel::default().show(ctx, |ui| self.terminal_panel(ui));
-        self.editor_window(ctx);
-        self.appearance_window(ctx);
-        self.config_picker_window(ctx);
+        if self.save_as.is_none() && !self.new_layout_requested {
+            self.editor_window(ctx);
+        }
+        if self.save_as.is_none() && !self.new_layout_requested {
+            self.appearance_window(ctx);
+        }
+        if self.save_as.is_none() && !self.new_layout_requested {
+            self.config_picker_window(ctx);
+        }
+        if self.save_as.is_none() {
+            self.new_layout_window(ctx);
+        }
+        self.save_as_window(ctx);
         if self.tabs.iter().any(|tab| tab.terminal.needs_poll()) {
             ctx.request_repaint_after(Duration::from_millis(33));
         }
@@ -1165,6 +1358,16 @@ impl eframe::App for ButtonBuilder {
 
 fn rgb(color: [u8; 3]) -> Color32 {
     Color32::from_rgb(color[0], color[1], color[2])
+}
+
+fn validate_button(button: &ButtonConfig) -> Result<(), String> {
+    if button.label.trim().is_empty() {
+        Err("Enter a label for the button.".into())
+    } else if !button.command.trim().is_empty() {
+        button.args().map(|_| ())
+    } else {
+        Ok(())
+    }
 }
 
 fn toolbar_button(caption: &str) -> MaterialButton<'static> {
@@ -1186,6 +1389,90 @@ fn terminal_font(style: &TerminalStyle, fonts: &[String]) -> FontId {
         FontFamily::Name(style.font.clone().into())
     };
     FontId::new(style.font_size, family)
+}
+
+/// Map the full scrollback range onto a proportional thumb, keeping zero at live output.
+fn terminal_scrollbar(
+    ui: &mut egui::Ui,
+    pane: &egui::Response,
+    rows: usize,
+    history_len: usize,
+    scrollback: &mut usize,
+) -> bool {
+    let id = pane.id.with("scrollbar");
+    let grab_id = id.with("grab_offset");
+    if history_len == 0
+        || pane.rect.height() <= 16.0
+        || pane.rect.width() <= TERMINAL_SCROLLBAR_WIDTH
+    {
+        ui.ctx().data_mut(|data| data.remove::<f32>(grab_id));
+        return false;
+    }
+    let gutter = egui::Rect::from_min_max(
+        egui::pos2(
+            pane.rect.right() - TERMINAL_SCROLLBAR_WIDTH,
+            pane.rect.top() + 8.0,
+        ),
+        egui::pos2(pane.rect.right(), pane.rect.bottom() - 8.0),
+    );
+    let track = gutter.shrink2(Vec2::new(4.0, 0.0));
+    let thumb_height = (track.height() * rows as f32 / (history_len + rows) as f32)
+        .max(24.0)
+        .min(track.height());
+    let travel = track.height() - thumb_height;
+    let thumb_rect = |scrollback: usize| {
+        egui::Rect::from_min_size(
+            track.min
+                + Vec2::new(
+                    0.0,
+                    travel * (history_len - scrollback) as f32 / history_len as f32,
+                ),
+            Vec2::new(track.width(), thumb_height),
+        )
+    };
+    let response = ui.interact(gutter, id, egui::Sense::click_and_drag());
+    let interacting =
+        response.is_pointer_button_down_on() || response.dragged() || response.clicked();
+    if interacting && let Some(pointer) = response.interact_pointer_pos() {
+        let thumb = thumb_rect(*scrollback);
+        // Preserve where the thumb was grabbed; clicking the track centers it at the pointer.
+        let grab_offset = ui.ctx().data_mut(|data| {
+            *data.get_temp_mut_or_insert_with(grab_id, || {
+                if thumb.contains(pointer) {
+                    pointer.y - thumb.top()
+                } else {
+                    thumb_height / 2.0
+                }
+            })
+        });
+        if travel > 0.0 {
+            let fraction = ((pointer.y - grab_offset - track.top()) / travel).clamp(0.0, 1.0);
+            *scrollback = history_len - (fraction * history_len as f32).round() as usize;
+        }
+    }
+    if !ui.input(|input| input.pointer.any_down()) {
+        ui.ctx().data_mut(|data| data.remove::<f32>(grab_id));
+    }
+    let color = if response.hovered() || interacting {
+        get_global_color("primary")
+    } else {
+        get_global_color("outline")
+    };
+    if response.hovered() || interacting {
+        ui.ctx().set_cursor_icon(if interacting {
+            egui::CursorIcon::Grabbing
+        } else {
+            egui::CursorIcon::Grab
+        });
+    }
+    ui.painter().rect_filled(
+        track,
+        CORNER_RADIUS,
+        get_global_color("surfaceContainerHighest"),
+    );
+    ui.painter()
+        .rect_filled(thumb_rect(*scrollback), CORNER_RADIUS, color);
+    interacting
 }
 
 fn styled_button(button: &ButtonConfig, caption: String) -> MaterialButton<'static> {
@@ -1461,6 +1748,29 @@ mod tests {
         }
     }
 
+    fn scrollbar_rects(output: &egui::FullOutput) -> Option<(egui::Rect, egui::Rect)> {
+        let track = output.shapes.iter().find_map(|shape| match &shape.shape {
+            egui::Shape::Rect(rect)
+                if rect.fill == get_global_color("surfaceContainerHighest")
+                    && (rect.rect.width() - (TERMINAL_SCROLLBAR_WIDTH - 8.0)).abs() < 0.1 =>
+            {
+                Some(rect.rect)
+            }
+            _ => None,
+        })?;
+        let thumb = output.shapes.iter().find_map(|shape| match &shape.shape {
+            egui::Shape::Rect(rect)
+                if track.contains_rect(rect.rect)
+                    && (rect.fill == get_global_color("outline")
+                        || rect.fill == get_global_color("primary")) =>
+            {
+                Some(rect.rect)
+            }
+            _ => None,
+        })?;
+        Some((track, thumb))
+    }
+
     fn wait_for_tabs(
         app: &mut ButtonBuilder,
         ctx: &egui::Context,
@@ -1486,8 +1796,11 @@ mod tests {
         let mut config = Config::default();
         config.buttons[0] = interactive_button("Alpha");
         config.buttons[1] = interactive_button("Beta");
-        let mut app =
-            ButtonBuilder::new(&ctx, "/tmp/rs-button-builder-tabs-test.yaml".into(), config);
+        let mut app = ButtonBuilder::new(
+            &ctx,
+            Some("/tmp/rs-button-builder-tabs-test.yaml".into()),
+            config,
+        );
         frame(&mut app, &ctx, vec![]);
         let output = frame(&mut app, &ctx, vec![]);
         click(&mut app, &ctx, label_center(&output, "Alpha"));
@@ -1646,7 +1959,7 @@ mod tests {
         config.buttons[1] = interactive_button("Quiet");
         let mut app = ButtonBuilder::new(
             &ctx,
-            "/tmp/rs-button-builder-flood-test.yaml".into(),
+            Some("/tmp/rs-button-builder-flood-test.yaml".into()),
             config,
         );
         frame(&mut app, &ctx, vec![]);
@@ -1710,6 +2023,197 @@ mod tests {
     }
 
     #[test]
+    fn terminal_scrollbar_drags_history_and_preserves_tab_position_and_input_focus() {
+        let ctx = egui::Context::default();
+        let mut config = Config::default();
+        config.buttons[0] = interactive_button("Alpha");
+        config.buttons[1] = interactive_button("Beta");
+        let mut app = ButtonBuilder::new(&ctx, Some("/tmp/scrollbar-tabs.yaml".into()), config);
+        app.launch(0, false);
+        app.launch(1, true);
+        wait_for_tabs(&mut app, &ctx, |app| {
+            app.tabs
+                .iter()
+                .all(|tab| tab.terminal.screen.text().contains("-ready"))
+        });
+        app.select_tab(0);
+        frame(&mut app, &ctx, vec![]);
+        for i in 0..120 {
+            app.tabs[0]
+                .terminal
+                .screen
+                .feed(format!("history-{i}\r\n").as_bytes());
+        }
+        let output = frame(&mut app, &ctx, vec![]);
+        let (track, thumb) = scrollbar_rects(&output).unwrap();
+        assert!((thumb.bottom() - track.bottom()).abs() < 0.01);
+        let grab = egui::pos2(thumb.center().x, thumb.bottom() - 5.0);
+        frame(
+            &mut app,
+            &ctx,
+            vec![
+                egui::Event::PointerMoved(grab),
+                egui::Event::PointerButton {
+                    pos: grab,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ],
+        );
+        assert_eq!(
+            app.tabs[0].scrollback, 0,
+            "Grabbing the thumb must not jump"
+        );
+        frame(
+            &mut app,
+            &ctx,
+            vec![egui::Event::PointerMoved(track.center())],
+        );
+        assert!(app.tabs[0].scrollback > 0);
+        assert!(app.tabs[0].scrollback < app.tabs[0].terminal.screen.history.len());
+        frame(
+            &mut app,
+            &ctx,
+            vec![egui::Event::PointerButton {
+                pos: track.center(),
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: egui::Modifiers::NONE,
+            }],
+        );
+        let saved = app.tabs[0].scrollback;
+        app.select_tab(1);
+        let output = frame(&mut app, &ctx, vec![]);
+        assert!(
+            scrollbar_rects(&output).is_none(),
+            "No scrollbar without history"
+        );
+        app.select_tab(0);
+        frame(&mut app, &ctx, vec![]);
+        assert_eq!(app.tabs[0].scrollback, saved);
+        let anchor = app.tabs[0].terminal.screen.history.len() - saved;
+        wheel(
+            &mut app,
+            &ctx,
+            track.center(),
+            egui::MouseWheelUnit::Line,
+            Vec2::new(0.0, 1.0),
+            egui::Modifiers::CTRL,
+        );
+        assert_eq!(
+            app.tabs[0].style.font_size, 15.0,
+            "Zoom also works over the scrollbar"
+        );
+        assert_eq!(
+            app.tabs[0].terminal.screen.history.len() - app.tabs[0].scrollback,
+            anchor
+        );
+        app.tabs[0].terminal.send(b"arrived\n");
+        wait_for_tabs(&mut app, &ctx, |app| {
+            app.tabs[0].terminal.screen.text().contains("Alpha:arrived")
+        });
+        assert_eq!(
+            app.tabs[0].terminal.screen.history.len() - app.tabs[0].scrollback,
+            anchor,
+            "Incoming output must keep the viewed text anchored"
+        );
+        let output = frame(&mut app, &ctx, vec![]);
+        let (track, _) = scrollbar_rects(&output).unwrap();
+        click(&mut app, &ctx, track.center_top());
+        assert_eq!(
+            app.tabs[0].scrollback,
+            app.tabs[0].terminal.screen.history.len()
+        );
+        click(&mut app, &ctx, track.center_bottom() - Vec2::new(0.0, 1.0));
+        assert_eq!(app.tabs[0].scrollback, 0, "Bottom resumes live output");
+        click(&mut app, &ctx, track.center_top());
+        frame(&mut app, &ctx, vec![egui::Event::Text("hello\n".into())]);
+        assert_eq!(app.tabs[0].scrollback, 0);
+        wait_for_tabs(&mut app, &ctx, |app| {
+            app.tabs[0].terminal.screen.text().contains("Alpha:hello")
+        });
+        assert!(!app.tabs[1].terminal.screen.text().contains("hello"));
+    }
+
+    #[test]
+    fn terminal_scrollbar_handles_full_buffer_and_alternate_screen_at_minimum_window_size() {
+        let ctx = egui::Context::default();
+        let mut config = Config::default();
+        config.buttons[0] = ButtonConfig {
+            label: "Local demo".into(),
+            command: "/usr/bin/true".into(),
+            ..Default::default()
+        };
+        let mut app = ButtonBuilder::new(&ctx, Some("/tmp/scrollbar-small.yaml".into()), config);
+        app.launch(0, false);
+        let small_frame = |app: &mut ButtonBuilder, events| {
+            frame_with(
+                app,
+                &ctx,
+                Vec2::new(850.0, 500.0),
+                egui::Modifiers::NONE,
+                events,
+            )
+        };
+        small_frame(&mut app, vec![]);
+        for i in 0..2300 {
+            app.tabs[0]
+                .terminal
+                .screen
+                .feed(format!("line-{i}\r\n").as_bytes());
+        }
+        small_frame(&mut app, vec![]);
+        let output = small_frame(&mut app, vec![]);
+        let (track, thumb) = scrollbar_rects(&output).unwrap();
+        assert!(
+            egui::Rect::from_min_size(egui::Pos2::ZERO, Vec2::new(850.0, 500.0))
+                .contains_rect(track)
+        );
+        assert!(track.contains_rect(thumb));
+        assert_eq!(thumb.height(), 24.0);
+        let grab = thumb.center();
+        small_frame(
+            &mut app,
+            vec![
+                egui::Event::PointerMoved(grab),
+                egui::Event::PointerButton {
+                    pos: grab,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ],
+        );
+        let above = egui::pos2(grab.x, -100.0);
+        small_frame(&mut app, vec![egui::Event::PointerMoved(above)]);
+        assert_eq!(app.tabs[0].scrollback, 2000);
+        let output = small_frame(&mut app, vec![]);
+        let (track, thumb) = scrollbar_rects(&output).unwrap();
+        assert_eq!(track.top(), thumb.top());
+        let below = egui::pos2(grab.x, 600.0);
+        small_frame(&mut app, vec![egui::Event::PointerMoved(below)]);
+        assert_eq!(app.tabs[0].scrollback, 0);
+        small_frame(
+            &mut app,
+            vec![egui::Event::PointerButton {
+                pos: below,
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: egui::Modifiers::NONE,
+            }],
+        );
+        app.tabs[0].terminal.screen.feed(b"\x1b[?1049h");
+        let output = small_frame(&mut app, vec![]);
+        assert!(
+            scrollbar_rects(&output).is_none(),
+            "Full-screen programs use their alternate screen"
+        );
+        app.tabs[0].terminal.screen.feed(b"\x1b[?1049l");
+        assert!(scrollbar_rects(&small_frame(&mut app, vec![])).is_some());
+    }
+
+    #[test]
     fn control_wheel_zooms_only_active_tab_and_preserves_history_anchor() {
         let ctx = egui::Context::default();
         let mut config = Config::default();
@@ -1717,7 +2221,7 @@ mod tests {
         config.buttons[1] = interactive_button("Beta");
         let mut app = ButtonBuilder::new(
             &ctx,
-            "/tmp/rs-button-builder-wheel-zoom-test.yaml".into(),
+            Some("/tmp/rs-button-builder-wheel-zoom-test.yaml".into()),
             config,
         );
         app.launch(0, false);
@@ -1817,7 +2321,7 @@ mod tests {
         assert_eq!(app.tabs[0].style.font_size, 15.0);
         app.save();
         assert_eq!(
-            Config::load_existing(&app.config_path)
+            Config::load_existing(app.config_path.as_deref().unwrap())
                 .unwrap()
                 .terminal
                 .font_size,
@@ -1833,7 +2337,7 @@ mod tests {
         let ctx = egui::Context::default();
         let mut app = ButtonBuilder::new(
             &ctx,
-            "/tmp/rs-button-builder-wheel-limits-test.yaml".into(),
+            Some("/tmp/rs-button-builder-wheel-limits-test.yaml".into()),
             Config::default(),
         );
         frame(&mut app, &ctx, vec![]);
@@ -1933,7 +2437,7 @@ mod tests {
         config.buttons[0] = interactive_button("Alpha");
         let mut app = ButtonBuilder::new(
             &ctx,
-            "/tmp/rs-button-builder-tab-appearance-test.yaml".into(),
+            Some("/tmp/rs-button-builder-tab-appearance-test.yaml".into()),
             config,
         );
         app.launch(0, false);
@@ -1995,7 +2499,7 @@ mod tests {
         let output = frame(&mut app, &ctx, vec![]);
         click(&mut app, &ctx, label_center(&output, "Save appearance"));
         assert_eq!(
-            Config::load_existing(&app.config_path)
+            Config::load_existing(app.config_path.as_deref().unwrap())
                 .unwrap()
                 .terminal
                 .font_size,
@@ -2049,7 +2553,7 @@ mod tests {
         let output = frame(&mut app, &ctx, vec![]);
         click(&mut app, &ctx, label_center(&output, "Save appearance"));
         assert_eq!(
-            Config::load_existing(&app.config_path)
+            Config::load_existing(app.config_path.as_deref().unwrap())
                 .unwrap()
                 .terminal
                 .font_size,
@@ -2068,7 +2572,7 @@ mod tests {
         config.buttons[1].command = "/this/local/program/does/not/exist".into();
         let mut app = ButtonBuilder::new(
             &ctx,
-            "/tmp/rs-button-builder-tab-load-test.yaml".into(),
+            Some("/tmp/rs-button-builder-tab-load-test.yaml".into()),
             config,
         );
         app.launch(0, false);
@@ -2118,7 +2622,7 @@ mod tests {
         config.buttons[0] = interactive_button("A long running command label");
         let mut app = ButtonBuilder::new(
             &ctx,
-            "/tmp/rs-button-builder-many-tabs-test.yaml".into(),
+            Some("/tmp/rs-button-builder-many-tabs-test.yaml".into()),
             config,
         );
         for _ in 0..8 {
@@ -2233,7 +2737,7 @@ mod tests {
             "rs-button-builder-layout-name-{}.yaml",
             std::process::id()
         ));
-        let mut app = ButtonBuilder::new(&ctx, path.clone(), Config::default());
+        let mut app = ButtonBuilder::new(&ctx, Some(path.clone()), Config::default());
         frame(&mut app, &ctx, vec![]);
         let output = frame(&mut app, &ctx, vec![]);
         click(&mut app, &ctx, label_center(&output, DEFAULT_LAYOUT_NAME));
@@ -2333,7 +2837,7 @@ mod tests {
             "rs-button-builder-log-checkbox-{}.yaml",
             std::process::id()
         ));
-        let mut app = ButtonBuilder::new(&ctx, path.clone(), Config::default());
+        let mut app = ButtonBuilder::new(&ctx, Some(path.clone()), Config::default());
         app.edit(0);
         frame(&mut app, &ctx, vec![]);
         let output = frame(&mut app, &ctx, vec![]);
@@ -2369,7 +2873,7 @@ mod tests {
             "rs-button-builder-ui-test-{}.yaml",
             std::process::id()
         ));
-        let mut app = ButtonBuilder::new(&ctx, path.clone(), Config::default());
+        let mut app = ButtonBuilder::new(&ctx, Some(path.clone()), Config::default());
         frame(&mut app, &ctx, vec![]);
         let output = frame(&mut app, &ctx, vec![]);
         let positions: Vec<_> = (0..9)
@@ -2377,7 +2881,7 @@ mod tests {
                 label_center(
                     &output,
                     &if i == 0 {
-                        "Run Top".into()
+                        "Button 1\n+ Configure".into()
                     } else {
                         format!("Button {}\n+ Configure", i + 1)
                     },
@@ -2403,15 +2907,15 @@ mod tests {
         assert!(app.editor.is_none());
         assert!(app.tabs.is_empty(), "Saving must not execute the command");
         assert_eq!(
-            Config::load(&path).unwrap().buttons[1].label,
+            Config::load_existing(&path).unwrap().buttons[1].label,
             "Local output"
         );
         assert_eq!(
-            Config::load(&path).unwrap().buttons[1].fg_color,
+            Config::load_existing(&path).unwrap().buttons[1].fg_color,
             Some([250, 230, 210])
         );
         assert_eq!(
-            Config::load(&path).unwrap().buttons[1].bg_color,
+            Config::load_existing(&path).unwrap().buttons[1].bg_color,
             Some([20, 50, 80])
         );
         let output = frame(&mut app, &ctx, vec![]);
@@ -2453,7 +2957,7 @@ mod tests {
             "rs-button-builder-material-test-{}.yaml",
             std::process::id()
         ));
-        let mut app = ButtonBuilder::new(&ctx, path, Config::default());
+        let mut app = ButtonBuilder::new(&ctx, Some(path), Config::default());
         frame(&mut app, &ctx, vec![]);
         let mut definitions = ctx.fonts(|fonts| fonts.definitions().clone());
         definitions.families.insert(
@@ -2478,7 +2982,10 @@ mod tests {
         click(&mut app, &ctx, label_center(&output, "Save appearance"));
         assert!(!app.dirty);
         assert_eq!(
-            Config::load(&app.config_path).unwrap().terminal.font,
+            Config::load_existing(app.config_path.as_deref().unwrap())
+                .unwrap()
+                .terminal
+                .font,
             "Test font"
         );
         let output = frame(&mut app, &ctx, vec![]);
@@ -2502,7 +3009,7 @@ mod tests {
         )));
         click(&mut app, &ctx, label_center(&output, "Cancel"));
         assert!(app.editor.is_none());
-        assert_eq!(app.config.buttons[0].label, "Run Top");
+        assert_eq!(app.config.buttons[0].label, "Button 1");
 
         app.edit(0);
         let mut output = egui::FullOutput::default();
@@ -2533,7 +3040,7 @@ mod tests {
                 None
             } else {
                 app.dirty = true;
-                Some(ConfigPicker::new(&app.config_path))
+                Some(ConfigPicker::new(app.config_path.as_deref()))
             };
             for _ in 0..3 {
                 output = ctx.run(
@@ -2581,17 +3088,38 @@ mod tests {
         }
         let ctx = egui::Context::default();
         let path = std::env::temp_dir().join("rs-button-builder-footer-preview.yaml");
-        let mut app = ButtonBuilder::new(&ctx, path, Config::default());
+        let mut app = ButtonBuilder::new(&ctx, Some(path), Config::default());
         let mut time = 0.0;
         for (title, action) in [
             ("Edit button 1", "Save button"),
             ("Terminal appearance", "Save appearance"),
             ("Load buttons config", "Load selected config"),
+            ("Save buttons config", "Save config"),
+            ("Create a new layout?", "Save and create"),
         ] {
             app.editor = None;
+            app.new_layout_requested = title == "Create a new layout?";
+            app.save_as = if title == "Save buttons config" {
+                let mut picker = ConfigPicker::save(None);
+                picker.path = std::env::temp_dir()
+                    .join(format!(
+                        "rs-button-builder-footer-save-{}.yaml",
+                        std::process::id()
+                    ))
+                    .display()
+                    .to_string();
+                Some(SaveAs {
+                    picker,
+                    config: app.config.clone(),
+                    close_editor: false,
+                    create_new_layout: false,
+                })
+            } else {
+                None
+            };
             app.appearance_open = title == "Terminal appearance";
             app.config_picker = if title == "Load buttons config" {
-                Some(ConfigPicker::new(&app.config_path))
+                Some(ConfigPicker::new(app.config_path.as_deref()))
             } else {
                 None
             };
@@ -2694,7 +3222,7 @@ mod tests {
             "rs-button-builder-grid-ui-test-{}.yaml",
             std::process::id()
         ));
-        let mut app = ButtonBuilder::new(&ctx, path.clone(), Config::default());
+        let mut app = ButtonBuilder::new(&ctx, Some(path.clone()), Config::default());
         app.config.resize_grid(2, 4).unwrap();
         app.dirty = true;
         frame(&mut app, &ctx, vec![]);
@@ -2707,7 +3235,7 @@ mod tests {
         assert!((fifth.y - eighth.y).abs() < 1.0);
         assert!(!output.shapes.iter().any(|shape| matches!(&shape.shape, egui::Shape::Text(text) if text.galley.job.text == "Button 9\n+ Configure")));
         click(&mut app, &ctx, label_center(&output, "Save layout *"));
-        let loaded = Config::load(&path).unwrap();
+        let loaded = Config::load_existing(&path).unwrap();
         assert_eq!((loaded.rows, loaded.columns), (2, 4));
         assert_eq!(
             loaded.buttons.len(),
@@ -2717,10 +3245,476 @@ mod tests {
     }
 
     #[test]
+    fn new_layout_toolbar_clears_the_layout_and_preserves_running_terminals() {
+        let ctx = egui::Context::default();
+        let path = std::env::temp_dir().join(format!(
+            "rs-button-builder-new-running-{}.yaml",
+            std::process::id()
+        ));
+        let mut config = Config {
+            display_name: "Original layout".into(),
+            ..Default::default()
+        };
+        config.resize_grid(2, 4).unwrap();
+        config.buttons[0] = interactive_button("Alpha");
+        config.buttons[1] = interactive_button("Beta");
+        config.terminal.font_size = 18.0;
+        config.terminal.bg_color = [10, 20, 30];
+        config.save(&path).unwrap();
+        let mut app = ButtonBuilder::new(&ctx, Some(path.clone()), config);
+        app.launch(0, false);
+        app.launch(1, true);
+        wait_for_tabs(&mut app, &ctx, |app| {
+            app.tabs
+                .iter()
+                .all(|tab| tab.terminal.screen.text().contains("-ready"))
+        });
+        for size in [Vec2::new(1200.0, 760.0), Vec2::new(850.0, 500.0)] {
+            frame_with(&mut app, &ctx, size, egui::Modifiers::NONE, vec![]);
+            let output = frame_with(&mut app, &ctx, size, egui::Modifiers::NONE, vec![]);
+            let positions: Vec<_> = ["New layout", "Load config…", "Save layout", "Exit"]
+                .iter()
+                .map(|label| label_center(&output, label))
+                .collect();
+            assert!(positions.windows(2).all(|pair| pair[0].x < pair[1].x));
+            for (label, pos) in ["New layout", "Load config…", "Save layout", "Exit"]
+                .iter()
+                .zip(positions)
+            {
+                assert!(pos.x < size.x && pos.y < 64.0);
+                assert!(output.shapes.iter().any(|shape| shape.clip_rect.contains(pos)
+                    && matches!(&shape.shape, egui::Shape::Text(text) if text.galley.job.text == *label)));
+            }
+        }
+        frame(&mut app, &ctx, vec![]);
+        let output = frame(&mut app, &ctx, vec![]);
+        let active_id = app.active().unwrap().id;
+        let text = app.tabs[0].terminal.screen.text();
+        click(&mut app, &ctx, label_center(&output, "New layout"));
+        assert!(app.config_path.is_none() && !app.dirty && !app.new_layout_requested);
+        assert_eq!(
+            (
+                app.config.rows,
+                app.config.columns,
+                app.config.buttons.len()
+            ),
+            (3, 3, 9)
+        );
+        assert_eq!(app.config.display_name(), DEFAULT_LAYOUT_NAME);
+        assert!(
+            app.config
+                .buttons
+                .iter()
+                .all(|button| button.command.is_empty())
+        );
+        assert_eq!(app.config.terminal.font_size, 14.0);
+        assert_eq!(app.tabs.len(), 2);
+        assert_eq!(app.active().unwrap().id, active_id);
+        assert_eq!(app.tabs[0].terminal.screen.text(), text);
+        assert!(
+            app.tabs
+                .iter()
+                .all(|tab| tab.terminal.is_running() && tab.button_index.is_none())
+        );
+        assert!(
+            app.tabs
+                .iter()
+                .all(|tab| tab.style.font_size == 18.0 && tab.style.bg_color == [10, 20, 30])
+        );
+        assert_eq!(
+            Config::load_existing(&path).unwrap().display_name,
+            "Original layout"
+        );
+        app.save();
+        assert!(
+            app.save_as.as_ref().unwrap().picker.path.is_empty(),
+            "New layouts need their own save destination"
+        );
+    }
+
+    #[test]
+    fn new_layout_confirmation_cancels_saves_or_discards_changes() {
+        let ctx = egui::Context::default();
+        let path = std::env::temp_dir().join(format!(
+            "rs-button-builder-new-confirmation-{}.yaml",
+            std::process::id()
+        ));
+        let config = Config {
+            display_name: "Original".into(),
+            ..Default::default()
+        };
+        config.save(&path).unwrap();
+        let mut app = ButtonBuilder::new(&ctx, Some(path.clone()), config);
+        app.config.display_name = "Changed layout".into();
+        app.config.resize_grid(1, 2).unwrap();
+        app.dirty = true;
+        frame(&mut app, &ctx, vec![]);
+        let output = frame(&mut app, &ctx, vec![]);
+        click(&mut app, &ctx, label_center(&output, "New layout"));
+        assert!(app.new_layout_requested && app.dirty);
+        let output = frame(&mut app, &ctx, vec![]);
+        click(&mut app, &ctx, label_center(&output, "Cancel"));
+        assert!(!app.new_layout_requested && app.dirty);
+        assert_eq!(app.config.display_name, "Changed layout");
+        assert_eq!(app.config_path.as_ref(), Some(&path));
+        assert_eq!(
+            Config::load_existing(&path).unwrap().display_name,
+            "Original"
+        );
+        app.layout_name_edit = Some("Save this title".into());
+        let output = frame(&mut app, &ctx, vec![]);
+        click(&mut app, &ctx, label_center(&output, "New layout"));
+        let output = frame(&mut app, &ctx, vec![]);
+        click(&mut app, &ctx, label_center(&output, "Save and create"));
+        assert!(app.config_path.is_none() && !app.dirty && !app.new_layout_requested);
+        let saved = Config::load_existing(&path).unwrap();
+        assert_eq!(saved.display_name, "Save this title");
+        assert_eq!((saved.rows, saved.columns), (1, 2));
+        assert_eq!((app.config.rows, app.config.columns), (3, 3));
+
+        app.load_config(path.clone()).unwrap();
+        app.config.display_name = "Discard this title".into();
+        app.dirty = true;
+        let output = frame(&mut app, &ctx, vec![]);
+        click(&mut app, &ctx, label_center(&output, "New layout"));
+        let output = frame(&mut app, &ctx, vec![]);
+        click(
+            &mut app,
+            &ctx,
+            label_center(&output, "Create without saving"),
+        );
+        assert!(app.config_path.is_none() && !app.dirty && app.save_as.is_none());
+        assert_eq!(app.config.display_name(), DEFAULT_LAYOUT_NAME);
+        assert_eq!(
+            Config::load_existing(&path).unwrap().display_name,
+            "Save this title"
+        );
+    }
+
+    #[test]
+    fn new_layout_waits_for_a_successful_first_save_and_preserves_button_edits() {
+        let ctx = egui::Context::default();
+        let directory = std::env::temp_dir().join(format!(
+            "rs-button-builder-new-save-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir(&directory).unwrap();
+        let saved_path = directory.join("previous-layout.yaml");
+        let mut app = ButtonBuilder::new(&ctx, None, Config::default());
+        app.config.display_name = "Save this layout".into();
+        app.dirty = true;
+        app.edit(0);
+        app.editor.as_mut().unwrap().button.label.clear();
+        app.request_new_layout();
+        frame(&mut app, &ctx, vec![]);
+        let output = frame(&mut app, &ctx, vec![]);
+        click(&mut app, &ctx, label_center(&output, "Save and create"));
+        assert_eq!(
+            app.new_layout_error.as_deref(),
+            Some("Enter a label for the button.")
+        );
+        assert!(app.new_layout_requested && app.editor.is_some() && app.save_as.is_none());
+        let output = frame(&mut app, &ctx, vec![]);
+        click(&mut app, &ctx, label_center(&output, "Cancel"));
+        let editor = app.editor.as_mut().unwrap();
+        editor.button.label = "Draft button".into();
+        editor.button.command = "/usr/bin/true".into();
+        app.request_new_layout();
+        let output = frame(&mut app, &ctx, vec![]);
+        click(&mut app, &ctx, label_center(&output, "Save and create"));
+        assert!(app.save_as.as_ref().unwrap().create_new_layout);
+        assert!(app.save_as.as_ref().unwrap().picker.path.is_empty());
+        let output = frame(&mut app, &ctx, vec![]);
+        click(&mut app, &ctx, label_center(&output, "Cancel"));
+        assert!(app.new_layout_requested && app.config_path.is_none() && app.dirty);
+        assert_eq!(app.editor.as_ref().unwrap().button.label, "Draft button");
+        let output = frame(&mut app, &ctx, vec![]);
+        click(&mut app, &ctx, label_center(&output, "Save and create"));
+        app.save_as.as_mut().unwrap().picker.path =
+            directory.join("missing/layout.yaml").display().to_string();
+        let output = frame(&mut app, &ctx, vec![]);
+        click(&mut app, &ctx, label_center(&output, "Save config"));
+        assert!(app.save_as.as_ref().unwrap().picker.error.is_some());
+        assert_eq!(app.config.display_name, "Save this layout");
+        assert!(app.config_path.is_none() && app.editor.is_some() && app.dirty);
+        app.save_as.as_mut().unwrap().picker.path = saved_path.display().to_string();
+        let output = frame(&mut app, &ctx, vec![]);
+        click(&mut app, &ctx, label_center(&output, "Save config"));
+        assert!(app.save_as.is_none() && app.editor.is_none() && !app.new_layout_requested);
+        assert!(app.config_path.is_none() && !app.dirty);
+        assert!(
+            app.config
+                .buttons
+                .iter()
+                .all(|button| button.command.is_empty())
+        );
+        let saved = Config::load_existing(&saved_path).unwrap();
+        assert_eq!(saved.display_name, "Save this layout");
+        assert_eq!(saved.buttons[0].label, "Draft button");
+        assert_eq!(saved.buttons[0].command, "/usr/bin/true");
+    }
+
+    #[test]
+    fn unsaved_layout_requires_a_filename_and_then_reuses_the_selected_file() {
+        let ctx = egui::Context::default();
+        let path = std::env::temp_dir().join(format!(
+            "rs-button-builder-first-save-{}-{}.yaml",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let mut app = ButtonBuilder::new(&ctx, None, Config::default());
+        assert!(app.config_path.is_none());
+        assert!(
+            app.config
+                .buttons
+                .iter()
+                .all(|button| button.command.is_empty())
+        );
+        assert!(app.tabs.is_empty());
+        app.config.resize_grid(2, 2).unwrap();
+        app.dirty = true;
+        frame(&mut app, &ctx, vec![]);
+        let output = frame(&mut app, &ctx, vec![]);
+        click(&mut app, &ctx, label_center(&output, "Save layout…"));
+        assert!(app.save_as.as_ref().unwrap().picker.path.is_empty());
+        let output = frame(&mut app, &ctx, vec![]);
+        click(&mut app, &ctx, label_center(&output, "Save config"));
+        assert!(app.save_as.is_some() && app.config_path.is_none());
+        for _ in 0..3 {
+            let small = frame_with(
+                &mut app,
+                &ctx,
+                Vec2::new(850.0, 500.0),
+                egui::Modifiers::NONE,
+                vec![],
+            );
+            for label in ["Save config", "Cancel"] {
+                let pos = label_center(&small, label);
+                assert!(pos.y < 500.0);
+                assert!(small.shapes.iter().any(|shape| shape.clip_rect.contains(pos)
+                    && matches!(&shape.shape, egui::Shape::Text(text) if text.galley.job.text == label)));
+            }
+        }
+        let output = frame(&mut app, &ctx, vec![]);
+        click(&mut app, &ctx, label_center(&output, "Cancel"));
+        assert!(app.save_as.is_none() && app.config_path.is_none() && app.dirty);
+        assert!(!path.exists());
+
+        let output = frame(&mut app, &ctx, vec![]);
+        click(&mut app, &ctx, label_center(&output, "Save layout…"));
+        let output = frame(&mut app, &ctx, vec![]);
+        click(
+            &mut app,
+            &ctx,
+            label_center(&output, "Enter a filename or path"),
+        );
+        frame(
+            &mut app,
+            &ctx,
+            vec![egui::Event::Text(
+                path.with_extension("").display().to_string(),
+            )],
+        );
+        let output = frame(&mut app, &ctx, vec![]);
+        click(&mut app, &ctx, label_center(&output, "Save config"));
+        assert!(app.save_as.is_none() && !app.dirty);
+        assert_eq!(app.config_path.as_ref(), Some(&path));
+        assert!(!path.with_extension("").exists());
+        let saved = Config::load_existing(&path).unwrap();
+        assert_eq!((saved.rows, saved.columns), (2, 2));
+        assert!(saved.buttons.iter().all(|button| button.command.is_empty()));
+        app.config.terminal.font_size = 20.0;
+        app.dirty = true;
+        let output = frame(&mut app, &ctx, vec![]);
+        click(&mut app, &ctx, label_center(&output, "Save layout *"));
+        assert!(app.save_as.is_none() && !app.dirty);
+        assert_eq!(
+            Config::load_existing(&path).unwrap().terminal.font_size,
+            20.0
+        );
+    }
+
+    #[test]
+    fn first_button_save_preserves_its_draft_on_cancel_and_error_and_confirms_overwrite() {
+        let ctx = egui::Context::default();
+        let directory = std::env::temp_dir().join(format!(
+            "rs-button-builder-first-button-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir(&directory).unwrap();
+        let existing = directory.join("existing.yaml");
+        Config {
+            display_name: "Original".into(),
+            ..Default::default()
+        }
+        .save(&existing)
+        .unwrap();
+        let mut app = ButtonBuilder::new(&ctx, None, Config::default());
+        frame(&mut app, &ctx, vec![]);
+        let output = frame(&mut app, &ctx, vec![]);
+        click(
+            &mut app,
+            &ctx,
+            label_center(&output, "Button 1\n+ Configure"),
+        );
+        let editor = app.editor.as_mut().unwrap();
+        editor.button.label = "Local output".into();
+        editor.button.command = "/usr/bin/printf".into();
+        editor.button.arguments = "'first button works\\n'".into();
+        let output = frame(&mut app, &ctx, vec![]);
+        click(&mut app, &ctx, label_center(&output, "Save button"));
+        assert_eq!(
+            app.save_as.as_ref().unwrap().config.buttons[0].label,
+            "Local output"
+        );
+        let output = frame(&mut app, &ctx, vec![]);
+        click(&mut app, &ctx, label_center(&output, "Cancel"));
+        assert_eq!(app.editor.as_ref().unwrap().button.label, "Local output");
+        assert!(app.config.buttons[0].command.is_empty() && app.config_path.is_none());
+        let output = frame(&mut app, &ctx, vec![]);
+        click(&mut app, &ctx, label_center(&output, "Save button"));
+        app.save_as.as_mut().unwrap().picker.path =
+            directory.join("missing/layout.yaml").display().to_string();
+        let output = frame(&mut app, &ctx, vec![]);
+        click(&mut app, &ctx, label_center(&output, "Save config"));
+        assert!(
+            app.save_as
+                .as_ref()
+                .unwrap()
+                .picker
+                .error
+                .as_ref()
+                .unwrap()
+                .contains("Could not save")
+        );
+        assert!(app.config_path.is_none() && app.editor.is_some());
+        assert!(app.config.buttons[0].command.is_empty());
+        app.save_as.as_mut().unwrap().picker.path =
+            existing.with_extension("").display().to_string();
+        let output = frame(&mut app, &ctx, vec![]);
+        click(&mut app, &ctx, label_center(&output, "Save config"));
+        assert!(app.save_as.is_some());
+        assert_eq!(
+            Config::load_existing(&existing).unwrap().display_name,
+            "Original"
+        );
+        let output = frame(&mut app, &ctx, vec![]);
+        click(
+            &mut app,
+            &ctx,
+            label_center(&output, "Overwrite existing file"),
+        );
+        let output = frame(&mut app, &ctx, vec![]);
+        click(&mut app, &ctx, label_center(&output, "Save config"));
+        assert!(app.save_as.is_none() && app.editor.is_none() && !app.dirty);
+        assert_eq!(app.config_path.as_ref(), Some(&existing));
+        assert_eq!(
+            Config::load_existing(&existing).unwrap().buttons[0].label,
+            "Local output"
+        );
+        assert!(app.tabs.is_empty(), "Saving a config must not run commands");
+        app.launch(0, false);
+        wait_for_tabs(&mut app, &ctx, |app| {
+            app.tabs[0]
+                .terminal
+                .screen
+                .text()
+                .contains("first button works")
+        });
+    }
+
+    #[test]
+    fn loading_without_a_config_can_save_the_unsaved_layout_before_replacing_it() {
+        let ctx = egui::Context::default();
+        let directory = std::env::temp_dir().join(format!(
+            "rs-button-builder-save-before-load-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir(&directory).unwrap();
+        let saved = directory.join("created.yaml");
+        let loaded = directory.join("selected.yaml");
+        Config {
+            display_name: "Selected layout".into(),
+            ..Default::default()
+        }
+        .save(&loaded)
+        .unwrap();
+        let mut app = ButtonBuilder::new(&ctx, None, Config::default());
+        frame(&mut app, &ctx, vec![]);
+        let output = frame(&mut app, &ctx, vec![]);
+        click(&mut app, &ctx, label_center(&output, "Load config…"));
+        assert!(app.config_picker.as_ref().unwrap().path.is_empty());
+        let output = frame(&mut app, &ctx, vec![]);
+        click(&mut app, &ctx, label_center(&output, "Cancel"));
+        assert!(app.config_picker.is_none() && app.config_path.is_none());
+        app.config.resize_grid(1, 2).unwrap();
+        app.dirty = true;
+        let output = frame(&mut app, &ctx, vec![]);
+        click(&mut app, &ctx, label_center(&output, "Load config…"));
+        app.config_picker.as_mut().unwrap().path = loaded.display().to_string();
+        let output = frame(&mut app, &ctx, vec![]);
+        click(
+            &mut app,
+            &ctx,
+            label_center(&output, "Save current layout first"),
+        );
+        assert!(app.save_as.is_some() && app.config_picker.is_some());
+        let output = frame(&mut app, &ctx, vec![]);
+        click(&mut app, &ctx, label_center(&output, "Cancel"));
+        assert!(app.save_as.is_none() && app.dirty && app.config_path.is_none());
+        assert_eq!(
+            app.config_picker.as_ref().unwrap().path,
+            loaded.display().to_string()
+        );
+        let output = frame(&mut app, &ctx, vec![]);
+        click(
+            &mut app,
+            &ctx,
+            label_center(&output, "Save current layout first"),
+        );
+        app.save_as.as_mut().unwrap().picker.path = saved.display().to_string();
+        let output = frame(&mut app, &ctx, vec![]);
+        click(&mut app, &ctx, label_center(&output, "Save config"));
+        assert_eq!(app.config_path.as_ref(), Some(&saved));
+        assert!(!app.dirty && app.config_picker.is_some());
+        let output = frame(&mut app, &ctx, vec![]);
+        click(
+            &mut app,
+            &ctx,
+            label_center(&output, "Load selected config"),
+        );
+        assert!(app.config_picker.is_none() && !app.dirty);
+        assert_eq!(app.config_path.as_ref(), Some(&loaded));
+        assert_eq!(app.config.display_name, "Selected layout");
+        assert_eq!(
+            (
+                Config::load_existing(&saved).unwrap().rows,
+                Config::load_existing(&saved).unwrap().columns
+            ),
+            (1, 2)
+        );
+    }
+
+    #[test]
     fn chooser_loads_an_example_only_after_unsaved_changes_are_replaced() {
         let ctx = egui::Context::default();
         let current = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("buttons.yaml");
-        let mut app = ButtonBuilder::new(&ctx, current.clone(), Config::default());
+        let mut app = ButtonBuilder::new(&ctx, Some(current.clone()), Config::default());
         app.dirty = true;
         frame(&mut app, &ctx, vec![]);
         let output = frame(&mut app, &ctx, vec![]);
@@ -2739,7 +3733,7 @@ mod tests {
             &ctx,
             label_center(&output, "Load selected config"),
         );
-        assert_eq!(app.config_path, current);
+        assert_eq!(app.config_path.as_ref(), Some(&current));
         assert!(app.dirty);
         let output = frame(&mut app, &ctx, vec![]);
         click(
@@ -2759,7 +3753,10 @@ mod tests {
         assert_eq!(app.config.buttons[0].label, "Pretty JSON");
         assert_eq!(app.config.buttons[0].bg_color, Some([75, 55, 120]));
         assert_eq!(app.config.terminal.font_size, 15.0);
-        assert_eq!(app.config_path.file_name().unwrap(), "json-streams.yaml");
+        assert_eq!(
+            app.config_path.as_ref().unwrap().file_name().unwrap(),
+            "json-streams.yaml"
+        );
         assert!(app.tabs.is_empty(), "Loading must not execute a command");
     }
 
@@ -2778,13 +3775,13 @@ mod tests {
         let current = directory.join("current.yaml");
         let malformed = directory.join("invalid.yaml");
         std::fs::write(&malformed, "rows: [invalid\n").unwrap();
-        let mut app = ButtonBuilder::new(&ctx, current.clone(), Config::default());
+        let mut app = ButtonBuilder::new(&ctx, Some(current.clone()), Config::default());
         app.config.buttons[0].label = "Keep this label".into();
         app.dirty = true;
         app.edit(0);
         for path in [directory.join("missing.yaml"), malformed] {
             assert!(app.load_config(path).is_err());
-            assert_eq!(app.config_path, current);
+            assert_eq!(app.config_path.as_ref(), Some(&current));
             assert_eq!(app.config.buttons[0].label, "Keep this label");
             assert!(app.dirty && app.editor.is_some());
         }

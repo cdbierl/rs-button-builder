@@ -42,13 +42,9 @@ fn run() -> Result<(), String> {
             let (path, settings) = match config {
                 Some(path) => {
                     let settings = config::Config::load_existing(&path)?;
-                    (path, settings)
+                    (Some(path), settings)
                 }
-                None => {
-                    let path = std::path::PathBuf::from("buttons.yaml");
-                    let settings = config::Config::load(&path)?;
-                    (path, settings)
-                }
+                None => (None, config::Config::default()),
             };
             let options = eframe::NativeOptions {
                 viewport: egui::ViewportBuilder::default()

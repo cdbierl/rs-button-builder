@@ -87,17 +87,12 @@ pub struct Config {
 
 impl Default for Config {
     fn default() -> Self {
-        let mut buttons: Vec<_> = (0..9)
+        let buttons: Vec<_> = (0..9)
             .map(|index| ButtonConfig {
                 label: format!("Button {}", index + 1),
                 ..Default::default()
             })
             .collect();
-        buttons[0] = ButtonConfig {
-            label: "Run Top".into(),
-            command: "/usr/bin/top".into(),
-            ..Default::default()
-        };
         Self {
             display_name: DEFAULT_LAYOUT_NAME.into(),
             rows: 3,
@@ -140,18 +135,7 @@ impl Config {
         Ok(())
     }
 
-    pub fn load(path: &Path) -> Result<Self, String> {
-        let source = match fs::read_to_string(path) {
-            Ok(source) => source,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                return Ok(Self::default());
-            }
-            Err(error) => return Err(format!("Could not read {}: {error}", path.display())),
-        };
-        Self::parse(&source, path)
-    }
-
-    /// Explicit loading must not silently replace a layout with defaults for a missing file.
+    /// Loading a missing or invalid file must fail instead of substituting a layout.
     pub fn load_existing(path: &Path) -> Result<Self, String> {
         let source = fs::read_to_string(path)
             .map_err(|error| format!("Could not read {}: {error}", path.display()))?;
@@ -251,7 +235,7 @@ mod tests {
         config.terminal.font_size = 22.0;
         let decoded: Config =
             serde_yaml_ng::from_str(&serde_yaml_ng::to_string(&config).unwrap()).unwrap();
-        assert_eq!(decoded.buttons[0].command, "/usr/bin/top");
+        assert!(decoded.buttons[0].command.is_empty());
         assert_eq!(decoded.display_name, "System Monitor · Local");
         assert_eq!(decoded.buttons[8].label, "Last button");
         assert!(decoded.buttons[8].log_output);
@@ -274,7 +258,7 @@ mod tests {
             std::process::id()
         ));
         config.save(&path).unwrap();
-        let mut loaded = Config::load(&path).unwrap();
+        let mut loaded = Config::load_existing(&path).unwrap();
         assert_eq!(
             (loaded.rows, loaded.columns, loaded.visible_buttons()),
             (1, 2, 2)
