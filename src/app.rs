@@ -15,12 +15,37 @@ struct Editor {
     error: Option<String>,
 }
 
+struct TerminalTab {
+    id: u64,
+    label: String,
+    command: String,
+    button_index: Option<usize>,
+    terminal: Terminal,
+    style: TerminalStyle,
+    scrollback: usize,
+    scroll_fraction: f32,
+}
+
+impl TerminalTab {
+    fn poll(&mut self) {
+        let previous = self.terminal.screen.scrolled_lines;
+        self.terminal.poll();
+        if self.scrollback > 0 {
+            self.scrollback = self
+                .scrollback
+                .saturating_add(self.terminal.screen.scrolled_lines.saturating_sub(previous));
+        }
+    }
+}
+
 pub struct ButtonBuilder {
     config: Config,
     config_path: PathBuf,
     config_picker: Option<ConfigPicker>,
-    terminal: Option<Terminal>,
-    active_button: Option<usize>,
+    tabs: Vec<TerminalTab>,
+    active_tab: Option<usize>,
+    next_tab_id: u64,
+    reveal_active_tab: bool,
     editor: Option<Editor>,
     edit_mode: bool,
     appearance_open: bool,
@@ -30,8 +55,6 @@ pub struct ButtonBuilder {
     error: Option<String>,
     terminal_size: (usize, usize),
     focus_terminal: bool,
-    scrollback: usize,
-    scroll_fraction: f32,
 }
 
 impl ButtonBuilder {
@@ -42,8 +65,10 @@ impl ButtonBuilder {
             config,
             config_path,
             config_picker: None,
-            terminal: None,
-            active_button: None,
+            tabs: Vec::new(),
+            active_tab: None,
+            next_tab_id: 1,
+            reveal_active_tab: false,
             editor: None,
             edit_mode: false,
             appearance_open: false,
@@ -53,13 +78,38 @@ impl ButtonBuilder {
             error: None,
             terminal_size: (80, 24),
             focus_terminal: false,
-            scrollback: 0,
-            scroll_fraction: 0.0,
         }
     }
 
     fn running(&self) -> bool {
-        self.terminal.as_ref().is_some_and(Terminal::is_running)
+        self.tabs.iter().any(|tab| tab.terminal.is_running())
+    }
+
+    fn active(&self) -> Option<&TerminalTab> {
+        self.active_tab.and_then(|index| self.tabs.get(index))
+    }
+
+    fn active_running(&self) -> bool {
+        self.active().is_some_and(|tab| tab.terminal.is_running())
+    }
+
+    fn select_tab(&mut self, index: usize) {
+        self.active_tab = Some(index);
+        self.reveal_active_tab = true;
+        self.focus_terminal = true;
+    }
+
+    fn close_tab(&mut self, index: usize) {
+        // Dropping a terminal stops and reaps its process group.
+        self.tabs.remove(index);
+        self.active_tab = match self.active_tab {
+            _ if self.tabs.is_empty() => None,
+            Some(active) if active > index => Some(active - 1),
+            Some(active) if active == index => Some(index.min(self.tabs.len() - 1)),
+            active => active,
+        };
+        self.focus_terminal = true;
+        self.reveal_active_tab = true;
     }
 
     fn save(&mut self) {
@@ -88,7 +138,9 @@ impl ButtonBuilder {
         self.editor = None;
         self.appearance_open = false;
         self.edit_mode = false;
-        self.active_button = None;
+        for tab in &mut self.tabs {
+            tab.button_index = None;
+        }
         self.dirty = false;
         self.error = None;
         self.notice = format!("Loaded {}", self.config_path.display());
@@ -121,12 +173,12 @@ impl ButtonBuilder {
         }
     }
 
-    fn launch(&mut self, index: usize) {
+    fn launch(&mut self, index: usize, new_tab: bool) {
         if self.config.buttons[index].command.trim().is_empty() {
             self.edit(index);
             return;
         }
-        if self.running() {
+        if !new_tab && self.active_running() {
             return;
         }
         match Terminal::start(
@@ -135,10 +187,30 @@ impl ButtonBuilder {
             self.terminal_size.1,
         ) {
             Ok(terminal) => {
-                self.terminal = Some(terminal);
-                self.active_button = Some(index);
-                self.scrollback = 0;
+                let replace = self.active_tab.filter(|_| !new_tab);
+                let id = replace.map_or(self.next_tab_id, |index| self.tabs[index].id);
+                let style = replace
+                    .map(|index| self.tabs[index].style.clone())
+                    .unwrap_or_else(|| self.config.terminal.clone());
+                let tab = TerminalTab {
+                    id,
+                    label: self.config.buttons[index].label.clone(),
+                    command: self.config.buttons[index].command.clone(),
+                    button_index: Some(index),
+                    terminal,
+                    style,
+                    scrollback: 0,
+                    scroll_fraction: 0.0,
+                };
+                if let Some(index) = replace {
+                    self.tabs[index] = tab;
+                } else {
+                    self.next_tab_id += 1;
+                    self.tabs.push(tab);
+                    self.active_tab = Some(self.tabs.len() - 1);
+                }
                 self.focus_terminal = true;
+                self.reveal_active_tab = true;
                 self.error = None;
             }
             Err(error) => self.error = Some(error),
@@ -215,7 +287,7 @@ impl ButtonBuilder {
                 "Click buttons to edit instead of running them. Right-click also edits.",
             );
         ui.add_space(12.0);
-        let running = self.running();
+        let new_tab = ui.input(|input| input.modifiers.ctrl);
         let columns = self.config.columns;
         let width =
             ((ui.available_width() - 8.0 * (columns - 1) as f32) / columns as f32).max(90.0);
@@ -238,24 +310,20 @@ impl ButtonBuilder {
                             .enumerate()
                         {
                             let configured = !button.command.trim().is_empty();
-                            let selected = self.active_button == Some(index) && running;
+                            let selected = self.active().is_some_and(|tab| {
+                                tab.button_index == Some(index) && tab.terminal.is_running()
+                            });
                             let caption = if configured {
                                 button.label.clone()
                             } else {
                                 format!("{}\n+ Configure", button.label)
                             };
-                            let response = ui
-                                .add_enabled_ui(self.edit_mode || !running || !configured, |ui| {
-                                    let mut widget = styled_button(button, caption).wrap();
-                                    if selected {
-                                        widget = widget.stroke(Stroke::new(
-                                            2.0_f32,
-                                            get_global_color("primary"),
-                                        ));
-                                    }
-                                    ui.add_sized([width, 88.0], widget)
-                                })
-                                .inner;
+                            let mut widget = styled_button(button, caption).wrap();
+                            if selected {
+                                widget = widget
+                                    .stroke(Stroke::new(2.0_f32, get_global_color("primary")));
+                            }
+                            let response = ui.add_sized([width, 88.0], widget);
                             if response.clicked() {
                                 clicked = Some(index);
                             }
@@ -266,9 +334,9 @@ impl ButtonBuilder {
                                 }
                             });
                             response.on_hover_text(if configured {
-                                button.command.as_str()
+                                format!("{}\nCtrl-click to open a new terminal tab", button.command)
                             } else {
-                                "Click to assign a label and command"
+                                "Click to assign a label and command".into()
                             });
                             if (index + 1) % columns == 0 {
                                 ui.end_row();
@@ -283,7 +351,7 @@ impl ButtonBuilder {
             if self.edit_mode {
                 self.edit(index);
             } else {
-                self.launch(index);
+                self.launch(index, new_tab);
             }
         }
     }
@@ -409,6 +477,7 @@ impl ButtonBuilder {
         let mut save = false;
         let mut refresh_fonts = false;
         let mut close = false;
+        let mut changed = false;
         let dialog = crate::ui::dialog(
             ctx,
             "terminal_appearance",
@@ -416,22 +485,25 @@ impl ButtonBuilder {
             400.0_f32.min(ctx.content_rect().width() - 64.0)..=480.0,
             |ui| {
                 crate::ui::form(ui, ctx, "appearance_form", |ui| {
-                    let style = &mut self.config.terminal;
-                    self.dirty |= crate::ui::font_picker(ui, &mut style.font, &self.fonts);
+                    let style = match self.active_tab {
+                        Some(index) => &mut self.tabs[index].style,
+                        None => &mut self.config.terminal,
+                    };
+                    changed |= crate::ui::font_picker(ui, &mut style.font, &self.fonts);
                     refresh_fonts = ui.add(text_button("Refresh fonts").small()).clicked();
                     if !self.fonts.contains(&style.font) {
                         ui.small("The selected font is unavailable; using built-in Monospace.");
                     }
                     ui.label("Font size");
                     ui.horizontal(|ui| {
-                        self.dirty |= ui
+                        changed |= ui
                             .add(
                                 MaterialSlider::new(&mut style.font_size, 8.0..=32.0)
                                     .show_value(false)
                                     .width((ui.available_width() - 100.0).max(100.0)),
                             )
                             .changed();
-                        self.dirty |= ui
+                        changed |= ui
                             .add(
                                 egui::DragValue::new(&mut style.font_size)
                                     .range(8.0..=32.0)
@@ -443,14 +515,14 @@ impl ButtonBuilder {
                     });
                     ui.label("Line spacing");
                     ui.horizontal(|ui| {
-                        self.dirty |= ui
+                        changed |= ui
                             .add(
                                 MaterialSlider::new(&mut style.line_spacing, 1.0..=1.8)
                                     .show_value(false)
                                     .width((ui.available_width() - 100.0).max(100.0)),
                             )
                             .changed();
-                        self.dirty |= ui
+                        changed |= ui
                             .add(
                                 egui::DragValue::new(&mut style.line_spacing)
                                     .range(1.0..=1.8)
@@ -462,9 +534,9 @@ impl ButtonBuilder {
                     });
                     ui.horizontal(|ui| {
                         ui.label("Text");
-                        self.dirty |= ui.color_edit_button_srgb(&mut style.foreground).changed();
+                        changed |= ui.color_edit_button_srgb(&mut style.foreground).changed();
                         ui.label("Background");
-                        self.dirty |= ui.color_edit_button_srgb(&mut style.background).changed();
+                        changed |= ui.color_edit_button_srgb(&mut style.background).changed();
                     });
                 });
                 crate::ui::dialog_footer(ui, |ui| {
@@ -480,6 +552,9 @@ impl ButtonBuilder {
                         .clicked()
                     {
                         self.config.terminal = TerminalStyle::default();
+                        if let Some(index) = self.active_tab {
+                            self.tabs[index].style = TerminalStyle::default();
+                        }
                         self.dirty = true;
                     }
                     save = ui
@@ -492,6 +567,12 @@ impl ButtonBuilder {
                 });
             },
         );
+        if changed {
+            if let Some(tab) = self.active() {
+                self.config.terminal = tab.style.clone();
+            }
+            self.dirty = true;
+        }
         if dialog.should_close() || close {
             self.appearance_open = false;
         }
@@ -503,58 +584,216 @@ impl ButtonBuilder {
             );
         }
         if save {
+            if let Some(tab) = self.active() {
+                self.config.terminal = tab.style.clone();
+            }
             self.save();
         }
     }
 
-    fn terminal_panel(&mut self, ui: &mut egui::Ui) {
-        ui.horizontal_wrapped(|ui| {
-            ui.heading("Terminal");
-            if ui.add(text_button("Appearance").small()).clicked() {
-                self.appearance_open = true;
-            }
-            if ui
-                .add_enabled(self.terminal.is_some(), text_button("Copy output").small())
-                .on_hover_text("Copy terminal output (Ctrl+Shift+C)")
-                .clicked()
-                && let Some(terminal) = &self.terminal
-            {
-                ui.ctx().copy_text(terminal.screen.text());
-            }
-            if ui
-                .add_enabled(self.running(), outlined_button("Ctrl+C").small())
-                .clicked()
-                && let Some(terminal) = &mut self.terminal
-            {
-                terminal.send(b"\x03");
-            }
-            if ui
-                .add_enabled(self.running(), outlined_button("Stop").small())
-                .clicked()
-                && let Some(terminal) = &mut self.terminal
-            {
-                terminal.stop();
-            }
-        });
-        ui.horizontal(|ui| {
-            let status = self
-                .terminal
-                .as_ref()
-                .map(|t| t.status.as_str())
-                .unwrap_or("Ready");
-            ui.label(status);
-        });
-        if self.scrollback > 0 && ui.add(text_button("Jump to live").small()).clicked() {
-            self.scrollback = 0;
+    fn terminal_tabs(&mut self, ui: &mut egui::Ui) {
+        let mut selected = None;
+        let bar_height = 40.0;
+        ui.allocate_ui_with_layout(
+            Vec2::new(ui.available_width(), bar_height),
+            egui::Layout::left_to_right(egui::Align::Center),
+            |ui| {
+                ui.set_min_height(bar_height);
+                ui.strong("Terminal");
+                ui.add_space(6.0);
+                let previous = self.active_tab.and_then(|index| index.checked_sub(1));
+                if ui
+                    .add_enabled(previous.is_some(), tab_arrow("‹"))
+                    .on_hover_text("Previous terminal tab")
+                    .clicked()
+                {
+                    selected = previous;
+                }
+                let strip_width =
+                    (ui.available_width() - 32.0 - ui.spacing().item_spacing.x).max(1.0);
+                ui.allocate_ui_with_layout(
+                    Vec2::new(strip_width, bar_height),
+                    egui::Layout::left_to_right(egui::Align::Center),
+                    |ui| {
+                        let tabs_rect = ui.max_rect();
+                        egui::ScrollArea::horizontal()
+                            .id_salt("terminal_tabs")
+                            .scroll_bar_visibility(
+                                egui::scroll_area::ScrollBarVisibility::AlwaysHidden,
+                            )
+                            .auto_shrink([false, true])
+                            .show(ui, |ui| {
+                                ui.set_clip_rect(ui.clip_rect().intersect(tabs_rect));
+                                ui.spacing_mut().item_spacing.x = 6.0;
+                                ui.spacing_mut().interact_size.y = bar_height;
+                                ui.horizontal(|ui| {
+                                    for (index, tab) in self.tabs.iter().enumerate() {
+                                        let active = self.active_tab == Some(index);
+                                        let running = tab.terminal.is_running();
+                                        let title = format!("{} · {}", tab.id, tab.label);
+                                        let width = (ui
+                                            .painter()
+                                            .layout_no_wrap(
+                                                title.clone(),
+                                                FontId::proportional(14.0),
+                                                Color32::WHITE,
+                                            )
+                                            .size()
+                                            .x
+                                            + 24.0)
+                                            .clamp(100.0, 180.0);
+                                        let button = text_button(RichText::new(&title).size(14.0))
+                                            .small()
+                                            .truncate()
+                                            .min_size(Vec2::new(0.0, 32.0))
+                                            .fill(get_global_color(if active {
+                                                "primaryContainer"
+                                            } else {
+                                                "surfaceContainerLow"
+                                            }))
+                                            .text_color(get_global_color(if active {
+                                                "onPrimaryContainer"
+                                            } else {
+                                                "onSurfaceVariant"
+                                            }));
+                                        let response = ui
+                                            .push_id(tab.id, |ui| {
+                                                ui.add_sized([width, 32.0], button)
+                                            })
+                                            .inner;
+                                        let dot = egui::pos2(
+                                            response.rect.left() + 7.0,
+                                            response.rect.top() + 6.0,
+                                        );
+                                        ui.painter().circle_filled(
+                                            dot,
+                                            2.5,
+                                            get_global_color(if running {
+                                                "primary"
+                                            } else {
+                                                "outline"
+                                            }),
+                                        );
+                                        if active && self.reveal_active_tab {
+                                            response.scroll_to_me(Some(egui::Align::Center));
+                                        }
+                                        if response
+                                            .on_hover_text(format!(
+                                                "{title}\n{}\n{}",
+                                                tab.command, tab.terminal.status
+                                            ))
+                                            .clicked()
+                                        {
+                                            selected = Some(index);
+                                        }
+                                    }
+                                });
+                            });
+                    },
+                );
+                let next = self
+                    .active_tab
+                    .map(|index| index + 1)
+                    .filter(|&index| index < self.tabs.len());
+                if ui
+                    .add_enabled(next.is_some(), tab_arrow("›"))
+                    .on_hover_text("Next terminal tab")
+                    .clicked()
+                {
+                    selected = next;
+                }
+            },
+        );
+        self.reveal_active_tab = false;
+        if let Some(index) = selected {
+            self.select_tab(index);
         }
+    }
+
+    fn terminal_toolbar(&mut self, ui: &mut egui::Ui) {
+        let active = self.active_tab;
+        let running = self.active_running();
+        let mut copy = false;
+        let mut interrupt = false;
+        let mut stop = false;
+        let mut close = false;
+        let mut live = false;
+        egui::Frame::new()
+            .fill(get_global_color("surfaceContainerLow"))
+            .corner_radius(CORNER_RADIUS)
+            .inner_margin(egui::Margin::symmetric(8, 4))
+            .show(ui, |ui| {
+                ui.set_min_width(ui.available_width());
+                ui.spacing_mut().item_spacing = Vec2::new(6.0, 4.0);
+                ui.spacing_mut().interact_size.y = 32.0;
+                ui.horizontal_wrapped(|ui| {
+                    if ui
+                        .add(toolbar_button("Appearance"))
+                        .on_hover_text(
+                            "Change this tab's font and colors; save as the default for new tabs",
+                        )
+                        .clicked()
+                    {
+                        self.appearance_open = true;
+                    }
+                    copy = ui
+                        .add_enabled(active.is_some(), toolbar_button("Copy"))
+                        .on_hover_text("Copy this tab's output (Ctrl+Shift+C)")
+                        .clicked();
+                    interrupt = ui
+                        .add_enabled(running, toolbar_button("Ctrl+C"))
+                        .on_hover_text("Interrupt this tab's process")
+                        .clicked();
+                    stop = ui
+                        .add_enabled(running, toolbar_button("Stop"))
+                        .on_hover_text("Stop this tab's process group")
+                        .clicked();
+                    close = ui
+                        .add_enabled(active.is_some(), toolbar_button("Close tab"))
+                        .on_hover_text("Close this tab and stop its process")
+                        .clicked();
+                    if self.active().is_some_and(|tab| tab.scrollback > 0) {
+                        live = ui.add(toolbar_button("Jump to live")).clicked();
+                    }
+                });
+            });
+        if let Some(index) = active {
+            let tab = &mut self.tabs[index];
+            if copy {
+                ui.ctx().copy_text(tab.terminal.screen.text());
+            }
+            if interrupt {
+                tab.terminal.send(b"\x03");
+            }
+            if stop {
+                tab.terminal.stop();
+            }
+            if live {
+                tab.scrollback = 0;
+                tab.scroll_fraction = 0.0;
+            }
+            if close {
+                self.close_tab(index);
+            }
+        }
+        let status = self
+            .active()
+            .map(|tab| tab.terminal.status.as_str())
+            .unwrap_or("Ready · Ctrl-click a button to open another terminal tab");
+        ui.add(egui::Label::new(RichText::new(status).size(14.0)).truncate())
+            .on_hover_text(status);
+    }
+
+    fn terminal_panel(&mut self, ui: &mut egui::Ui) {
+        self.terminal_tabs(ui);
+        self.terminal_toolbar(ui);
         ui.add_space(4.0);
-        let style = &self.config.terminal;
-        let family = if style.font == "Monospace" || !self.fonts.contains(&style.font) {
-            FontFamily::Monospace
-        } else {
-            FontFamily::Name(style.font.clone().into())
+        let style = match self.active_tab {
+            Some(index) => &self.tabs[index].style,
+            None => &self.config.terminal,
         };
-        let font = FontId::new(style.font_size, family);
+        let font = terminal_font(style, &self.fonts);
+        let foreground = rgb(style.foreground);
         let (char_width, line_height) = ui.fonts_mut(|fonts| {
             (
                 fonts.glyph_width(&font, 'M'),
@@ -565,9 +804,28 @@ impl ButtonBuilder {
         let cols = (((size.x - 16.0) / char_width) as usize).clamp(2, 500);
         let rows = (((size.y - 16.0) / line_height) as usize).clamp(2, 200);
         self.terminal_size = (cols, rows);
-        let (response, painter) = ui.allocate_painter(size, egui::Sense::click());
+        let id = self.active().map(|tab| tab.id);
+        let (response, painter) = ui
+            .push_id(("terminal_pane", id), |ui| {
+                ui.allocate_painter(size, egui::Sense::click())
+            })
+            .inner;
         let rect = response.rect;
         painter.rect_filled(rect, CORNER_RADIUS, rgb(style.background));
+        // Inactive processes also receive viewport changes, using their own font metrics.
+        for tab in &mut self.tabs {
+            let tab_font = terminal_font(&tab.style, &self.fonts);
+            let (width, height) = ui.fonts_mut(|fonts| {
+                (
+                    fonts.glyph_width(&tab_font, 'M'),
+                    fonts.row_height(&tab_font) * tab.style.line_spacing,
+                )
+            });
+            tab.terminal.resize(
+                (((size.x - 16.0) / width) as usize).clamp(2, 500),
+                (((size.y - 16.0) / height) as usize).clamp(2, 200),
+            );
+        }
         if response.clicked() || self.focus_terminal {
             response.request_focus();
             self.focus_terminal = false;
@@ -592,17 +850,19 @@ impl ButtonBuilder {
             );
         }
         let origin = rect.min + Vec2::splat(8.0);
-        let Some(terminal) = &mut self.terminal else {
+        let Some(index) = self.active_tab else {
             painter.text(
                 origin,
                 egui::Align2::LEFT_TOP,
                 "No process output yet.",
                 font,
-                rgb(style.foreground),
+                foreground,
             );
             return;
         };
-        terminal.resize(cols, rows);
+        let tab = &mut self.tabs[index];
+        let style = &tab.style;
+        let terminal = &mut tab.terminal;
         let screen = &terminal.screen;
         let history_len = if screen.is_alternate() {
             0
@@ -611,13 +871,13 @@ impl ButtonBuilder {
         };
         if response.hovered() {
             let delta = ui.input(|input| input.smooth_scroll_delta.y);
-            self.scroll_fraction += delta / line_height;
-            let lines = self.scroll_fraction.trunc() as isize;
-            self.scroll_fraction -= lines as f32;
-            self.scrollback = self.scrollback.saturating_add_signed(lines);
+            tab.scroll_fraction += delta / line_height;
+            let lines = tab.scroll_fraction.trunc() as isize;
+            tab.scroll_fraction -= lines as f32;
+            tab.scrollback = tab.scrollback.saturating_add_signed(lines);
         }
-        self.scrollback = self.scrollback.min(history_len);
-        let start = history_len.saturating_sub(self.scrollback);
+        tab.scrollback = tab.scrollback.min(history_len);
+        let start = history_len.saturating_sub(tab.scrollback);
         for visible_row in 0..rows {
             let index = start + visible_row;
             let line = if index < history_len {
@@ -636,7 +896,7 @@ impl ButtonBuilder {
                 style,
             );
         }
-        if self.scrollback == 0
+        if tab.scrollback == 0
             && screen.cursor_visible
             && response.has_focus()
             && terminal.is_running()
@@ -699,21 +959,15 @@ impl ButtonBuilder {
                 };
                 if !bytes.is_empty() {
                     terminal.send(&bytes);
-                    self.scrollback = 0;
+                    tab.scrollback = 0;
                 }
             }
         }
     }
 
     fn show(&mut self, ctx: &egui::Context) {
-        if let Some(terminal) = &mut self.terminal {
-            let previous = terminal.screen.scrolled_lines;
-            terminal.poll();
-            if self.scrollback > 0 {
-                self.scrollback = self
-                    .scrollback
-                    .saturating_add(terminal.screen.scrolled_lines.saturating_sub(previous));
-            }
+        for tab in &mut self.tabs {
+            tab.poll();
         }
         egui::TopBottomPanel::top("header")
             .frame(egui::Frame::NONE)
@@ -736,7 +990,7 @@ impl ButtonBuilder {
         self.editor_window(ctx);
         self.appearance_window(ctx);
         self.config_picker_window(ctx);
-        if self.terminal.as_ref().is_some_and(Terminal::needs_poll) {
+        if self.tabs.iter().any(|tab| tab.terminal.needs_poll()) {
             ctx.request_repaint_after(Duration::from_millis(33));
         }
     }
@@ -750,6 +1004,27 @@ impl eframe::App for ButtonBuilder {
 
 fn rgb(color: [u8; 3]) -> Color32 {
     Color32::from_rgb(color[0], color[1], color[2])
+}
+
+fn toolbar_button(caption: &str) -> MaterialButton<'static> {
+    text_button(RichText::new(caption).size(14.0))
+        .small()
+        .min_size(Vec2::new(0.0, 32.0))
+}
+
+fn tab_arrow(caption: &str) -> MaterialButton<'static> {
+    outlined_button(RichText::new(caption).size(18.0))
+        .small()
+        .min_size(Vec2::splat(32.0))
+}
+
+fn terminal_font(style: &TerminalStyle, fonts: &[String]) -> FontId {
+    let family = if style.font == "Monospace" || !fonts.contains(&style.font) {
+        FontFamily::Monospace
+    } else {
+        FontFamily::Name(style.font.clone().into())
+    };
+    FontId::new(style.font_size, family)
 }
 
 fn styled_button(button: &ButtonConfig, caption: String) -> MaterialButton<'static> {
@@ -918,12 +1193,26 @@ mod tests {
         ctx: &egui::Context,
         events: Vec<egui::Event>,
     ) -> egui::FullOutput {
+        frame_with(
+            app,
+            ctx,
+            Vec2::new(1200.0, 760.0),
+            egui::Modifiers::NONE,
+            events,
+        )
+    }
+
+    fn frame_with(
+        app: &mut ButtonBuilder,
+        ctx: &egui::Context,
+        size: Vec2,
+        modifiers: egui::Modifiers,
+        events: Vec<egui::Event>,
+    ) -> egui::FullOutput {
         ctx.run(
             egui::RawInput {
-                screen_rect: Some(egui::Rect::from_min_size(
-                    egui::Pos2::ZERO,
-                    Vec2::new(1200.0, 760.0),
-                )),
+                screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, size)),
+                modifiers,
                 events,
                 ..Default::default()
             },
@@ -948,21 +1237,506 @@ mod tests {
     }
 
     fn click(app: &mut ButtonBuilder, ctx: &egui::Context, pos: egui::Pos2) {
+        click_with_modifiers(app, ctx, pos, egui::Modifiers::NONE);
+    }
+
+    fn click_with_modifiers(
+        app: &mut ButtonBuilder,
+        ctx: &egui::Context,
+        pos: egui::Pos2,
+        modifiers: egui::Modifiers,
+    ) {
         for pressed in [true, false] {
-            frame(
+            frame_with(
                 app,
                 ctx,
+                Vec2::new(1200.0, 760.0),
+                modifiers,
                 vec![
                     egui::Event::PointerMoved(pos),
                     egui::Event::PointerButton {
                         pos,
                         button: egui::PointerButton::Primary,
                         pressed,
-                        modifiers: egui::Modifiers::NONE,
+                        modifiers,
                     },
                 ],
             );
         }
+    }
+
+    fn interactive_button(label: &str) -> ButtonConfig {
+        ButtonConfig {
+            label: label.into(),
+            command: format!(
+                "printf '{label}-ready\\n'; while IFS= read -r line; do printf '{label}:%s\\n' \"$line\"; done"
+            ),
+            shell: true,
+            ..Default::default()
+        }
+    }
+
+    fn wait_for_tabs(
+        app: &mut ButtonBuilder,
+        ctx: &egui::Context,
+        predicate: impl Fn(&ButtonBuilder) -> bool,
+    ) {
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        loop {
+            frame(app, ctx, vec![]);
+            if predicate(app) {
+                return;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "Timed out waiting for terminal tabs"
+            );
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    #[test]
+    fn ctrl_click_tabs_route_input_and_toolbar_actions_to_the_selected_process() {
+        let ctx = egui::Context::default();
+        let mut config = Config::default();
+        config.buttons[0] = interactive_button("Alpha");
+        config.buttons[1] = interactive_button("Beta");
+        let mut app =
+            ButtonBuilder::new(&ctx, "/tmp/rs-button-builder-tabs-test.yaml".into(), config);
+        frame(&mut app, &ctx, vec![]);
+        let output = frame(&mut app, &ctx, vec![]);
+        click(&mut app, &ctx, label_center(&output, "Alpha"));
+        assert_eq!(app.tabs.len(), 1);
+        let output = frame(&mut app, &ctx, vec![]);
+        click(&mut app, &ctx, label_center(&output, "Beta"));
+        assert_eq!(
+            app.tabs.len(),
+            1,
+            "A normal click must not replace a running process"
+        );
+        let output = frame(&mut app, &ctx, vec![]);
+        click_with_modifiers(
+            &mut app,
+            &ctx,
+            label_center(&output, "Beta"),
+            egui::Modifiers::CTRL,
+        );
+        assert_eq!(app.tabs.len(), 2);
+        assert_eq!(app.active_tab, Some(1));
+        assert!(app.tabs.iter().all(|tab| tab.terminal.is_running()));
+        wait_for_tabs(&mut app, &ctx, |app| {
+            app.tabs
+                .iter()
+                .all(|tab| tab.terminal.screen.text().contains("-ready"))
+        });
+
+        frame(
+            &mut app,
+            &ctx,
+            vec![
+                egui::Event::Text("only-beta".into()),
+                egui::Event::Key {
+                    key: egui::Key::Enter,
+                    physical_key: None,
+                    pressed: true,
+                    repeat: false,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ],
+        );
+        wait_for_tabs(&mut app, &ctx, |app| {
+            app.tabs[1]
+                .terminal
+                .screen
+                .text()
+                .contains("Beta:only-beta")
+        });
+        assert!(!app.tabs[0].terminal.screen.text().contains("only-beta"));
+        app.tabs[0].terminal.send(b"background\r");
+        wait_for_tabs(&mut app, &ctx, |app| {
+            app.tabs[0]
+                .terminal
+                .screen
+                .text()
+                .contains("Alpha:background")
+        });
+        assert_eq!(
+            app.active_tab,
+            Some(1),
+            "Inactive terminals must keep polling"
+        );
+
+        let output = frame(&mut app, &ctx, vec![]);
+        click(&mut app, &ctx, label_center(&output, "1 · Alpha"));
+        assert_eq!(app.active_tab, Some(0));
+        let output = frame(&mut app, &ctx, vec![]);
+        let copy_pos = label_center(&output, "Copy");
+        frame(
+            &mut app,
+            &ctx,
+            vec![
+                egui::Event::PointerMoved(copy_pos),
+                egui::Event::PointerButton {
+                    pos: copy_pos,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ],
+        );
+        let copied = frame(
+            &mut app,
+            &ctx,
+            vec![egui::Event::PointerButton {
+                pos: copy_pos,
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: egui::Modifiers::NONE,
+            }],
+        );
+        assert!(copied.platform_output.commands.iter().any(|command| matches!(command,
+            egui::OutputCommand::CopyText(text) if text.contains("Alpha:background") && !text.contains("Beta:only-beta")
+        )));
+        let output = frame(&mut app, &ctx, vec![]);
+        click(&mut app, &ctx, label_center(&output, "Ctrl+C"));
+        wait_for_tabs(&mut app, &ctx, |app| !app.tabs[0].terminal.is_running());
+        assert!(app.tabs[1].terminal.is_running());
+
+        let output = frame(&mut app, &ctx, vec![]);
+        click(&mut app, &ctx, label_center(&output, "Alpha"));
+        assert_eq!(app.tabs.len(), 2, "Normal clicks reuse a finished tab");
+        assert_eq!(app.tabs[0].id, 1);
+        assert!(app.tabs[0].terminal.is_running());
+        let output = frame(&mut app, &ctx, vec![]);
+        click(&mut app, &ctx, label_center(&output, "Stop"));
+        assert!(!app.tabs[0].terminal.is_running());
+        assert!(app.tabs[1].terminal.is_running());
+        assert_eq!(app.tabs[0].terminal.status, "Stopped");
+
+        let output = frame(&mut app, &ctx, vec![]);
+        click(&mut app, &ctx, label_center(&output, "2 · Beta"));
+        let pid: i32 = app
+            .active()
+            .unwrap()
+            .terminal
+            .status
+            .split_whitespace()
+            .last()
+            .unwrap()
+            .parse()
+            .unwrap();
+        let output = frame(&mut app, &ctx, vec![]);
+        click(&mut app, &ctx, label_center(&output, "Close tab"));
+        assert_eq!(app.tabs.len(), 1);
+        assert_eq!(app.active_tab, Some(0));
+        // SAFETY: signal zero only checks whether this test's now-reaped child exists.
+        assert_eq!(unsafe { libc::kill(pid, 0) }, -1);
+        assert_eq!(
+            std::io::Error::last_os_error().raw_os_error(),
+            Some(libc::ESRCH)
+        );
+        let output = frame(&mut app, &ctx, vec![]);
+        click(&mut app, &ctx, label_center(&output, "Close tab"));
+        assert!(app.tabs.is_empty() && app.active_tab.is_none());
+        let output = frame(&mut app, &ctx, vec![]);
+        click(&mut app, &ctx, label_center(&output, "Alpha"));
+        assert_eq!(app.tabs[0].id, 3, "New tabs must not reuse old UI IDs");
+    }
+
+    #[test]
+    fn tabs_preserve_appearance_history_and_resize_inactive_processes() {
+        let ctx = egui::Context::default();
+        let mut config = Config::default();
+        config.buttons[0] = interactive_button("Alpha");
+        let mut app = ButtonBuilder::new(
+            &ctx,
+            "/tmp/rs-button-builder-tab-appearance-test.yaml".into(),
+            config,
+        );
+        app.launch(0, false);
+        app.launch(0, true);
+        frame(&mut app, &ctx, vec![]);
+        wait_for_tabs(&mut app, &ctx, |app| {
+            app.tabs
+                .iter()
+                .all(|tab| tab.terminal.screen.text().contains("-ready"))
+        });
+        // Build history without depending on asynchronous process timing.
+        for i in 0..100 {
+            app.tabs[0]
+                .terminal
+                .screen
+                .feed(format!("history-{i}\r\n").as_bytes());
+        }
+        app.tabs[0].scrollback = 10;
+        app.tabs[0].scroll_fraction = 0.5;
+        app.tabs[0].style.font_size = 22.0;
+        app.tabs[0].style.background = [10, 30, 40];
+        app.select_tab(0);
+        let output = frame(&mut app, &ctx, vec![]);
+        click(&mut app, &ctx, label_center(&output, "Appearance"));
+        let output = frame(&mut app, &ctx, vec![]);
+        let pos = label_center(&output, "22.0 pt");
+        // The numeric field is editable through keyboard input.
+        click(&mut app, &ctx, pos);
+        frame_with(
+            &mut app,
+            &ctx,
+            Vec2::new(1200.0, 760.0),
+            egui::Modifiers::CTRL,
+            vec![egui::Event::Key {
+                key: egui::Key::A,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: egui::Modifiers::CTRL,
+            }],
+        );
+        frame(
+            &mut app,
+            &ctx,
+            vec![
+                egui::Event::Text("20".into()),
+                egui::Event::Key {
+                    key: egui::Key::Enter,
+                    physical_key: None,
+                    pressed: true,
+                    repeat: false,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ],
+        );
+        assert_eq!(app.tabs[0].style.font_size, 20.0);
+        assert_eq!(app.tabs[1].style.font_size, 14.0);
+        let output = frame(&mut app, &ctx, vec![]);
+        click(&mut app, &ctx, label_center(&output, "Save appearance"));
+        assert_eq!(
+            Config::load_existing(&app.config_path)
+                .unwrap()
+                .terminal
+                .font_size,
+            20.0
+        );
+        let output = frame(&mut app, &ctx, vec![]);
+        click(&mut app, &ctx, label_center(&output, "Close"));
+        let first_cols = app.tabs[0].terminal.screen.cols;
+        let first_rows = app.tabs[0].terminal.screen.rows;
+        app.select_tab(1);
+        let second_output = frame(&mut app, &ctx, vec![]);
+        assert!(!second_output.shapes.iter().any(|shape| matches!(&shape.shape, egui::Shape::Text(text) if text.galley.job.text == "Jump to live")));
+        assert_eq!(app.tabs[0].scrollback, 10);
+        assert_eq!(app.tabs[0].scroll_fraction, 0.5);
+        for _ in 0..3 {
+            frame_with(
+                &mut app,
+                &ctx,
+                Vec2::new(850.0, 500.0),
+                egui::Modifiers::NONE,
+                vec![],
+            );
+        }
+        assert!(app.tabs[0].terminal.screen.cols < first_cols);
+        assert!(app.tabs[0].terminal.screen.rows < first_rows);
+        assert!(app.tabs[0].terminal.screen.cols < app.tabs[1].terminal.screen.cols);
+        app.select_tab(0);
+        let output = frame(&mut app, &ctx, vec![]);
+        let output = frame(
+            &mut app,
+            &ctx,
+            vec![egui::Event::PointerMoved(label_center(
+                &output,
+                "Jump to live",
+            ))],
+        );
+        click(&mut app, &ctx, label_center(&output, "Jump to live"));
+        assert_eq!(app.tabs[0].scrollback, 0);
+        assert_eq!(app.tabs[0].scroll_fraction, 0.0);
+        app.launch(0, true);
+        assert_eq!(
+            app.tabs[2].style.font_size, 20.0,
+            "New tabs inherit the edited appearance default"
+        );
+        app.select_tab(1);
+        app.appearance_open = true;
+        frame(&mut app, &ctx, vec![]);
+        let output = frame(&mut app, &ctx, vec![]);
+        click(&mut app, &ctx, label_center(&output, "Save appearance"));
+        assert_eq!(
+            Config::load_existing(&app.config_path)
+                .unwrap()
+                .terminal
+                .font_size,
+            14.0,
+            "Saving an unchanged tab's appearance must make its settings the default"
+        );
+        assert_eq!(app.tabs[0].style.font_size, 20.0);
+        assert_eq!(app.tabs[2].style.font_size, 20.0);
+    }
+
+    #[test]
+    fn failed_launch_and_config_loading_preserve_multiple_sessions() {
+        let ctx = egui::Context::default();
+        let mut config = Config::default();
+        config.buttons[0] = interactive_button("Alpha");
+        config.buttons[1].command = "/this/local/program/does/not/exist".into();
+        let mut app = ButtonBuilder::new(
+            &ctx,
+            "/tmp/rs-button-builder-tab-load-test.yaml".into(),
+            config,
+        );
+        app.launch(0, false);
+        app.launch(0, true);
+        app.tabs[0].style.background = [10, 30, 40];
+        app.tabs[1].terminal.screen.feed(b"Retain me");
+        let next_id = app.next_tab_id;
+        app.launch(1, true);
+        assert!(app.error.is_some());
+        assert_eq!(app.tabs.len(), 2);
+        assert_eq!(app.active_tab, Some(1));
+        assert_eq!(app.next_tab_id, next_id);
+        app.tabs[1].terminal.stop();
+        app.launch(1, false);
+        assert!(app.error.is_some());
+        assert!(app.tabs[1].terminal.screen.text().contains("Retain me"));
+        assert_eq!(app.tabs[1].id, 2);
+        app.load_config(
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("examples/terminal-demo.yaml"),
+        )
+        .unwrap();
+        assert_eq!(app.tabs.len(), 2);
+        assert_eq!(app.active_tab, Some(1));
+        assert!(
+            app.running(),
+            "A background process still counts as running"
+        );
+        assert!(app.tabs[0].terminal.is_running());
+        assert_eq!(app.tabs[0].label, "Alpha");
+        assert_eq!(app.tabs[0].style.background, [10, 30, 40]);
+        assert!(app.tabs.iter().all(|tab| tab.button_index.is_none()));
+        app.launch(0, true);
+        assert_eq!(app.tabs[2].label, app.config.buttons[0].label);
+        assert_eq!(app.tabs[2].style.font_size, app.config.terminal.font_size);
+        app.close_tab(0);
+        assert_eq!(app.active_tab, Some(1));
+        assert_eq!(app.active().unwrap().id, 3);
+        app.close_tab(1);
+        assert_eq!(app.active_tab, Some(0));
+        assert_eq!(app.active().unwrap().id, 2);
+    }
+
+    #[test]
+    fn many_tabs_scroll_and_keep_toolbar_controls_visible_at_minimum_size() {
+        let ctx = egui::Context::default();
+        let mut config = Config::default();
+        config.buttons[0] = interactive_button("A long running command label");
+        let mut app = ButtonBuilder::new(
+            &ctx,
+            "/tmp/rs-button-builder-many-tabs-test.yaml".into(),
+            config,
+        );
+        for _ in 0..8 {
+            app.launch(0, true);
+        }
+        let size = Vec2::new(850.0, 500.0);
+        let mut output = egui::FullOutput::default();
+        for _ in 0..40 {
+            output = frame_with(&mut app, &ctx, size, egui::Modifiers::NONE, vec![]);
+        }
+        let title = "8 · A long running command label";
+        let label = output
+            .shapes
+            .iter()
+            .find_map(|shape| match &shape.shape {
+                egui::Shape::Text(text) if text.galley.job.text == title => {
+                    Some((text, shape.clip_rect))
+                }
+                _ => None,
+            })
+            .unwrap();
+        assert!(
+            label
+                .1
+                .contains(label.0.pos + label.0.galley.rect.center().to_vec2()),
+            "The newly selected tab must scroll into view"
+        );
+        for action in ["Appearance", "Copy", "Ctrl+C", "Stop", "Close tab"] {
+            let pos = label_center(&output, action);
+            assert!(pos.x < size.x && pos.y < size.y);
+            assert!(output.shapes.iter().any(|shape| shape.clip_rect.contains(pos)
+                && matches!(&shape.shape, egui::Shape::Text(text) if text.galley.job.text == action)));
+        }
+        let left = label_center(&output, "‹");
+        let right = label_center(&output, "›");
+        assert!(
+            left.x < label.1.left() && right.x > label.1.right(),
+            "Arrows must stay outside the scrolling tabs"
+        );
+        assert!(right.x < size.x && (left.y - right.y).abs() < 1.0);
+        for glyph in ["‹", "›"] {
+            assert_eq!(output.shapes.iter().filter(|shape|
+                matches!(&shape.shape, egui::Shape::Text(text) if text.galley.job.text == glyph)
+            ).count(), 1, "Use exactly one arrow at each end");
+        }
+        let click_arrow = |app: &mut ButtonBuilder, pos| {
+            for pressed in [true, false] {
+                frame_with(
+                    app,
+                    &ctx,
+                    size,
+                    egui::Modifiers::NONE,
+                    vec![
+                        egui::Event::PointerMoved(pos),
+                        egui::Event::PointerButton {
+                            pos,
+                            button: egui::PointerButton::Primary,
+                            pressed,
+                            modifiers: egui::Modifiers::NONE,
+                        },
+                    ],
+                );
+            }
+        };
+        click_arrow(&mut app, right);
+        assert_eq!(
+            app.active_tab,
+            Some(7),
+            "The next arrow stops at the last tab"
+        );
+        for expected in (0..7).rev() {
+            click_arrow(&mut app, left);
+            assert_eq!(app.active_tab, Some(expected));
+        }
+        click_arrow(&mut app, left);
+        assert_eq!(
+            app.active_tab,
+            Some(0),
+            "The previous arrow stops at the first tab"
+        );
+        for _ in 0..40 {
+            output = frame_with(&mut app, &ctx, size, egui::Modifiers::NONE, vec![]);
+        }
+        let first = label_center(&output, "1 · A long running command label");
+        assert!(first.x > left.x && first.x < right.x);
+        for expected in 1..8 {
+            click_arrow(&mut app, right);
+            assert_eq!(app.active_tab, Some(expected));
+        }
+        assert!(app.tabs.iter().all(|tab| tab.terminal.is_running()));
+        // Ctrl-click keeps configuring empty buttons and editing in edit mode.
+        app.launch(1, true);
+        assert_eq!(app.tabs.len(), 8);
+        assert_eq!(app.editor.as_ref().unwrap().index, 1);
+        app.editor = None;
+        app.edit_mode = true;
+        let output = frame(&mut app, &ctx, vec![]);
+        click_with_modifiers(
+            &mut app,
+            &ctx,
+            label_center(&output, "A long running command label"),
+            egui::Modifiers::CTRL,
+        );
+        assert_eq!(app.tabs.len(), 8);
+        assert_eq!(app.editor.as_ref().unwrap().index, 0);
     }
 
     #[test]
@@ -1004,10 +1778,7 @@ mod tests {
         let output = frame(&mut app, &ctx, vec![]);
         click(&mut app, &ctx, label_center(&output, "Save button"));
         assert!(app.editor.is_none());
-        assert!(
-            app.terminal.is_none(),
-            "Saving must not execute the command"
-        );
+        assert!(app.tabs.is_empty(), "Saving must not execute the command");
         assert_eq!(
             Config::load(&path).unwrap().buttons[1].label,
             "Local output"
@@ -1034,7 +1805,7 @@ mod tests {
                         || section.format.color == rgb([250, 230, 210]))
         )));
         click(&mut app, &ctx, label_center(&output, "Local output"));
-        assert!(app.terminal.is_some());
+        assert!(!app.tabs.is_empty());
         let deadline = std::time::Instant::now() + Duration::from_secs(5);
         while app.running() {
             assert!(std::time::Instant::now() < deadline);
@@ -1043,9 +1814,9 @@ mod tests {
         }
         frame(&mut app, &ctx, vec![]);
         assert!(
-            app.terminal
-                .as_ref()
+            app.active()
                 .unwrap()
+                .terminal
                 .screen
                 .text()
                 .contains("hello from a button")
@@ -1365,7 +2136,7 @@ mod tests {
         assert_eq!(app.config.buttons[0].background, Some([75, 55, 120]));
         assert_eq!(app.config.terminal.font_size, 15.0);
         assert_eq!(app.config_path.file_name().unwrap(), "json-streams.yaml");
-        assert!(app.terminal.is_none(), "Loading must not execute a command");
+        assert!(app.tabs.is_empty(), "Loading must not execute a command");
     }
 
     #[test]
@@ -1401,23 +2172,24 @@ mod tests {
         let mut terminal = Terminal::start(&button, 80, 24).unwrap();
         terminal.screen.feed(b"Retained output");
         let status = terminal.status.clone();
-        app.terminal = Some(terminal);
-        app.active_button = Some(0);
+        app.config.buttons[0] = button;
+        app.launch(0, false);
+        app.tabs[0].terminal = terminal;
         app.load_config(
             PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("examples/terminal-demo.yaml"),
         )
         .unwrap();
         assert!(app.running());
-        assert_eq!(app.terminal.as_ref().unwrap().status, status);
+        assert_eq!(app.active().unwrap().terminal.status, status);
         assert!(
-            app.terminal
-                .as_ref()
+            app.active()
                 .unwrap()
+                .terminal
                 .screen
                 .text()
                 .contains("Retained output")
         );
-        assert!(app.active_button.is_none() && app.editor.is_none());
+        assert!(app.active().unwrap().button_index.is_none() && app.editor.is_none());
         assert_eq!((app.config.rows, app.config.columns), (2, 2));
     }
 }

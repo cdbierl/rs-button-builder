@@ -29,9 +29,10 @@ button definitions. An asterisk marks unsaved layout or appearance changes.
 Click **Load config…** in the header toolbar to browse local YAML files or enter a
 path. The chooser's **Examples** button opens the bundled [example layouts](examples/README.md): system
 monitoring, local JSON pipelines, terminal demonstrations, and a live log tail. Loading restores the
-grid, button definitions/colors, and terminal appearance, and selects that file as
-the save destination. A running process continues in the terminal. Unsaved changes
-must be saved or explicitly replaced; missing or invalid files leave the current
+grid, button definitions/colors, and default terminal appearance, and selects that file as
+the save destination. Existing terminal tabs and their processes continue with their
+own appearance settings. Unsaved changes must be saved or explicitly replaced;
+missing or invalid files leave the current
 layout intact.
 
 For a program, enter the executable separately from its optional arguments. Quote
@@ -52,18 +53,30 @@ The existing `.env` loading in `main` also applies to launched commands.
 The terminal uses a real pseudo-terminal, so interactive commands such as `top`
 receive a terminal size and keyboard input. Click the pane to type; `q` quits `top`.
 **Ctrl+C** sends an interrupt, and **Stop** forcibly ends the running process group.
-Only one command runs at a time. Closing the window stops the active process.
-Output remains visible after a command exits; starting another command replaces it.
+Click a button to start a process in the active tab. **Ctrl-click** a button to open
+another terminal tab, including another instance of the same command. The tab bar
+switches between sessions; inactive processes keep running and collecting output.
+Each tab has its own output, scroll position, font, and colors. Normal clicks reuse
+the active tab after its process stops; hold Ctrl to launch while it is running.
+Tab numbers distinguish duplicate commands, and an orange dot marks running tabs.
+The compact toolbar's **Copy**, **Ctrl+C**, **Stop**, **Jump to live**, and
+**Close tab** controls act on the selected tab. Closing a tab stops its process group;
+closing the window stops every tab's process. Finished output stays until the tab
+is reused or closed. The tab bar scrolls horizontally when needed. Use the left
+and right arrows at its ends to select the previous or next tab; the selected tab
+scrolls into view. Arrows disable at the first and last tab.
 Keep shell commands in the foreground: background jobs that outlive their shell
 are no longer tracked by **Stop** or window cleanup.
 
-Use **Appearance** to change the monospace font, font size, line spacing, and text
-and background colors. Built-in monospace is always available. Installed monospace
+Use **Appearance** to change the selected tab's monospace font, font size, line spacing,
+and text and background colors. Changes also become the default for new tabs;
+**Save appearance** persists that default in the layout file. Existing tabs keep
+their own settings. Built-in monospace is always available. Installed monospace
 fonts are discovered through Fontconfig and user font directories, including
 `~/.local/share/fonts`, `~/.fonts`, and `$XDG_DATA_HOME/fonts`. Nested directories
 are scanned. Click **Refresh fonts** after installing more fonts. Scroll
 over the terminal for up to 2,000 lines of history, and use **Jump to live** to
-return to current output. **Copy output** or Ctrl+Shift+C copies the retained text.
+return to current output. **Copy** or Ctrl+Shift+C copies the selected tab's retained text.
 
 **Save button**, **Save appearance**, and **Save layout** write buttons and appearance
 to the selected YAML file (default: `./buttons.yaml`). Appearance changes preview

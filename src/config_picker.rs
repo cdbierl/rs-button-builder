@@ -193,7 +193,7 @@ impl ConfigPicker {
                         }
                     }
                     if running {
-                        ui.small("The running process will continue after loading.");
+                        ui.small("Running processes will continue after loading.");
                     }
                     if let Some(error) = &self.error {
                         ui.colored_label(egui::Color32::LIGHT_RED, error);
