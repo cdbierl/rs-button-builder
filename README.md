@@ -14,7 +14,7 @@ GUI preview with generated sample output.
 - Multiple process terminals with independent output, scrollback, fonts, and colors.
 - Interactive commands, shell pipelines, and log following through Unix pseudo-terminals.
 - Optional per-run output logs that retain output beyond the scrollback buffer.
-- Material controls with an orange accent and locally loaded fonts.
+- Material controls with light/dark themes, five accent colors, and locally loaded fonts.
 
 ## Requirements
 
@@ -71,9 +71,9 @@ select a YAML layout file. Dependency versions are recorded in [Cargo.lock](Carg
 
 - **Configure buttons:** right-click a button, click an unassigned button, or enable
   **Edit buttons**. Set its label, executable, arguments, working directory, and colors.
-  Empty slots show a muted **new window** icon. **Shell pipeline** runs the complete
+  Empty slots show a muted **new window** icon. **Shell Script (/bin/sh)** runs the complete
   command through `/bin/sh`.
-- **Clear a button:** right-click it and choose **Reset button** to restore an empty
+- **Clear a button:** right-click it and choose **Reset** to restore an empty
   slot with its default label and colors. Use **Save layout** to keep the reset.
 - **Reposition buttons:** drag a button onto another slot to swap their positions.
   Dragging works with **Edit buttons** on or off. Drop outside the grid or press
@@ -102,12 +102,12 @@ select a YAML layout file. Dependency versions are recorded in [Cargo.lock](Carg
   **Ctrl+mouse wheel** over the terminal adjusts its
   font size (8–32 pt); plain scrolling or dragging the right-hand scrollbar moves
   through output history. Drag to the bottom or click **Jump to live** to follow new output.
+  **Refresh fonts** discovers installed monospace fonts.
 - **Choose a UI theme:** the palette control at the right of the footer opens
   Light, Dark, and System modes plus five accent colors. Changes apply immediately
   and are saved in app settings. Terminals use matching light or dark colors,
   including existing output and scrollback. Explicit custom button and terminal
   colors are preserved. System mode follows the desktop appearance when available.
-  **Refresh fonts** discovers installed monospace fonts.
 - **Stop processes:** **Ctrl+C** sends `SIGINT` to the foreground job, allowing it
   to clean up; programs can ignore this signal. **Stop** sends `SIGKILL` and ends
   local jobs in that terminal session. Pending output is discarded; displayed output
@@ -167,7 +167,7 @@ Set `BUTTON_BUILDER_LOG_DIR` in your environment or in `.env` at the project roo
 BUTTON_BUILDER_LOG_DIR=./logs
 ```
 
-Enable **Log output** in a button's edit dialog, or set `log_output: true` in that
+Enable **Log Output** in a button's edit dialog, or set `log_output: true` in that
 button's YAML definition. It is unchecked by default, including when loading
 older layouts without this field. Changes apply to newly launched processes.
 
@@ -228,6 +228,9 @@ cargo test --locked
 cargo clippy --locked --all-targets -- -D warnings
 cargo fmt --all -- --check
 ```
+
+The repository's Cargo configuration runs tests serially: UI tests share a global
+Material theme, and process responsiveness tests include elapsed-time assertions.
 
 Tests use local Linux tools, including `/usr/bin/top`, `/usr/bin/jq`, and
 `/usr/bin/tput`, and generated input. They cover stalled input, ignored interrupts,
