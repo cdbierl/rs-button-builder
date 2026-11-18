@@ -142,6 +142,19 @@ fn label_center(output: &egui::FullOutput, label: &str) -> egui::Pos2 {
         .unwrap_or_else(|| panic!("Missing UI label: {label}"))
 }
 
+fn empty_button_centers(output: &egui::FullOutput) -> Vec<egui::Pos2> {
+    output
+        .shapes
+        .iter()
+        .filter_map(|shape| match &shape.shape {
+            egui::Shape::Text(text) if text.galley.job.text == "\u{f710}" => {
+                Some(text.pos + text.galley.rect.center().to_vec2())
+            }
+            _ => None,
+        })
+        .collect()
+}
+
 fn wheel(
     app: &mut ButtonBuilder,
     ctx: &egui::Context,
@@ -1645,6 +1658,278 @@ fn button_logging_checkbox_cancels_and_saves_per_button() {
 }
 
 #[test]
+fn button_context_menu_resets_one_slot_and_preserves_running_terminals() {
+    let ctx = egui::Context::default();
+    let path = std::env::temp_dir().join(format!(
+        "rs-button-builder-reset-{}.yaml",
+        std::process::id()
+    ));
+    let mut config = Config::default();
+    config.buttons[1] = ButtonConfig {
+        arguments: "'unused argument'".into(),
+        working_directory: "/tmp".into(),
+        log_output: true,
+        fg_color: Some([230, 240, 250]),
+        bg_color: Some([20, 40, 60]),
+        ..interactive_button("Alpha")
+    };
+    config.buttons[2] = interactive_button("Beta");
+    let mut expected = config.clone();
+    let mut app = ButtonBuilder::new(&ctx, Some(path.clone()), config);
+    app.launch(1, false);
+    app.launch(1, true);
+    app.launch(2, true);
+    wait_for_tabs(&mut app, &ctx, |app| {
+        app.tabs
+            .iter()
+            .all(|tab| tab.terminal.screen.text().contains("-ready"))
+    });
+    let output = frame(&mut app, &ctx, vec![]);
+    let pos = label_center(&output, "Alpha");
+    for pressed in [true, false] {
+        frame(
+            &mut app,
+            &ctx,
+            vec![
+                egui::Event::PointerMoved(pos),
+                egui::Event::PointerButton {
+                    pos,
+                    button: egui::PointerButton::Secondary,
+                    pressed,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ],
+        );
+    }
+    let output = frame(&mut app, &ctx, vec![]);
+    label_center(&output, "Edit button");
+    let reset = label_center(&output, "Reset button");
+    assert!(
+        !app.dirty && app.editor.is_none(),
+        "Opening the menu must not change the button"
+    );
+    click(&mut app, &ctx, reset);
+    expected.buttons[1] = Config::default().buttons[1].clone();
+    assert_eq!(
+        serde_yaml_ng::to_string(&app.config).unwrap(),
+        serde_yaml_ng::to_string(&expected).unwrap()
+    );
+    assert!(app.dirty && app.editor.is_none());
+    assert_eq!(app.tabs.len(), 3);
+    assert!(app.tabs.iter().all(|tab| tab.terminal.is_running()));
+    assert_eq!(app.tabs[0].button_index, None);
+    assert_eq!(app.tabs[1].button_index, None);
+    assert_eq!(app.tabs[2].button_index, Some(2));
+    assert!(app.tabs[0].terminal.screen.text().contains("Alpha-ready"));
+    let output = frame(&mut app, &ctx, vec![]);
+    let empty = empty_button_centers(&output)[1];
+    click(&mut app, &ctx, label_center(&output, "Save layout *"));
+    assert!(!app.dirty);
+    assert_eq!(
+        serde_yaml_ng::to_string(&Config::load_existing(&path).unwrap()).unwrap(),
+        serde_yaml_ng::to_string(&expected).unwrap()
+    );
+    click(&mut app, &ctx, empty);
+    assert_eq!(app.editor.as_ref().unwrap().index, 1);
+    assert!(app.editor.as_ref().unwrap().button.command.is_empty());
+}
+
+#[test]
+fn button_drag_swaps_positions_without_running_and_saves_full_definitions() {
+    let ctx = egui::Context::default();
+    let path = std::env::temp_dir().join(format!(
+        "rs-button-builder-reposition-{}.yaml",
+        std::process::id()
+    ));
+    let mut config = Config::default();
+    config.resize_grid(2, 3).unwrap();
+    config.buttons[0] = ButtonConfig {
+        label: "Alpha".into(),
+        command: "/usr/bin/printf".into(),
+        arguments: "'alpha output\\n'".into(),
+        working_directory: "/tmp".into(),
+        log_output: true,
+        fg_color: Some([230, 240, 250]),
+        bg_color: Some([20, 40, 60]),
+        ..Default::default()
+    };
+    config.buttons[4] = interactive_button("Beta");
+    let mut expected = config.clone();
+    let mut app = ButtonBuilder::new(&ctx, Some(path.clone()), config);
+    frame(&mut app, &ctx, vec![]);
+    let output = frame(&mut app, &ctx, vec![]);
+    let alpha = label_center(&output, "Alpha");
+    let beta = label_center(&output, "Beta");
+    let dragging = start_button_drag(&mut app, &ctx, alpha, beta);
+    assert_eq!(
+        dragging.platform_output.cursor_icon,
+        egui::CursorIcon::Grabbing
+    );
+    assert!(
+        dragging.shapes.iter().any(|shape| matches!(&shape.shape,
+            egui::Shape::Rect(rect) if rect.rect.contains(beta)
+                && rect.stroke.width == 3.0 && rect.stroke.color == get_global_color("primary")
+        )),
+        "Show the destination slot while dragging"
+    );
+    assert!(!app.dirty, "Only commit a move when the mouse is released");
+    frame(&mut app, &ctx, vec![primary_pointer(beta, false)]);
+    expected.buttons.swap(0, 4);
+    assert_eq!(
+        serde_yaml_ng::to_string(&app.config).unwrap(),
+        serde_yaml_ng::to_string(&expected).unwrap()
+    );
+    assert!(app.dirty && app.tabs.is_empty() && app.editor.is_none());
+    let output = frame(&mut app, &ctx, vec![]);
+    assert!(label_center(&output, "Alpha").distance(beta) < 1.0);
+    assert!(label_center(&output, "Beta").distance(alpha) < 1.0);
+    // Moving backwards in grid order also works, including an unassigned target.
+    let empty = empty_button_centers(&output)[0];
+    start_button_drag(&mut app, &ctx, beta, empty);
+    frame(&mut app, &ctx, vec![primary_pointer(empty, false)]);
+    expected.buttons.swap(4, 1);
+    let output = frame(&mut app, &ctx, vec![]);
+    click(&mut app, &ctx, label_center(&output, "Save layout *"));
+    assert!(!app.dirty && app.tabs.is_empty() && app.editor.is_none());
+    assert_eq!(
+        serde_yaml_ng::to_string(&Config::load_existing(&path).unwrap()).unwrap(),
+        serde_yaml_ng::to_string(&expected).unwrap()
+    );
+}
+
+fn primary_pointer(pos: egui::Pos2, pressed: bool) -> egui::Event {
+    egui::Event::PointerButton {
+        pos,
+        button: egui::PointerButton::Primary,
+        pressed,
+        modifiers: egui::Modifiers::NONE,
+    }
+}
+
+fn start_button_drag(
+    app: &mut ButtonBuilder,
+    ctx: &egui::Context,
+    source: egui::Pos2,
+    target: egui::Pos2,
+) -> egui::FullOutput {
+    frame(
+        app,
+        ctx,
+        vec![
+            egui::Event::PointerMoved(source),
+            primary_pointer(source, true),
+        ],
+    );
+    frame(app, ctx, vec![egui::Event::PointerMoved(target)])
+}
+
+#[test]
+fn button_drag_cancellation_and_edit_mode_preserve_click_behavior() {
+    let ctx = egui::Context::default();
+    let mut config = Config::default();
+    config.buttons[0] = interactive_button("Alpha");
+    let mut app = ButtonBuilder::new(&ctx, None, config);
+    frame(&mut app, &ctx, vec![]);
+    let output = frame(&mut app, &ctx, vec![]);
+    let source = label_center(&output, "Alpha");
+    let target = empty_button_centers(&output)[0];
+    let original = serde_yaml_ng::to_string(&app.config).unwrap();
+    let outside = egui::pos2(800.0, 600.0);
+    for destination in [outside, source] {
+        start_button_drag(&mut app, &ctx, source, target);
+        frame(
+            &mut app,
+            &ctx,
+            vec![
+                egui::Event::PointerMoved(destination),
+                primary_pointer(destination, false),
+            ],
+        );
+        assert_eq!(serde_yaml_ng::to_string(&app.config).unwrap(), original);
+        assert!(!app.dirty && app.tabs.is_empty() && app.editor.is_none());
+    }
+    start_button_drag(&mut app, &ctx, source, target);
+    frame(
+        &mut app,
+        &ctx,
+        vec![egui::Event::Key {
+            key: egui::Key::Escape,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        }],
+    );
+    assert!(app.dragged_button.is_none());
+    frame(&mut app, &ctx, vec![primary_pointer(target, false)]);
+    assert_eq!(serde_yaml_ng::to_string(&app.config).unwrap(), original);
+    assert!(!app.dirty && app.tabs.is_empty() && app.editor.is_none());
+    let output = frame(&mut app, &ctx, vec![]);
+    click(&mut app, &ctx, label_center(&output, "Edit buttons"));
+    assert!(app.edit_mode);
+    start_button_drag(&mut app, &ctx, source, target);
+    frame(&mut app, &ctx, vec![primary_pointer(target, false)]);
+    assert!(app.dirty && app.editor.is_none() && app.tabs.is_empty());
+    assert_eq!(app.config.buttons[1].label, "Alpha");
+    click(&mut app, &ctx, target);
+    assert_eq!(app.editor.as_ref().unwrap().index, 1);
+    let output = frame(&mut app, &ctx, vec![]);
+    click(&mut app, &ctx, label_center(&output, "Cancel"));
+    let output = frame(&mut app, &ctx, vec![]);
+    click(&mut app, &ctx, label_center(&output, "Edit buttons"));
+    assert!(!app.edit_mode);
+    click(&mut app, &ctx, target);
+    assert_eq!(app.tabs.len(), 1);
+    assert_eq!(app.tabs[0].button_index, Some(1));
+    assert_eq!(app.tabs[0].label, "Alpha");
+}
+
+#[test]
+fn repositioning_buttons_preserves_tab_associations_and_editor_drafts() {
+    let ctx = egui::Context::default();
+    let mut config = Config::default();
+    config.buttons[0] = interactive_button("Alpha");
+    config.buttons[1] = interactive_button("Beta");
+    let mut app = ButtonBuilder::new(&ctx, None, config);
+    app.launch(0, false);
+    app.launch(0, true);
+    app.launch(1, true);
+    app.launch(1, true);
+    app.tabs[3].button_index = None;
+    app.edit(0);
+    app.editor.as_mut().unwrap().button.label = "Alpha draft".into();
+    app.reposition_button(0, 1);
+    assert_eq!(
+        app.tabs
+            .iter()
+            .map(|tab| tab.button_index)
+            .collect::<Vec<_>>(),
+        [Some(1), Some(1), Some(0), None]
+    );
+    assert!(app.tabs.iter().all(|tab| tab.terminal.is_running()));
+    assert_eq!(app.active_tab, Some(3));
+    assert_eq!(app.editor.as_ref().unwrap().index, 1);
+    assert_eq!(app.editor.as_ref().unwrap().button.label, "Alpha draft");
+    assert_eq!(app.config.buttons[1].label, "Alpha");
+    assert_eq!(app.config.buttons[0].label, "Beta");
+    app.dirty = false;
+    app.reposition_button(1, 1);
+    app.reposition_button(0, usize::MAX);
+    app.config.resize_grid(1, 1).unwrap();
+    app.reposition_button(0, 1);
+    assert!(
+        !app.dirty,
+        "No-op and hidden-slot moves must not change the layout"
+    );
+    app.dragged_button = Some(0);
+    app.create_new_layout();
+    assert!(
+        app.dragged_button.is_none(),
+        "Replacing a layout cancels its drag"
+    );
+}
+
+#[test]
 fn grid_editor_save_and_launch_work_through_the_ui() {
     let ctx = egui::Context::default();
     let path = std::env::temp_dir().join(format!(
@@ -1654,18 +1939,8 @@ fn grid_editor_save_and_launch_work_through_the_ui() {
     let mut app = ButtonBuilder::new(&ctx, Some(path.clone()), Config::default());
     frame(&mut app, &ctx, vec![]);
     let output = frame(&mut app, &ctx, vec![]);
-    let positions: Vec<_> = (0..9)
-        .map(|i| {
-            label_center(
-                &output,
-                &if i == 0 {
-                    "Button 1\n+ Configure".into()
-                } else {
-                    format!("Button {}\n+ Configure", i + 1)
-                },
-            )
-        })
-        .collect();
+    let positions = empty_button_centers(&output);
+    assert_eq!(positions.len(), 9);
     for row in 0..3 {
         assert!((positions[row * 3].y - positions[row * 3 + 1].y).abs() < 15.0);
         assert!(positions[row * 3].x < positions[row * 3 + 1].x);
@@ -1999,13 +2274,12 @@ fn resized_grid_renders_new_rows_and_columns_and_saves_them() {
     app.dirty = true;
     frame(&mut app, &ctx, vec![]);
     let output = frame(&mut app, &ctx, vec![]);
-    let fourth = label_center(&output, "Button 4\n+ Configure");
-    let fifth = label_center(&output, "Button 5\n+ Configure");
-    let eighth = label_center(&output, "Button 8\n+ Configure");
+    let positions = empty_button_centers(&output);
+    assert_eq!(positions.len(), 8);
+    let (fourth, fifth, eighth) = (positions[3], positions[4], positions[7]);
     assert!(fourth.y < fifth.y);
     assert!(fifth.x < eighth.x);
     assert!((fifth.y - eighth.y).abs() < 1.0);
-    assert!(!output.shapes.iter().any(|shape| matches!(&shape.shape, egui::Shape::Text(text) if text.galley.job.text == "Button 9\n+ Configure")));
     click(&mut app, &ctx, label_center(&output, "Save layout *"));
     let loaded = Config::load_existing(&path).unwrap();
     assert_eq!((loaded.rows, loaded.columns), (2, 4));
@@ -2335,11 +2609,7 @@ fn first_button_save_preserves_its_draft_on_cancel_and_error_and_confirms_overwr
     let mut app = ButtonBuilder::new(&ctx, None, Config::default());
     frame(&mut app, &ctx, vec![]);
     let output = frame(&mut app, &ctx, vec![]);
-    click(
-        &mut app,
-        &ctx,
-        label_center(&output, "Button 1\n+ Configure"),
-    );
+    click(&mut app, &ctx, empty_button_centers(&output)[0]);
     let editor = app.editor.as_mut().unwrap();
     editor.button.label = "Local output".into();
     editor.button.command = "/usr/bin/printf".into();

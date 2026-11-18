@@ -70,6 +70,7 @@ pub struct ButtonBuilder {
     reveal_active_tab: bool,
     editor: Option<Editor>,
     edit_mode: bool,
+    dragged_button: Option<usize>,
     appearance_open: bool,
     fonts: Vec<String>,
     dirty: bool,
@@ -105,6 +106,7 @@ impl ButtonBuilder {
             reveal_active_tab: false,
             editor: None,
             edit_mode: false,
+            dragged_button: None,
             appearance_open: false,
             fonts,
             dirty: false,
@@ -246,6 +248,7 @@ impl ButtonBuilder {
         self.editor = None;
         self.appearance_open = false;
         self.edit_mode = false;
+        self.dragged_button = None;
         for tab in &mut self.tabs {
             tab.button_index = None;
         }

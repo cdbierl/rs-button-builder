@@ -71,7 +71,13 @@ select a YAML layout file. Dependency versions are recorded in [Cargo.lock](Carg
 
 - **Configure buttons:** right-click a button, click an unassigned button, or enable
   **Edit buttons**. Set its label, executable, arguments, working directory, and colors.
-  **Shell pipeline** runs the complete command through `/bin/sh`.
+  Empty slots show a muted **new window** icon. **Shell pipeline** runs the complete
+  command through `/bin/sh`.
+- **Clear a button:** right-click it and choose **Reset button** to restore an empty
+  slot with its default label and colors. Use **Save layout** to keep the reset.
+- **Reposition buttons:** drag a button onto another slot to swap their positions.
+  Dragging works with **Edit buttons** on or off. Drop outside the grid or press
+  **Escape** to cancel. Use **Save layout** to keep the new positions.
 - **Customize layouts:** change **Rows** and **Columns**, or click the heading above
   the grid to rename the layout. The window title shows
   **Button Builder - {display name}**. **New layout** creates an empty 3×3 grid and
