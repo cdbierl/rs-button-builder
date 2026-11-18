@@ -1,6 +1,7 @@
 //! UI sections and shared Material styling.
 
 mod appearance;
+mod button;
 mod button_editor;
 mod button_grid;
 mod footer;
@@ -12,6 +13,7 @@ mod terminal_selection;
 mod terminal_tabs;
 mod terminal_toolbar;
 
+pub(crate) use button::Button;
 pub(crate) use style::{
     CORNER_RADIUS, dialog, dialog_footer, filled_button, font_picker, form, material_icon,
     outlined_button, setup, text_button, text_input,

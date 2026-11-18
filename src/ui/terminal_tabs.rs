@@ -1,10 +1,10 @@
 //! Scrollable terminal tab strip and previous/next controls.
 
 use super::style::{contrasting_text, rgb};
-use super::{outlined_button, text_button};
+use super::{Button, outlined_button, text_button};
 use crate::app::ButtonBuilder;
 use egui::{Color32, FontId, RichText, Vec2};
-use egui_material3::{MaterialButton, get_global_color};
+use egui_material3::get_global_color;
 
 impl ButtonBuilder {
     pub(super) fn terminal_tabs(&mut self, ui: &mut egui::Ui) {
@@ -143,7 +143,7 @@ impl ButtonBuilder {
     }
 }
 
-fn tab_arrow(caption: &str) -> MaterialButton<'static> {
+fn tab_arrow(caption: &str) -> Button {
     outlined_button(RichText::new(caption).size(18.0))
         .small()
         .min_size(Vec2::splat(32.0))

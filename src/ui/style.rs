@@ -1,4 +1,5 @@
 //! Shared Material styling for controls and the egui inputs used by the forms.
+use super::Button;
 use crate::layout_config::ButtonConfig;
 use crate::theme::ThemeSettings;
 use egui::{Color32, FontId, RichText, Stroke, TextStyle};
@@ -21,14 +22,12 @@ pub fn filled_button(text: impl Into<egui::WidgetText>) -> egui_material3::Mater
     egui_material3::MaterialButton::filled(text).corner_radius(CORNER_RADIUS)
 }
 
-pub fn outlined_button(
-    text: impl Into<egui::WidgetText>,
-) -> egui_material3::MaterialButton<'static> {
-    egui_material3::MaterialButton::outlined(text).corner_radius(CORNER_RADIUS)
+pub fn outlined_button(text: impl Into<egui::WidgetText>) -> Button {
+    Button::new(egui_material3::MaterialButton::outlined(text).corner_radius(CORNER_RADIUS))
 }
 
-pub fn text_button(text: impl Into<egui::WidgetText>) -> egui_material3::MaterialButton<'static> {
-    egui_material3::MaterialButton::text(text).corner_radius(CORNER_RADIUS)
+pub fn text_button(text: impl Into<egui::WidgetText>) -> Button {
+    Button::new(egui_material3::MaterialButton::text(text).corner_radius(CORNER_RADIUS))
 }
 
 pub(super) fn styled_button(

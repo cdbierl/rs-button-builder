@@ -1,9 +1,9 @@
 //! Terminal actions and process/log status.
 
-use super::{CORNER_RADIUS, text_button};
+use super::{Button, CORNER_RADIUS, text_button};
 use crate::app::ButtonBuilder;
 use egui::{Color32, RichText, Vec2};
-use egui_material3::{MaterialButton, get_global_color};
+use egui_material3::get_global_color;
 
 impl ButtonBuilder {
     pub(super) fn terminal_toolbar(&mut self, ui: &mut egui::Ui) {
@@ -96,7 +96,7 @@ impl ButtonBuilder {
     }
 }
 
-fn toolbar_button(caption: &str) -> MaterialButton<'static> {
+fn toolbar_button(caption: &str) -> Button {
     text_button(RichText::new(caption).size(14.0))
         .small()
         .min_size(Vec2::new(0.0, 32.0))
