@@ -428,7 +428,7 @@ impl ButtonBuilder {
         }
         // Remove only after polling has observed success and drained all terminal output.
         for index in (0..self.tabs.len()).rev() {
-            if self.tabs[index].terminal.is_silent_success() {
+            if self.tabs[index].terminal.should_auto_close() {
                 self.completion_notice = Some((
                     format!("{} completed successfully", self.tabs[index].label),
                     Instant::now() + Duration::from_secs(4),

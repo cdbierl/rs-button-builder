@@ -87,8 +87,9 @@ select a YAML layout file. Dependency versions are recorded in [Cargo.lock](Carg
   to open another tab. Running tabs keep collecting output. Click the terminal to
   type; use the tab bar and its arrows to switch sessions.
   Commands that finish successfully without printing meaningful text close their tabs
-  automatically and show a brief success notice. Commands with output, failures,
-  and interrupted or stopped commands keep their tabs.
+  automatically and show a brief success notice. Enable **Close on success** for a
+  button to also close successful runs that printed output. Failures, interrupted
+  or stopped commands, and terminal or logging errors keep their tabs.
 - **Copy terminal text:** click and drag to highlight text; releasing the mouse
   automatically copies it to the clipboard. **Copy** or **Ctrl+Shift+C** copies the
   selection, or all output when nothing is selected. Click in the terminal to clear
@@ -172,6 +173,13 @@ Enable **Auto Start** in a button's edit dialog, or set `auto_start: true` in it
 YAML definition, to open that button in a terminal tab whenever the layout file
 is loaded. Each enabled, visible button opens in its own tab. Auto Start is
 unchecked by default and does not run when merely saving a layout.
+
+Enable **Close on success** in a button's edit dialog, or set `close_on_success: true`
+in its YAML definition, to close its terminal after exit status 0 regardless of
+output. It is unchecked by default; unchecked buttons still close on silent success.
+Changes apply to new runs, including Auto Start. Closing waits for pending output
+and log writes to finish; enabled output logs are preserved. Without logging,
+closing discards the displayed output.
 
 Each opted-in process that produces output gets its own log, for example
 `logs/run_top/20261117_183100.log`. Button labels become lowercase directory names

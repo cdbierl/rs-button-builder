@@ -34,6 +34,8 @@ impl ButtonBuilder {
                             .on_hover_text("Save this button's output to a file. Requires BUTTON_BUILDER_LOG_DIR in .env; applies to new runs.");
                         ui.add(MaterialCheckbox::new(&mut editor.button.auto_start, "Auto Start"))
                             .on_hover_text("Open this button in a terminal tab when its layout is loaded.");
+                        ui.add(MaterialCheckbox::new(&mut editor.button.close_on_success, "Close on success"))
+                            .on_hover_text("Close after a successful exit, even with output. Interrupted runs and terminal or logging errors stay open; applies to new runs.");
                     });
                     if editor.button.shell {
                         ui.label("Command or pipeline");

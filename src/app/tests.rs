@@ -428,6 +428,38 @@ fn wait_for_tabs(
 }
 
 #[test]
+fn close_on_success_applies_to_auto_start_and_is_captured_at_launch() {
+    let ctx = egui::Context::default();
+    let mut config = Config::default();
+    for (index, close_on_success, exit_code) in [(0, true, 0), (1, false, 0), (2, true, 1)] {
+        config.buttons[index] = ButtonConfig {
+            label: format!("Run {index}"),
+            command: format!("printf 'result {index}'; exit {exit_code}"),
+            shell: true,
+            auto_start: true,
+            close_on_success,
+            ..Default::default()
+        };
+    }
+    let mut app = ButtonBuilder::new(&ctx, Some("/tmp/close-on-success.yaml".into()), config);
+    assert_eq!(app.tabs.len(), 3);
+    // Editing button preferences doesn't change the policy for an existing run.
+    app.config.buttons[0].close_on_success = false;
+    app.config.buttons[1].close_on_success = true;
+    wait_for_tabs(&mut app, &ctx, |app| {
+        app.tabs.len() == 2 && app.tabs.iter().all(|tab| !tab.terminal.needs_poll())
+    });
+    assert_eq!(app.tabs[0].label, "Run 1");
+    assert!(app.tabs[0].terminal.screen.text().contains("result 1"));
+    assert_eq!(app.tabs[1].label, "Run 2");
+    assert!(app.tabs[1].terminal.screen.text().contains("result 2"));
+    assert_eq!(
+        app.completion_notice.as_ref().unwrap().0,
+        "Run 0 completed successfully"
+    );
+}
+
+#[test]
 fn silent_successes_close_without_disturbing_other_tabs_and_show_a_temporary_notice() {
     let ctx = egui::Context::default();
     let mut config = Config::default();
@@ -1943,38 +1975,48 @@ fn button_run_options_cancel_and_save_per_button() {
     let output = frame(&mut app, &ctx, vec![]);
     assert!(!app.editor.as_ref().unwrap().button.log_output);
     assert!(!app.editor.as_ref().unwrap().button.auto_start);
+    assert!(!app.editor.as_ref().unwrap().button.close_on_success);
     click(&mut app, &ctx, label_center(&output, "Log Output"));
     click(&mut app, &ctx, label_center(&output, "Auto Start"));
+    click(&mut app, &ctx, label_center(&output, "Close on success"));
     assert!(app.editor.as_ref().unwrap().button.log_output);
     assert!(app.editor.as_ref().unwrap().button.auto_start);
+    assert!(app.editor.as_ref().unwrap().button.close_on_success);
     let output = frame(&mut app, &ctx, vec![]);
     click(&mut app, &ctx, label_center(&output, "Cancel"));
     assert!(!app.config.buttons[0].log_output);
     assert!(!app.config.buttons[0].auto_start);
+    assert!(!app.config.buttons[0].close_on_success);
 
     app.edit(0);
     let output = frame(&mut app, &ctx, vec![]);
     click(&mut app, &ctx, label_center(&output, "Log Output"));
     click(&mut app, &ctx, label_center(&output, "Auto Start"));
+    click(&mut app, &ctx, label_center(&output, "Close on success"));
     let output = frame(&mut app, &ctx, vec![]);
     click(&mut app, &ctx, label_center(&output, "Save button"));
     let saved = Config::load_existing(&path).unwrap();
     assert!(saved.buttons[0].log_output);
     assert!(saved.buttons[0].auto_start);
+    assert!(saved.buttons[0].close_on_success);
     assert!(!saved.buttons[1].log_output);
     assert!(!saved.buttons[1].auto_start);
+    assert!(!saved.buttons[1].close_on_success);
 
     app.edit(0);
     let output = frame(&mut app, &ctx, vec![]);
     assert!(app.editor.as_ref().unwrap().button.log_output);
     assert!(app.editor.as_ref().unwrap().button.auto_start);
+    assert!(app.editor.as_ref().unwrap().button.close_on_success);
     click(&mut app, &ctx, label_center(&output, "Log Output"));
     click(&mut app, &ctx, label_center(&output, "Auto Start"));
+    click(&mut app, &ctx, label_center(&output, "Close on success"));
     let output = frame(&mut app, &ctx, vec![]);
     click(&mut app, &ctx, label_center(&output, "Save button"));
     let saved = Config::load_existing(&path).unwrap();
     assert!(!saved.buttons[0].log_output);
     assert!(!saved.buttons[0].auto_start);
+    assert!(!saved.buttons[0].close_on_success);
 }
 
 #[test]

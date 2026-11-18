@@ -32,6 +32,7 @@ pub struct Terminal {
     eof: bool,
     exit_status: Option<ExitStatus>,
     keep_open: bool,
+    close_on_success: bool,
     log: Option<logging::OutputLog>,
 }
 
@@ -148,6 +149,7 @@ impl Terminal {
             eof: false,
             exit_status: None,
             keep_open: false,
+            close_on_success: button.close_on_success,
             log: None,
         })
     }
@@ -164,10 +166,11 @@ impl Terminal {
             || self.log.as_ref().is_some_and(|log| !log.finished)
     }
 
-    /// A blank screen alone is insufficient: output may have been erased or remain unread.
-    pub fn is_silent_success(&self) -> bool {
+    /// Close only after successful completion and draining output, unless an error or user
+    /// interruption requires attention. By default, retain runs that ever printed text.
+    pub fn should_auto_close(&self) -> bool {
         self.exit_status.is_some_and(|status| status.success())
-            && !self.screen.has_printed_text()
+            && (self.close_on_success || !self.screen.has_printed_text())
             && !self.keep_open
             && self.log_error().is_none()
             && !self.needs_poll()
@@ -543,7 +546,7 @@ mod tests {
         stat.rsplit_once(") ")?.1.chars().next()
     }
 
-    fn wait_until(predicate: impl Fn() -> bool) {
+    fn wait_until(mut predicate: impl FnMut() -> bool) {
         let deadline = Instant::now() + Duration::from_secs(5);
         while !predicate() {
             assert!(Instant::now() < deadline, "Process cleanup timed out");
@@ -563,6 +566,66 @@ mod tests {
     }
 
     #[test]
+    fn close_on_success_waits_for_output_and_preserves_logs() {
+        for close_on_success in [false, true] {
+            for exit_code in [0, 1] {
+                for log_output in [false, true] {
+                    let directory = log_directory("close-on-success");
+                    let button = ButtonConfig {
+                        command: format!(
+                            "printf 'useful output'; printf 'stderr output' >&2; exit {exit_code}"
+                        ),
+                        shell: true,
+                        log_output,
+                        close_on_success,
+                        ..Default::default()
+                    };
+                    let mut terminal =
+                        Terminal::start_with_log_dir(&button, 80, 24, Some(&directory)).unwrap();
+                    // Observe exit before polling: unread output must prevent closing even with opt-in.
+                    wait_until(|| {
+                        terminal.check_exit();
+                        !terminal.is_running()
+                    });
+                    assert!(!terminal.should_auto_close());
+                    wait_for(&mut terminal, |t| !t.needs_poll());
+                    assert_eq!(terminal.screen.text().trim(), "useful outputstderr output");
+                    assert_eq!(
+                        terminal.should_auto_close(),
+                        close_on_success && exit_code == 0
+                    );
+                    if log_output {
+                        let path = terminal.log_path().unwrap().to_owned();
+                        drop(terminal);
+                        assert_eq!(std::fs::read(path).unwrap(), b"useful outputstderr output");
+                    } else {
+                        assert!(!directory.exists());
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn close_on_success_keeps_logging_errors_visible() {
+        let directory = log_directory("close-log-error");
+        std::fs::write(&directory, "not a directory").unwrap();
+        let button = ButtonConfig {
+            command: "/usr/bin/printf".into(),
+            arguments: "result".into(),
+            log_output: true,
+            close_on_success: true,
+            ..Default::default()
+        };
+        let mut terminal = Terminal::start_with_log_dir(&button, 80, 24, Some(&directory)).unwrap();
+        wait_for(&mut terminal, |t| !t.needs_poll());
+        assert!(terminal.exit_status.unwrap().success());
+        assert!(terminal.log_error().is_some());
+        assert!(!terminal.should_auto_close());
+        assert!(terminal.screen.text().contains("result"));
+    }
+
+    #[test]
     fn silent_successes_and_failures_never_create_logs() {
         for (command, success) in [("/usr/bin/true", true), ("/usr/bin/false", false)] {
             let directory = log_directory("silent-run");
@@ -575,7 +638,7 @@ mod tests {
                 Terminal::start_with_log_dir(&button, 80, 24, Some(&directory)).unwrap();
             assert!(terminal.log_path().is_none());
             wait_for(&mut terminal, |t| !t.needs_poll());
-            assert_eq!(terminal.is_silent_success(), success);
+            assert_eq!(terminal.should_auto_close(), success);
             assert!(terminal.log_error().is_none());
             assert!(terminal.log_path().is_none());
             assert!(
@@ -604,7 +667,7 @@ mod tests {
                 let mut terminal =
                     Terminal::start_with_log_dir(&button, 80, 24, Some(&directory)).unwrap();
                 wait_for(&mut terminal, |t| !t.needs_poll());
-                assert_eq!(terminal.is_silent_success(), status == 0, "{output:?}");
+                assert_eq!(terminal.should_auto_close(), status == 0, "{output:?}");
                 assert!(!terminal.screen.has_printed_text());
                 assert!(terminal.log_error().is_none());
                 assert!(terminal.log_path().is_none());
@@ -624,7 +687,7 @@ mod tests {
         };
         let mut terminal = Terminal::start_with_log_dir(&button, 80, 24, Some(&directory)).unwrap();
         wait_for(&mut terminal, |t| !t.needs_poll());
-        assert!(!terminal.is_silent_success());
+        assert!(!terminal.should_auto_close());
         assert!(terminal.screen.text().contains('\u{fffd}'));
         assert_eq!(
             std::fs::read(terminal.log_path().unwrap()).unwrap(),
@@ -654,7 +717,7 @@ mod tests {
         terminal.send(b"\n");
         wait_for(&mut terminal, |t| !t.needs_poll());
         assert!(terminal.exit_status.unwrap().success());
-        assert!(!terminal.is_silent_success());
+        assert!(!terminal.should_auto_close());
         assert_eq!(
             std::fs::read(terminal.log_path().unwrap()).unwrap(),
             b"\r\x1b[2K\x1b[3Dfirst chunklast chunk"
@@ -680,12 +743,12 @@ mod tests {
             "The terminal has not read the queued output yet"
         );
         assert!(
-            !terminal.is_silent_success(),
+            !terminal.should_auto_close(),
             "Exit status alone cannot close a tab"
         );
         wait_for(&mut terminal, |t| !t.needs_poll());
         assert!(terminal.screen.text().trim().is_empty());
-        assert!(!terminal.is_silent_success());
+        assert!(!terminal.should_auto_close());
         assert_eq!(
             std::fs::read(terminal.log_path().unwrap()).unwrap(),
             b"final output\x1b[2J\x1b[H"
@@ -710,7 +773,7 @@ mod tests {
                 terminal.stop();
             }
             wait_for(&mut terminal, |t| !t.needs_poll());
-            assert!(!terminal.is_silent_success());
+            assert!(!terminal.should_auto_close());
             assert!(terminal.log_path().is_none());
             assert!(!directory.exists());
         }
@@ -718,6 +781,7 @@ mod tests {
         let button = ButtonConfig {
             command: "trap 'exit 0' INT; kill -STOP $$; while :; do :; done".into(),
             shell: true,
+            close_on_success: true,
             ..Default::default()
         };
         let mut terminal = Terminal::start(&button, 80, 24).unwrap();
@@ -728,7 +792,7 @@ mod tests {
         wait_for(&mut terminal, |t| !t.needs_poll());
         assert!(terminal.exit_status.unwrap().success());
         assert!(!terminal.screen.has_printed_text());
-        assert!(!terminal.is_silent_success());
+        assert!(!terminal.should_auto_close());
     }
 
     #[test]
