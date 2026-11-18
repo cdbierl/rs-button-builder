@@ -80,6 +80,10 @@ select a YAML layout file. Dependency versions are recorded in [Cargo.lock](Carg
 - **Manage terminals:** click a button to use the active terminal, or **Ctrl-click**
   to open another tab. Running tabs keep collecting output. Click the terminal to
   type; use the tab bar and its arrows to switch sessions.
+- **Copy terminal text:** click and drag to highlight text; releasing the mouse
+  automatically copies it to the clipboard. **Copy** or **Ctrl+Shift+C** copies the
+  selection, or all output when nothing is selected. Click in the terminal to clear
+  the selection. **Ctrl+C** still interrupts the process.
 - **Adjust appearance:** **Appearance** changes the selected tab's font and colors
   and the defaults for new tabs. **Ctrl+mouse wheel** over the terminal adjusts its
   font size (8–32 pt); plain scrolling or dragging the right-hand scrollbar moves

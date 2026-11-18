@@ -1,5 +1,6 @@
 //! Terminal viewport rendering, scrollback, resizing, and keyboard input.
 
+use super::terminal_selection::{SelectionViewport, live_row};
 use super::{CORNER_RADIUS, rgb};
 use crate::app::ButtonBuilder;
 use crate::layout_config::TerminalStyle;
@@ -92,6 +93,7 @@ impl ButtonBuilder {
                 ((content_width / width) as usize).clamp(2, 500),
                 (((size.y - 16.0) / height) as usize).clamp(2, 200),
             );
+            tab.selection.prepare(&tab.terminal.screen);
             // Shrinking the viewport can move rows into history. Keep the viewed text anchored.
             if tab.scrollback > 0 {
                 tab.scrollback = tab
@@ -122,7 +124,36 @@ impl ButtonBuilder {
                 tab.scroll_fraction = 0.0;
             }
         }
-        if response.clicked() || scrollbar_interacted || self.focus_terminal {
+        let origin = rect.min + Vec2::splat(8.0);
+        let text_rect = egui::Rect::from_min_max(
+            origin,
+            egui::pos2(
+                (rect.right() - TERMINAL_SCROLLBAR_WIDTH - 8.0).max(origin.x),
+                (rect.bottom() - 8.0).max(origin.y),
+            ),
+        );
+        let selection_response = ui.interact(
+            text_rect,
+            response.id.with("selection"),
+            egui::Sense::click_and_drag(),
+        );
+        if let Some(index) = self.active_tab {
+            let tab = &mut self.tabs[index];
+            let viewport = SelectionViewport {
+                rect: text_rect,
+                char_width,
+                line_height,
+                first_row: live_row(&tab.terminal.screen).saturating_sub(tab.scrollback),
+            };
+            tab.selection
+                .interact(ui, &selection_response, &viewport, &tab.terminal.screen);
+        }
+        if response.clicked()
+            || selection_response.clicked()
+            || selection_response.drag_started()
+            || scrollbar_interacted
+            || self.focus_terminal
+        {
             response.request_focus();
             self.focus_terminal = false;
         }
@@ -145,14 +176,7 @@ impl ButtonBuilder {
                 egui::StrokeKind::Inside,
             );
         }
-        let origin = rect.min + Vec2::splat(8.0);
-        let painter = painter.with_clip_rect(egui::Rect::from_min_max(
-            origin,
-            egui::pos2(
-                (rect.right() - TERMINAL_SCROLLBAR_WIDTH - 8.0).max(origin.x),
-                rect.bottom() - 8.0,
-            ),
-        ));
+        let painter = painter.with_clip_rect(text_rect);
         let Some(index) = self.active_tab else {
             painter.text(
                 origin,
@@ -189,6 +213,11 @@ impl ButtonBuilder {
                 line_height,
                 cols,
                 style,
+                tab.selection.columns(
+                    live_row(screen).saturating_sub(tab.scrollback) + visible_row,
+                    line,
+                ),
+                ui.visuals().selection,
             );
         }
         if tab.scrollback == 0
@@ -223,7 +252,8 @@ impl ButtonBuilder {
                     )
                 });
             if copy_output {
-                ui.ctx().copy_text(terminal.screen.text());
+                ui.ctx()
+                    .copy_text(tab.selection.text(screen).unwrap_or_else(|| screen.text()));
             }
             let copied = events
                 .iter()
@@ -259,6 +289,7 @@ impl ButtonBuilder {
                         terminal.send(&bytes);
                     }
                     tab.scrollback = 0;
+                    tab.selection.clear();
                 }
             }
         }
@@ -368,18 +399,28 @@ fn paint_line(
     line_height: f32,
     cols: usize,
     terminal_style: &TerminalStyle,
+    selected: std::ops::Range<usize>,
+    selection_style: egui::style::Selection,
 ) {
     let mut start = 0;
     while start < line.len().min(cols) {
         let style = line[start].style;
         let mut end = start + 1;
-        while end < line.len().min(cols) && line[end].style == style {
+        let is_selected = selected.contains(&start);
+        while end < line.len().min(cols)
+            && line[end].style == style
+            && selected.contains(&end) == is_selected
+        {
             end += 1;
         }
         let mut foreground = rgb(style.fg_color.unwrap_or(terminal_style.fg_color));
         let mut background = rgb(style.bg_color.unwrap_or(terminal_style.bg_color));
         if style.inverse {
             std::mem::swap(&mut foreground, &mut background);
+        }
+        if is_selected {
+            background = selection_style.bg_fill;
+            foreground = selection_style.stroke.color;
         }
         let position = origin + Vec2::new(start as f32 * char_width, 0.0);
         let width = (end - start) as f32 * char_width;

@@ -34,7 +34,7 @@ impl ButtonBuilder {
                     }
                     copy = ui
                         .add_enabled(active.is_some(), toolbar_button("Copy"))
-                        .on_hover_text("Copy this tab's output (Ctrl+Shift+C)")
+                        .on_hover_text("Copy selected text, or all output (Ctrl+Shift+C)\nDrag over terminal text to select and copy automatically")
                         .clicked();
                     interrupt = ui
                         .add_enabled(running, toolbar_button("Ctrl+C"))
@@ -56,7 +56,11 @@ impl ButtonBuilder {
         if let Some(index) = active {
             let tab = &mut self.tabs[index];
             if copy {
-                ui.ctx().copy_text(tab.terminal.screen.text());
+                ui.ctx().copy_text(
+                    tab.selection
+                        .text(&tab.terminal.screen)
+                        .unwrap_or_else(|| tab.terminal.screen.text()),
+                );
             }
             if interrupt {
                 tab.terminal.interrupt();

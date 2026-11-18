@@ -481,6 +481,309 @@ fn noisy_processes_can_be_interrupted_stopped_closed_and_run_alongside_new_tabs(
 }
 
 #[test]
+fn terminal_drag_selects_highlights_and_copies_on_release() {
+    let ctx = egui::Context::default();
+    let mut config = Config::default();
+    config.buttons[0] = interactive_button("Alpha");
+    let mut app = ButtonBuilder::new(&ctx, None, config);
+    app.launch(0, false);
+    wait_for_tabs(&mut app, &ctx, |app| {
+        app.tabs[0].terminal.screen.text().contains("Alpha-ready")
+    });
+    app.tabs[0]
+        .terminal
+        .screen
+        .feed(b"\x1b[2J\x1b[Halpha bravo\r\ncharlie delta");
+    let output = frame(&mut app, &ctx, vec![]);
+    let origin = output
+        .shapes
+        .iter()
+        .find_map(|shape| match &shape.shape {
+            egui::Shape::Text(text) if text.galley.job.text.starts_with("alpha bravo") => {
+                Some(text.pos)
+            }
+            _ => None,
+        })
+        .unwrap();
+    let font = egui::FontId::monospace(app.tabs[0].style.font_size);
+    let (width, height) = ctx.fonts_mut(|fonts| {
+        (
+            fonts.glyph_width(&font, 'M'),
+            fonts.row_height(&font) * app.tabs[0].style.line_spacing,
+        )
+    });
+    let cell = |row: usize, col: usize| {
+        origin + Vec2::new(col as f32 * width, (row as f32 + 0.5) * height)
+    };
+    let start = cell(0, 6);
+    let end = cell(1, 7);
+    let press = |pos, pressed| egui::Event::PointerButton {
+        pos,
+        button: egui::PointerButton::Primary,
+        pressed,
+        modifiers: egui::Modifiers::NONE,
+    };
+    for (anchor, head) in [(start, end), (end, start)] {
+        frame(
+            &mut app,
+            &ctx,
+            vec![egui::Event::PointerMoved(anchor), press(anchor, true)],
+        );
+        let dragging = frame(&mut app, &ctx, vec![egui::Event::PointerMoved(head)]);
+        assert!(
+            dragging
+                .platform_output
+                .commands
+                .iter()
+                .all(|command| !matches!(command, egui::OutputCommand::CopyText(_))),
+            "Wait until release before copying"
+        );
+        assert!(
+            dragging.shapes.iter().any(|shape| matches!(&shape.shape,
+                egui::Shape::Rect(rect) if rect.fill == ctx.style().visuals.selection.bg_fill
+                    && (rect.rect.left() - start.x).abs() < 0.01
+                && rect.rect.width() >= 5.0 * width - 0.01
+            )),
+            "Selected cells should have a visible background"
+        );
+        let released = frame(&mut app, &ctx, vec![press(head, false)]);
+        assert!(
+            released
+                .platform_output
+                .commands
+                .iter()
+                .any(|command| matches!(command,
+                    egui::OutputCommand::CopyText(text) if text == "bravo\ncharlie"
+                ))
+        );
+    }
+    let copied = frame_with(
+        &mut app,
+        &ctx,
+        Vec2::new(1200.0, 760.0),
+        egui::Modifiers::CTRL | egui::Modifiers::SHIFT,
+        vec![egui::Event::Copy],
+    );
+    assert!(
+        copied
+            .platform_output
+            .commands
+            .iter()
+            .any(|command| matches!(command,
+                egui::OutputCommand::CopyText(text) if text == "bravo\ncharlie"
+            )),
+        "Selection must retain terminal keyboard focus"
+    );
+    let copy_pos = label_center(&copied, "Copy");
+    frame(
+        &mut app,
+        &ctx,
+        vec![egui::Event::PointerMoved(copy_pos), press(copy_pos, true)],
+    );
+    let copied = frame(&mut app, &ctx, vec![press(copy_pos, false)]);
+    assert!(
+        copied
+            .platform_output
+            .commands
+            .iter()
+            .any(|command| matches!(command,
+                egui::OutputCommand::CopyText(text) if text == "bravo\ncharlie"
+            )),
+        "The toolbar should copy selected text"
+    );
+    click(&mut app, &ctx, start);
+    assert!(
+        app.tabs[0]
+            .selection
+            .text(&app.tabs[0].terminal.screen)
+            .is_none()
+    );
+    let copied = frame_with(
+        &mut app,
+        &ctx,
+        Vec2::new(1200.0, 760.0),
+        egui::Modifiers::CTRL | egui::Modifiers::SHIFT,
+        vec![egui::Event::Copy],
+    );
+    assert!(
+        copied
+            .platform_output
+            .commands
+            .iter()
+            .any(|command| matches!(command,
+                egui::OutputCommand::CopyText(text) if text.contains("alpha bravo\ncharlie delta")
+            )),
+        "Copy without a selection should still copy all output"
+    );
+    frame(
+        &mut app,
+        &ctx,
+        vec![egui::Event::PointerMoved(start), press(start, true)],
+    );
+    frame(&mut app, &ctx, vec![egui::Event::PointerMoved(end)]);
+    frame(&mut app, &ctx, vec![press(end, false)]);
+    frame(&mut app, &ctx, vec![egui::Event::Text("typed\n".into())]);
+    assert!(
+        app.tabs[0]
+            .selection
+            .text(&app.tabs[0].terminal.screen)
+            .is_none()
+    );
+    wait_for_tabs(&mut app, &ctx, |app| {
+        app.tabs[0].terminal.screen.text().contains("Alpha:typed")
+    });
+    frame(
+        &mut app,
+        &ctx,
+        vec![egui::Event::PointerMoved(start), press(start, true)],
+    );
+    frame(&mut app, &ctx, vec![egui::Event::PointerMoved(end)]);
+    frame(&mut app, &ctx, vec![press(end, false)]);
+    let interrupted = frame_with(
+        &mut app,
+        &ctx,
+        Vec2::new(1200.0, 760.0),
+        egui::Modifiers::CTRL,
+        vec![egui::Event::Copy],
+    );
+    assert!(
+        interrupted
+            .platform_output
+            .commands
+            .iter()
+            .all(|command| !matches!(command, egui::OutputCommand::CopyText(_)))
+    );
+    wait_for_tabs(&mut app, &ctx, |app| !app.tabs[0].terminal.is_running());
+}
+
+#[test]
+fn terminal_selection_copies_scrollback_survives_tab_switches_and_releases_outside_pane() {
+    let ctx = egui::Context::default();
+    let mut config = Config::default();
+    config.buttons[0] = interactive_button("Alpha");
+    config.buttons[1] = interactive_button("Beta");
+    let mut app = ButtonBuilder::new(&ctx, None, config);
+    app.launch(0, false);
+    app.launch(1, true);
+    wait_for_tabs(&mut app, &ctx, |app| {
+        app.tabs
+            .iter()
+            .all(|tab| tab.terminal.screen.text().contains("-ready"))
+    });
+    app.select_tab(0);
+    frame(&mut app, &ctx, vec![]);
+    app.tabs[0].terminal.screen.feed(b"\x1b[2J\x1b[H");
+    for i in 0..120 {
+        app.tabs[0]
+            .terminal
+            .screen
+            .feed(format!("history-{i}\r\n").as_bytes());
+    }
+    app.tabs[0].scrollback = app.tabs[0].terminal.screen.history.len();
+    let output = frame(&mut app, &ctx, vec![]);
+    let origin = output
+        .shapes
+        .iter()
+        .find_map(|shape| match &shape.shape {
+            egui::Shape::Text(text) if text.galley.job.text.starts_with("history-0 ") => {
+                Some(text.pos)
+            }
+            _ => None,
+        })
+        .unwrap();
+    let font = egui::FontId::monospace(app.tabs[0].style.font_size);
+    let (width, height) = ctx.fonts_mut(|fonts| {
+        (
+            fonts.glyph_width(&font, 'M'),
+            fonts.row_height(&font) * app.tabs[0].style.line_spacing,
+        )
+    });
+    let anchor = origin + Vec2::new(0.0, height / 2.0);
+    let head = anchor + Vec2::new(9.0 * width, 0.0);
+    let press = |pos, pressed| egui::Event::PointerButton {
+        pos,
+        button: egui::PointerButton::Primary,
+        pressed,
+        modifiers: egui::Modifiers::NONE,
+    };
+    frame(
+        &mut app,
+        &ctx,
+        vec![egui::Event::PointerMoved(anchor), press(anchor, true)],
+    );
+    frame(&mut app, &ctx, vec![egui::Event::PointerMoved(head)]);
+    let copied = frame(&mut app, &ctx, vec![press(head, false)]);
+    assert!(copied.platform_output.commands.iter().any(
+        |command| matches!(command, egui::OutputCommand::CopyText(text) if text == "history-0")
+    ));
+    app.select_tab(1);
+    frame(&mut app, &ctx, vec![]);
+    assert!(
+        app.tabs[1]
+            .selection
+            .text(&app.tabs[1].terminal.screen)
+            .is_none()
+    );
+    app.select_tab(0);
+    frame(&mut app, &ctx, vec![]);
+    assert_eq!(
+        app.tabs[0]
+            .selection
+            .text(&app.tabs[0].terminal.screen)
+            .as_deref(),
+        Some("history-0")
+    );
+    app.tabs[0].terminal.screen.feed(b"new output\r\n");
+    let output = frame(&mut app, &ctx, vec![]);
+    assert_eq!(
+        app.tabs[0]
+            .selection
+            .text(&app.tabs[0].terminal.screen)
+            .as_deref(),
+        Some("history-0")
+    );
+    let (track, thumb) = scrollbar_rects(&output).unwrap();
+    let grab = thumb.center();
+    frame(
+        &mut app,
+        &ctx,
+        vec![egui::Event::PointerMoved(grab), press(grab, true)],
+    );
+    frame(
+        &mut app,
+        &ctx,
+        vec![egui::Event::PointerMoved(track.center())],
+    );
+    let released = frame(&mut app, &ctx, vec![press(track.center(), false)]);
+    assert!(
+        released
+            .platform_output
+            .commands
+            .iter()
+            .all(|command| !matches!(command, egui::OutputCommand::CopyText(_))),
+        "Dragging the scrollbar must not copy text"
+    );
+    app.tabs[0].scrollback = app.tabs[0].terminal.screen.history.len();
+    frame(&mut app, &ctx, vec![]);
+    frame(
+        &mut app,
+        &ctx,
+        vec![egui::Event::PointerMoved(anchor), press(anchor, true)],
+    );
+    frame(&mut app, &ctx, vec![egui::Event::PointerMoved(head)]);
+    // Releasing beyond the left edge clamps to the beginning of the second row.
+    let outside = origin + Vec2::new(-30.0, height * 1.5);
+    let copied = frame(
+        &mut app,
+        &ctx,
+        vec![egui::Event::PointerMoved(outside), press(outside, false)],
+    );
+    assert!(copied.platform_output.commands.iter().any(
+        |command| matches!(command, egui::OutputCommand::CopyText(text) if text == "history-0\n")
+    ));
+}
+
+#[test]
 fn terminal_scrollbar_drags_history_and_preserves_tab_position_and_input_focus() {
     let ctx = egui::Context::default();
     let mut config = Config::default();

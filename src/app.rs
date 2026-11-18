@@ -36,12 +36,14 @@ struct TerminalTab {
     style: TerminalStyle,
     scrollback: usize,
     scroll_fraction: f32,
+    selection: ui::TerminalSelection,
 }
 
 impl TerminalTab {
     fn poll(&mut self) {
         let previous = self.terminal.screen.scrolled_lines;
         self.terminal.poll();
+        self.selection.prepare(&self.terminal.screen);
         if self.scrollback > 0 {
             self.scrollback = self
                 .scrollback
@@ -319,6 +321,7 @@ impl ButtonBuilder {
                     style,
                     scrollback: 0,
                     scroll_fraction: 0.0,
+                    selection: ui::TerminalSelection::default(),
                 };
                 if let Some(index) = replace {
                     self.tabs[index] = tab;

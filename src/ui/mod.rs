@@ -7,6 +7,7 @@ mod header;
 mod layout_dialogs;
 mod style;
 mod terminal_panel;
+mod terminal_selection;
 mod terminal_tabs;
 mod terminal_toolbar;
 
@@ -17,6 +18,7 @@ pub(crate) use style::{
 
 use style::styled_button;
 pub(super) use style::{button_colors, rgb};
+pub(super) use terminal_selection::TerminalSelection;
 
 #[cfg(test)]
 pub(super) use terminal_panel::{TERMINAL_SCROLLBAR_WIDTH, key_bytes};
