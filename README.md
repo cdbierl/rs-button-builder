@@ -157,10 +157,12 @@ two-second timeout if storage stalls. Log files and `.env` are excluded from Git
 | Source | Responsibility |
 | --- | --- |
 | `src/main.rs`, `src/cli.rs` | Startup, arguments, logging, and `.env` loading. |
-| `src/app.rs` | GUI, button editing, layouts, and terminal tabs. |
+| `src/app.rs` | Application state, layout persistence, terminal lifecycle, and frame composition. |
+| `src/ui/` | Header, button grid/editor, layout dialogs, appearance, terminal sections, and shared styling. |
+| `src/app/tests.rs` | UI interaction and application workflow tests. |
 | `src/config.rs`, `src/config_picker.rs` | YAML persistence and layout selection. |
 | `src/terminal/` | Pseudo-terminal processes, input, and screen rendering. |
-| `src/ui.rs`, `src/fonts.rs` | Shared styling, bundled icons, and local font discovery. |
+| `src/fonts.rs` | Bundled icons and local font discovery. |
 
 Run the checks before submitting changes:
 

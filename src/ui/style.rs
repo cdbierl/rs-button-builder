@@ -1,5 +1,6 @@
 //! Shared Material styling for controls and the egui inputs used by the forms.
-use egui::{Color32, FontId, Stroke, TextStyle};
+use crate::config::ButtonConfig;
+use egui::{Color32, FontId, RichText, Stroke, TextStyle};
 use egui_material3::{MaterialThemeContext, ThemeMode, get_global_color, update_global_theme};
 
 pub const CORNER_RADIUS: u8 = 6;
@@ -27,6 +28,44 @@ pub fn outlined_button(
 
 pub fn text_button(text: impl Into<egui::WidgetText>) -> egui_material3::MaterialButton<'static> {
     egui_material3::MaterialButton::text(text).corner_radius(CORNER_RADIUS)
+}
+
+pub(super) fn styled_button(
+    button: &ButtonConfig,
+    caption: String,
+) -> egui_material3::MaterialButton<'static> {
+    let (text, fill) = button_colors(button);
+    filled_button(RichText::new(caption).size(15.0))
+        .small()
+        .text_color(text)
+        .fill(fill)
+}
+
+pub(in crate::app) fn button_colors(button: &ButtonConfig) -> (Color32, Color32) {
+    let (text, fill) = if button.command.trim().is_empty() {
+        ("onSecondaryContainer", "surfaceVariant")
+    } else {
+        ("onPrimary", "primary")
+    };
+    let fill = button
+        .bg_color
+        .map(rgb)
+        .unwrap_or_else(|| get_global_color(fill));
+    let text = button.fg_color.map(rgb).unwrap_or_else(|| {
+        if button.bg_color.is_some() {
+            let linear = egui::Rgba::from(fill);
+            let luminance = 0.2126 * linear.r() + 0.7152 * linear.g() + 0.0722 * linear.b();
+            // Black or white gives at least 4.5:1 contrast against any opaque background.
+            if luminance > 0.179 {
+                Color32::BLACK
+            } else {
+                Color32::WHITE
+            }
+        } else {
+            get_global_color(text)
+        }
+    });
+    (text, fill)
 }
 
 pub fn text_input(value: &mut String) -> egui::TextEdit<'_> {
@@ -213,4 +252,8 @@ pub fn setup(ctx: &egui::Context) {
             widget.corner_radius = egui::CornerRadius::same(CORNER_RADIUS);
         }
     });
+}
+
+pub(in crate::app) fn rgb(color: [u8; 3]) -> Color32 {
+    Color32::from_rgb(color[0], color[1], color[2])
 }
