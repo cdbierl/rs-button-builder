@@ -12,7 +12,7 @@ impl ButtonBuilder {
             MaterialToolbar::new()
                 .top(true)
                 .min_height(64.0)
-                .padding(Vec2::new(20.0, 12.0))
+                .padding(Vec2::new(10.0, 12.0))
                 .item_fn(|ui| ui.add(material_icon("apps")))
                 .item_fn(|ui| ui.heading("Button Builder"))
                 .item_fn(|ui| {

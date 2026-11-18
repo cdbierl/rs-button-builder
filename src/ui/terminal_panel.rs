@@ -212,22 +212,54 @@ impl ButtonBuilder {
                 ui.visuals().selection,
             );
         }
-        if tab.scrollback == 0
-            && screen.cursor_visible
-            && response.has_focus()
-            && terminal.is_running()
-        {
+        if tab.scrollback == 0 && screen.cursor_visible && terminal.is_running() {
+            let focused = response.has_focus();
+            let (now, typing) = ui.input(|input| {
+                (
+                    input.time,
+                    input.events.iter().any(|event| {
+                        matches!(
+                            event,
+                            egui::Event::Key { pressed: true, .. }
+                                | egui::Event::Text(_)
+                                | egui::Event::Paste(_)
+                                | egui::Event::Copy
+                                | egui::Event::Cut
+                        )
+                    }),
+                )
+            });
+            // Keep typing visible, then alternate 500 ms on/off. Unfocused stays outlined.
+            let reset = !focused || response.gained_focus() || typing;
+            let phase = ui.data_mut(|data| {
+                let start =
+                    data.get_temp_mut_or_insert_with(response.id.with("cursor_blink"), || now);
+                if reset {
+                    *start = now;
+                }
+                (now - *start).rem_euclid(1.0)
+            });
+            if focused {
+                ui.ctx()
+                    .request_repaint_after(std::time::Duration::from_secs_f64(if phase < 0.5 {
+                        0.5 - phase
+                    } else {
+                        1.0 - phase
+                    }));
+            }
             let (x, y) = screen.cursor();
             let cursor = egui::Rect::from_min_size(
                 origin + Vec2::new(x as f32 * char_width, y as f32 * line_height),
                 Vec2::new(char_width, line_height),
             );
-            painter.rect_stroke(
-                cursor,
-                0.0,
-                Stroke::new(1.0_f32, rgb(style.fg_color)),
-                egui::StrokeKind::Inside,
-            );
+            if !focused || phase < 0.5 {
+                painter.rect_stroke(
+                    cursor,
+                    0.0,
+                    Stroke::new(1.0_f32, rgb(style.fg_color)),
+                    egui::StrokeKind::Inside,
+                );
+            }
         }
         if response.has_focus() {
             handle_terminal_input(ui, tab);
