@@ -28,11 +28,11 @@ impl ButtonBuilder {
                     ui.horizontal_wrapped(|ui| {
                         ui.add(MaterialCheckbox::new(
                             &mut editor.button.shell,
-                            "Shell Script (/bin/sh)",
+                            "Shell script (/bin/sh)",
                         ));
-                        ui.add(MaterialCheckbox::new(&mut editor.button.log_output, "Log Output"))
+                        ui.add(MaterialCheckbox::new(&mut editor.button.log_output, "Log output"))
                             .on_hover_text("Save this button's output to a file. Requires BUTTON_BUILDER_LOG_DIR in .env; applies to new runs.");
-                        ui.add(MaterialCheckbox::new(&mut editor.button.auto_start, "Auto Start"))
+                        ui.add(MaterialCheckbox::new(&mut editor.button.auto_start, "Auto start"))
                             .on_hover_text("Open this button in a terminal tab when its layout is loaded.");
                         ui.add(MaterialCheckbox::new(&mut editor.button.close_on_success, "Close on success"))
                             .on_hover_text("Close after a successful exit, even with output. Interrupted runs and terminal or logging errors stay open; applies to new runs.");
@@ -66,7 +66,7 @@ impl ButtonBuilder {
                         let (text, fill) = button_colors(&editor.button);
                         let mut foreground = [text.r(), text.g(), text.b()];
                         let mut background = [fill.r(), fill.g(), fill.b()];
-                        ui.label("Text Color");
+                        ui.label("Text color");
                         if ui.color_edit_button_srgb(&mut foreground).changed() {
                             editor.button.fg_color = Some(foreground);
                         }
@@ -74,7 +74,7 @@ impl ButtonBuilder {
                         if ui.color_edit_button_srgb(&mut background).changed() {
                             editor.button.bg_color = Some(background);
                         }
-                        if ui.add(text_button("Reset Colors").small()).clicked() {
+                        if ui.add(text_button("Reset colors").small()).clicked() {
                             editor.button.fg_color = None;
                             editor.button.bg_color = None;
                         }

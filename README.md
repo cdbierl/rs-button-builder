@@ -71,7 +71,7 @@ select a YAML layout file. Dependency versions are recorded in [Cargo.lock](Carg
 
 - **Configure buttons:** right-click a button, click an unassigned button, or enable
   **Edit buttons**. Set its label, executable, arguments, working directory, and colors.
-  Empty slots show a muted **new window** icon. **Shell Script (/bin/sh)** runs the complete
+  Empty slots show a muted **new window** icon. **Shell script (/bin/sh)** runs the complete
   command through `/bin/sh`.
 - **Clear a button:** right-click it and choose **Reset** to restore an empty
   slot with its default label and colors. Use **Save layout** to keep the reset.
@@ -167,19 +167,19 @@ Set `BUTTON_BUILDER_LOG_DIR` in your environment or in `.env` at the project roo
 BUTTON_BUILDER_LOG_DIR=./logs
 ```
 
-Enable **Log Output** in a button's edit dialog, or set `log_output: true` in that
+Enable **Log output** in a button's edit dialog, or set `log_output: true` in that
 button's YAML definition. It is unchecked by default, including when loading
 older layouts without this field. Changes apply to newly launched processes.
 
-Enable **Auto Start** in a button's edit dialog, or set `auto_start: true` in its
+Enable **Auto start** in a button's edit dialog, or set `auto_start: true` in its
 YAML definition, to open that button in a terminal tab whenever the layout file
-is loaded. Each enabled, visible button opens in its own tab. Auto Start is
+is loaded. Each enabled, visible button opens in its own tab. Auto start is
 unchecked by default and does not run when merely saving a layout.
 
 Enable **Close on success** in a button's edit dialog, or set `close_on_success: true`
 in its YAML definition, to close its terminal after exit status 0 regardless of
 output. It is unchecked by default; unchecked buttons still close on silent success.
-Changes apply to new runs, including Auto Start. Closing waits for pending output
+Changes apply to new runs, including Auto start. Closing waits for pending output
 and log writes to finish; enabled output logs are preserved. Without logging,
 closing discards the displayed output.
 

@@ -178,7 +178,7 @@ impl ButtonBuilder {
                                 clicked = Some(index);
                             }
                             response.context_menu(|ui| {
-                                if ui.add(text_button("Edit Button...").small()).clicked() {
+                                if ui.add(text_button("Edit button…").small()).clicked() {
                                     edit = Some(index);
                                     ui.close();
                                 }

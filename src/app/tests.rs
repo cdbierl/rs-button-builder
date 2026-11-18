@@ -1999,8 +1999,8 @@ fn button_run_options_cancel_and_save_per_button() {
     assert!(!app.editor.as_ref().unwrap().button.log_output);
     assert!(!app.editor.as_ref().unwrap().button.auto_start);
     assert!(!app.editor.as_ref().unwrap().button.close_on_success);
-    click(&mut app, &ctx, label_center(&output, "Log Output"));
-    click(&mut app, &ctx, label_center(&output, "Auto Start"));
+    click(&mut app, &ctx, label_center(&output, "Log output"));
+    click(&mut app, &ctx, label_center(&output, "Auto start"));
     click(&mut app, &ctx, label_center(&output, "Close on success"));
     assert!(app.editor.as_ref().unwrap().button.log_output);
     assert!(app.editor.as_ref().unwrap().button.auto_start);
@@ -2013,8 +2013,8 @@ fn button_run_options_cancel_and_save_per_button() {
 
     app.edit(0);
     let output = frame(&mut app, &ctx, vec![]);
-    click(&mut app, &ctx, label_center(&output, "Log Output"));
-    click(&mut app, &ctx, label_center(&output, "Auto Start"));
+    click(&mut app, &ctx, label_center(&output, "Log output"));
+    click(&mut app, &ctx, label_center(&output, "Auto start"));
     click(&mut app, &ctx, label_center(&output, "Close on success"));
     let output = frame(&mut app, &ctx, vec![]);
     click(&mut app, &ctx, label_center(&output, "Save button"));
@@ -2031,8 +2031,8 @@ fn button_run_options_cancel_and_save_per_button() {
     assert!(app.editor.as_ref().unwrap().button.log_output);
     assert!(app.editor.as_ref().unwrap().button.auto_start);
     assert!(app.editor.as_ref().unwrap().button.close_on_success);
-    click(&mut app, &ctx, label_center(&output, "Log Output"));
-    click(&mut app, &ctx, label_center(&output, "Auto Start"));
+    click(&mut app, &ctx, label_center(&output, "Log output"));
+    click(&mut app, &ctx, label_center(&output, "Auto start"));
     click(&mut app, &ctx, label_center(&output, "Close on success"));
     let output = frame(&mut app, &ctx, vec![]);
     click(&mut app, &ctx, label_center(&output, "Save button"));
@@ -2151,7 +2151,7 @@ fn button_context_menu_resets_one_slot_and_preserves_running_terminals() {
         );
     }
     let output = frame(&mut app, &ctx, vec![]);
-    label_center(&output, "Edit Button...");
+    label_center(&output, "Edit button…");
     let reset = label_center(&output, "Reset");
     assert!(
         !app.dirty && app.editor.is_none(),
