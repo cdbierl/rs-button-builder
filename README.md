@@ -77,7 +77,9 @@ layout file. Dependency versions are recorded in [Cargo.lock](Cargo.lock);
   to open another tab. Running tabs keep collecting output. Click the terminal to
   type; use the tab bar and its arrows to switch sessions.
 - **Adjust appearance:** **Appearance** changes the selected tab's font and colors
-  and the defaults for new tabs. **Refresh fonts** discovers installed monospace fonts.
+  and the defaults for new tabs. **Ctrl+mouse wheel** over the terminal adjusts its
+  font size (8–32 pt); plain scrolling moves through output history.
+  **Refresh fonts** discovers installed monospace fonts.
 - **Stop processes:** **Ctrl+C** sends `SIGINT` to the foreground job, allowing it
   to clean up; programs can ignore this signal. **Stop** sends `SIGKILL` and ends
   local jobs in that terminal session. Pending output is discarded; displayed output

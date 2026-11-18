@@ -816,7 +816,7 @@ impl ButtonBuilder {
                     if ui
                         .add(toolbar_button("Appearance"))
                         .on_hover_text(
-                            "Change this tab's font and colors; save as the default for new tabs",
+                            "Change this tab's font and colors; save as the default for new tabs\nCtrl+mouse wheel over the terminal changes its font size",
                         )
                         .clicked()
                     {
@@ -874,6 +874,50 @@ impl ButtonBuilder {
         self.terminal_tabs(ui);
         self.terminal_toolbar(ui);
         ui.add_space(4.0);
+        let size = ui.available_size().max(Vec2::splat(1.0));
+        let id = self.active().map(|tab| tab.id);
+        let (response, painter) = ui
+            .push_id(("terminal_pane", id), |ui| {
+                ui.allocate_painter(size, egui::Sense::click())
+            })
+            .inner;
+        let control_scroll = ui.input(|input| {
+            input.modifiers.ctrl
+                || input.events.iter().any(|event| {
+                    matches!(event, egui::Event::MouseWheel { modifiers, .. } if modifiers.ctrl)
+                })
+        });
+        if response.hovered() && control_scroll {
+            // Read wheel events directly: egui turns Ctrl+wheel into smoothed zoom input.
+            // One wheel notch changes the font by 1 pt; pixel scrolling scales continuously.
+            let delta: f32 = ui.input(|input| {
+                input
+                    .events
+                    .iter()
+                    .filter_map(|event| match event {
+                        egui::Event::MouseWheel {
+                            unit,
+                            delta,
+                            modifiers,
+                        } if modifiers.ctrl => Some(match unit {
+                            egui::MouseWheelUnit::Point => delta.y / 40.0,
+                            egui::MouseWheelUnit::Line | egui::MouseWheelUnit::Page => delta.y,
+                        }),
+                        _ => None,
+                    })
+                    .sum()
+            });
+            let style = match self.active_tab {
+                Some(index) => &mut self.tabs[index].style,
+                None => &mut self.config.terminal,
+            };
+            let font_size = (style.font_size + delta).clamp(8.0, 32.0);
+            if font_size != style.font_size {
+                style.font_size = font_size;
+                self.config.terminal = style.clone();
+                self.dirty = true;
+            }
+        }
         let style = match self.active_tab {
             Some(index) => &self.tabs[index].style,
             None => &self.config.terminal,
@@ -886,16 +930,9 @@ impl ButtonBuilder {
                 fonts.row_height(&font) * style.line_spacing,
             )
         });
-        let size = ui.available_size().max(Vec2::splat(1.0));
         let cols = (((size.x - 16.0) / char_width) as usize).clamp(2, 500);
         let rows = (((size.y - 16.0) / line_height) as usize).clamp(2, 200);
         self.terminal_size = (cols, rows);
-        let id = self.active().map(|tab| tab.id);
-        let (response, painter) = ui
-            .push_id(("terminal_pane", id), |ui| {
-                ui.allocate_painter(size, egui::Sense::click())
-            })
-            .inner;
         let rect = response.rect;
         painter.rect_filled(rect, CORNER_RADIUS, rgb(style.background));
         // Inactive processes also receive viewport changes, using their own font metrics.
@@ -907,10 +944,17 @@ impl ButtonBuilder {
                     fonts.row_height(&tab_font) * tab.style.line_spacing,
                 )
             });
+            let previous = tab.terminal.screen.scrolled_lines;
             tab.terminal.resize(
                 (((size.x - 16.0) / width) as usize).clamp(2, 500),
                 (((size.y - 16.0) / height) as usize).clamp(2, 200),
             );
+            // Shrinking the viewport can move rows into history. Keep the viewed text anchored.
+            if tab.scrollback > 0 {
+                tab.scrollback = tab
+                    .scrollback
+                    .saturating_add(tab.terminal.screen.scrolled_lines.saturating_sub(previous));
+            }
         }
         if response.clicked() || self.focus_terminal {
             response.request_focus();
@@ -955,7 +999,7 @@ impl ButtonBuilder {
         } else {
             screen.history.len()
         };
-        if response.hovered() {
+        if response.hovered() && !control_scroll {
             let delta = ui.input(|input| input.smooth_scroll_delta.y);
             tab.scroll_fraction += delta / line_height;
             let lines = tab.scroll_fraction.trunc() as isize;
@@ -1334,6 +1378,30 @@ mod tests {
             .unwrap_or_else(|| panic!("Missing UI label: {label}"))
     }
 
+    fn wheel(
+        app: &mut ButtonBuilder,
+        ctx: &egui::Context,
+        pos: egui::Pos2,
+        unit: egui::MouseWheelUnit,
+        delta: Vec2,
+        modifiers: egui::Modifiers,
+    ) {
+        frame_with(
+            app,
+            ctx,
+            Vec2::new(1200.0, 760.0),
+            modifiers,
+            vec![
+                egui::Event::PointerMoved(pos),
+                egui::Event::MouseWheel {
+                    unit,
+                    delta,
+                    modifiers,
+                },
+            ],
+        );
+    }
+
     fn click(app: &mut ButtonBuilder, ctx: &egui::Context, pos: egui::Pos2) {
         click_with_modifiers(app, ctx, pos, egui::Modifiers::NONE);
     }
@@ -1623,6 +1691,223 @@ mod tests {
     }
 
     #[test]
+    fn control_wheel_zooms_only_active_tab_and_preserves_history_anchor() {
+        let ctx = egui::Context::default();
+        let mut config = Config::default();
+        config.buttons[0] = interactive_button("Alpha");
+        config.buttons[1] = interactive_button("Beta");
+        let mut app = ButtonBuilder::new(
+            &ctx,
+            "/tmp/rs-button-builder-wheel-zoom-test.yaml".into(),
+            config,
+        );
+        app.launch(0, false);
+        app.launch(1, true);
+        wait_for_tabs(&mut app, &ctx, |app| {
+            app.tabs
+                .iter()
+                .all(|tab| tab.terminal.screen.text().contains("-ready"))
+        });
+        app.select_tab(0);
+        frame(&mut app, &ctx, vec![]);
+        for i in 0..100 {
+            app.tabs[0]
+                .terminal
+                .screen
+                .feed(format!("history-{i}\r\n").as_bytes());
+        }
+        app.tabs[0].scrollback = 20;
+        app.tabs[0].scroll_fraction = 0.5;
+        frame(&mut app, &ctx, vec![]);
+        let anchor = app.tabs[0].terminal.screen.history.len() - app.tabs[0].scrollback;
+        let first_size = app.terminal_size;
+        let second_size = (
+            app.tabs[1].terminal.screen.cols,
+            app.tabs[1].terminal.screen.rows,
+        );
+        let pane = egui::pos2(700.0, 400.0);
+
+        wheel(
+            &mut app,
+            &ctx,
+            pane,
+            egui::MouseWheelUnit::Line,
+            Vec2::new(0.0, 2.0),
+            egui::Modifiers::CTRL,
+        );
+        assert_eq!(app.tabs[0].style.font_size, 16.0);
+        assert_eq!(app.tabs[1].style.font_size, 14.0);
+        assert_eq!(app.config.terminal.font_size, 16.0);
+        assert!(app.dirty);
+        assert!(app.terminal_size.0 < first_size.0);
+        assert!(app.terminal_size.1 < first_size.1);
+        assert_eq!(
+            app.terminal_size,
+            (
+                app.tabs[0].terminal.screen.cols,
+                app.tabs[0].terminal.screen.rows
+            )
+        );
+        assert_eq!(
+            second_size,
+            (
+                app.tabs[1].terminal.screen.cols,
+                app.tabs[1].terminal.screen.rows
+            )
+        );
+        assert_eq!(
+            app.tabs[0].terminal.screen.history.len() - app.tabs[0].scrollback,
+            anchor
+        );
+        assert_eq!(app.tabs[0].scroll_fraction, 0.5);
+        assert_eq!(ctx.zoom_factor(), 1.0);
+
+        wheel(
+            &mut app,
+            &ctx,
+            pane,
+            egui::MouseWheelUnit::Line,
+            Vec2::new(0.0, -1.0),
+            egui::Modifiers::CTRL,
+        );
+        assert_eq!(app.tabs[0].style.font_size, 15.0);
+        // egui's smoothed zoom input must not keep changing font size after the wheel stops.
+        for _ in 0..12 {
+            frame(&mut app, &ctx, vec![]);
+        }
+        assert_eq!(app.tabs[0].style.font_size, 15.0);
+        assert_eq!(
+            app.tabs[0].terminal.screen.history.len() - app.tabs[0].scrollback,
+            anchor
+        );
+        let scrollback = app.tabs[0].scrollback;
+        for _ in 0..5 {
+            wheel(
+                &mut app,
+                &ctx,
+                pane,
+                egui::MouseWheelUnit::Point,
+                Vec2::new(0.0, 7.0),
+                egui::Modifiers::NONE,
+            );
+        }
+        assert!(
+            app.tabs[0].scrollback > scrollback,
+            "Plain scrolling still moves through history"
+        );
+        assert_eq!(app.tabs[0].style.font_size, 15.0);
+        app.save();
+        assert_eq!(
+            Config::load_existing(&app.config_path)
+                .unwrap()
+                .terminal
+                .font_size,
+            15.0
+        );
+        app.launch(1, true);
+        assert_eq!(app.tabs[2].style.font_size, 15.0);
+        assert_eq!(app.tabs[1].style.font_size, 14.0);
+    }
+
+    #[test]
+    fn control_wheel_requires_hovering_terminal_and_respects_font_limits() {
+        let ctx = egui::Context::default();
+        let mut app = ButtonBuilder::new(
+            &ctx,
+            "/tmp/rs-button-builder-wheel-limits-test.yaml".into(),
+            Config::default(),
+        );
+        frame(&mut app, &ctx, vec![]);
+        let output = frame(&mut app, &ctx, vec![]);
+        for pos in [
+            egui::pos2(100.0, 300.0),
+            label_center(&output, "Appearance"),
+        ] {
+            wheel(
+                &mut app,
+                &ctx,
+                pos,
+                egui::MouseWheelUnit::Line,
+                Vec2::new(0.0, 1.0),
+                egui::Modifiers::CTRL,
+            );
+            assert_eq!(app.config.terminal.font_size, 14.0);
+            assert!(!app.dirty);
+        }
+        let pane = egui::pos2(700.0, 400.0);
+        wheel(
+            &mut app,
+            &ctx,
+            pane,
+            egui::MouseWheelUnit::Point,
+            Vec2::new(0.0, 10.0),
+            egui::Modifiers::CTRL,
+        );
+        assert_eq!(app.config.terminal.font_size, 14.25);
+        wheel(
+            &mut app,
+            &ctx,
+            pane,
+            egui::MouseWheelUnit::Line,
+            Vec2::new(0.0, 200.0),
+            egui::Modifiers::CTRL,
+        );
+        assert_eq!(app.config.terminal.font_size, 32.0);
+        app.dirty = false;
+        wheel(
+            &mut app,
+            &ctx,
+            pane,
+            egui::MouseWheelUnit::Line,
+            Vec2::new(0.0, 1.0),
+            egui::Modifiers::CTRL,
+        );
+        assert_eq!(app.config.terminal.font_size, 32.0);
+        assert!(
+            !app.dirty,
+            "Scrolling past a limit must not mark the layout changed"
+        );
+        wheel(
+            &mut app,
+            &ctx,
+            pane,
+            egui::MouseWheelUnit::Line,
+            Vec2::new(0.0, -200.0),
+            egui::Modifiers::CTRL,
+        );
+        assert_eq!(app.config.terminal.font_size, 8.0);
+        app.dirty = false;
+        wheel(
+            &mut app,
+            &ctx,
+            pane,
+            egui::MouseWheelUnit::Line,
+            Vec2::new(1.0, 0.0),
+            egui::Modifiers::CTRL,
+        );
+        assert!(
+            !app.dirty,
+            "Horizontal scrolling does not zoom the terminal"
+        );
+        app.appearance_open = true;
+        frame(&mut app, &ctx, vec![]);
+        frame(&mut app, &ctx, vec![]);
+        wheel(
+            &mut app,
+            &ctx,
+            pane,
+            egui::MouseWheelUnit::Line,
+            Vec2::new(0.0, 1.0),
+            egui::Modifiers::CTRL,
+        );
+        assert_eq!(
+            app.config.terminal.font_size, 8.0,
+            "A dialog covering the terminal blocks pane zoom"
+        );
+        assert_eq!(ctx.zoom_factor(), 1.0);
+    }
+
+    #[test]
     fn tabs_preserve_appearance_history_and_resize_inactive_processes() {
         let ctx = egui::Context::default();
         let mut config = Config::default();
@@ -1653,6 +1938,7 @@ mod tests {
         app.tabs[0].style.background = [10, 30, 40];
         app.select_tab(0);
         let output = frame(&mut app, &ctx, vec![]);
+        let history_anchor = app.tabs[0].terminal.screen.history.len() - app.tabs[0].scrollback;
         click(&mut app, &ctx, label_center(&output, "Appearance"));
         let output = frame(&mut app, &ctx, vec![]);
         let pos = label_center(&output, "22.0 pt");
@@ -1703,7 +1989,10 @@ mod tests {
         app.select_tab(1);
         let second_output = frame(&mut app, &ctx, vec![]);
         assert!(!second_output.shapes.iter().any(|shape| matches!(&shape.shape, egui::Shape::Text(text) if text.galley.job.text == "Jump to live")));
-        assert_eq!(app.tabs[0].scrollback, 10);
+        assert_eq!(
+            app.tabs[0].terminal.screen.history.len() - app.tabs[0].scrollback,
+            history_anchor
+        );
         assert_eq!(app.tabs[0].scroll_fraction, 0.5);
         for _ in 0..3 {
             frame_with(
