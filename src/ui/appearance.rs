@@ -3,6 +3,7 @@
 use super::{dialog, dialog_footer, filled_button, font_picker, form, text_button};
 use crate::app::ButtonBuilder;
 use crate::layout_config::TerminalStyle;
+use crate::terminal::colors::Palette;
 use egui::Vec2;
 use egui_material3::MaterialSlider;
 
@@ -70,10 +71,32 @@ impl ButtonBuilder {
                             .changed();
                     });
                     ui.horizontal(|ui| {
+                        let colors = Palette::new(
+                            self.theme.is_dark(ctx.system_theme()),
+                            style.fg_color,
+                            style.bg_color,
+                        );
+                        let mut foreground = colors.foreground;
+                        let mut background = colors.background;
                         ui.label("Text");
-                        changed |= ui.color_edit_button_srgb(&mut style.fg_color).changed();
+                        if ui.color_edit_button_srgb(&mut foreground).changed() {
+                            style.fg_color = Some(foreground);
+                            changed = true;
+                        }
                         ui.label("Background");
-                        changed |= ui.color_edit_button_srgb(&mut style.bg_color).changed();
+                        if ui.color_edit_button_srgb(&mut background).changed() {
+                            style.bg_color = Some(background);
+                            changed = true;
+                        }
+                        if ui
+                            .add(text_button("Use theme colors").small())
+                            .on_hover_text("Follow the footer's Light, Dark, or System setting")
+                            .clicked()
+                        {
+                            changed |= style.fg_color.is_some() || style.bg_color.is_some();
+                            style.fg_color = None;
+                            style.bg_color = None;
+                        }
                     });
                 });
                 dialog_footer(ui, |ui| {

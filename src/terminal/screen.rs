@@ -1,4 +1,5 @@
 //! A bounded VT100 screen with common ANSI color and alternate-screen extensions.
+use super::colors::Color;
 use std::collections::VecDeque;
 use std::time::Instant;
 use unicode_width::UnicodeWidthChar;
@@ -7,8 +8,8 @@ pub const HISTORY_LIMIT: usize = 2000;
 
 #[derive(Clone, Copy, Default, Debug, PartialEq)]
 pub struct Style {
-    pub fg_color: Option<[u8; 3]>,
-    pub bg_color: Option<[u8; 3]>,
+    pub fg_color: Option<Color>,
+    pub bg_color: Option<Color>,
     pub bold: bool,
     pub underline: bool,
     pub inverse: bool,
@@ -631,17 +632,19 @@ impl Screen {
                 22 => self.style.bold = false,
                 24 => self.style.underline = false,
                 27 => self.style.inverse = false,
-                30..=37 => self.style.fg_color = Some(ansi_color(params[i] - 30)),
-                40..=47 => self.style.bg_color = Some(ansi_color(params[i] - 40)),
-                90..=97 => self.style.fg_color = Some(ansi_color(params[i] - 90 + 8)),
-                100..=107 => self.style.bg_color = Some(ansi_color(params[i] - 100 + 8)),
+                30..=37 => self.style.fg_color = Some(Color::Indexed((params[i] - 30) as u8)),
+                40..=47 => self.style.bg_color = Some(Color::Indexed((params[i] - 40) as u8)),
+                90..=97 => self.style.fg_color = Some(Color::Indexed((params[i] - 90 + 8) as u8)),
+                100..=107 => {
+                    self.style.bg_color = Some(Color::Indexed((params[i] - 100 + 8) as u8))
+                }
                 39 => self.style.fg_color = None,
                 49 => self.style.bg_color = None,
                 38 | 48 => {
                     let is_fg_color = params[i] == 38;
                     let color = if params.get(i + 1) == Some(&5) && i + 2 < params.len() {
                         i += 2;
-                        Some(ansi_color(params[i].min(255)))
+                        Some(Color::Indexed(params[i].min(255) as u8))
                     } else if params.get(i + 1) == Some(&2) && i + 4 < params.len() {
                         let color = [
                             params[i + 2].min(255) as u8,
@@ -649,7 +652,7 @@ impl Screen {
                             params[i + 4].min(255) as u8,
                         ];
                         i += 4;
-                        Some(color)
+                        Some(Color::Rgb(color))
                     } else {
                         None
                     };
@@ -668,39 +671,26 @@ impl Screen {
     }
 }
 
-fn ansi_color(index: usize) -> [u8; 3] {
-    const COLORS: [[u8; 3]; 16] = [
-        [0, 0, 0],
-        [205, 49, 49],
-        [13, 188, 121],
-        [229, 229, 16],
-        [36, 114, 200],
-        [188, 63, 188],
-        [17, 168, 205],
-        [229, 229, 229],
-        [102, 102, 102],
-        [241, 76, 76],
-        [35, 209, 139],
-        [245, 245, 67],
-        [59, 142, 234],
-        [214, 112, 214],
-        [41, 184, 219],
-        [255, 255, 255],
-    ];
-    match index {
-        0..=15 => COLORS[index],
-        16..=231 => {
-            let n = index - 16;
-            let channel = |v: usize| if v == 0 { 0 } else { (55 + 40 * v) as u8 };
-            [channel(n / 36), channel((n / 6) % 6), channel(n % 6)]
-        }
-        _ => [8 + 10 * (index.min(255) - 232) as u8; 3],
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn color_indices_survive_scrollback_and_remain_distinct_from_truecolor() {
+        let mut screen = Screen::new(20, 2);
+        let bytes = b"\x1b[31;104mA\x1b[38;5;1;48;5;255mB\x1b[38;2;205;49;49;48;2;1;2;3mC\x1b[39;49mD\r\n\r\n";
+        for byte in bytes {
+            screen.feed(&[*byte]);
+        }
+        let line = &screen.history[0];
+        assert_eq!(line[0].style.fg_color, Some(Color::Indexed(1)));
+        assert_eq!(line[0].style.bg_color, Some(Color::Indexed(12)));
+        assert_eq!(line[1].style.fg_color, Some(Color::Indexed(1)));
+        assert_eq!(line[1].style.bg_color, Some(Color::Indexed(255)));
+        assert_eq!(line[2].style.fg_color, Some(Color::Rgb([205, 49, 49])));
+        assert_eq!(line[2].style.bg_color, Some(Color::Rgb([1, 2, 3])));
+        assert_eq!(line[3].style, Style::default());
+    }
 
     #[test]
     fn meaningful_output_detection_handles_chunked_controls_and_unicode() {
@@ -788,7 +778,7 @@ mod tests {
         let mut screen = Screen::new(20, 4);
         screen.feed(b"old content\r\nsecond\x1b[H\x1b[31;1mnew\x1b[K");
         assert_eq!(screen.text().lines().next(), Some("new"));
-        assert_eq!(screen.line(0)[0].style.fg_color, Some([205, 49, 49]));
+        assert_eq!(screen.line(0)[0].style.fg_color, Some(Color::Indexed(1)));
         assert!(screen.line(0)[0].style.bold);
         assert_eq!(screen.feed(b"\x1b[6n"), b"\x1b[1;4R");
     }

@@ -94,13 +94,16 @@ select a YAML layout file. Dependency versions are recorded in [Cargo.lock](Carg
   selection, or all output when nothing is selected. Click in the terminal to clear
   the selection. **Ctrl+C** still interrupts the process.
 - **Adjust appearance:** **Appearance** changes the selected tab's font and colors
-  and the defaults for new tabs. **Ctrl+mouse wheel** over the terminal adjusts its
+  and the defaults for new tabs. **Use theme colors** clears custom terminal colors
+  so the tab follows the footer theme, while keeping its font settings.
+  **Ctrl+mouse wheel** over the terminal adjusts its
   font size (8–32 pt); plain scrolling or dragging the right-hand scrollbar moves
   through output history. Drag to the bottom or click **Jump to live** to follow new output.
 - **Choose a UI theme:** the palette control at the right of the footer opens
   Light, Dark, and System modes plus five accent colors. Changes apply immediately
-  and are saved in app settings; custom button colors and terminal appearance
-  remain separate. System mode follows the desktop appearance when available.
+  and are saved in app settings. Terminals use matching light or dark colors,
+  including existing output and scrollback. Explicit custom button and terminal
+  colors are preserved. System mode follows the desktop appearance when available.
   **Refresh fonts** discovers installed monospace fonts.
 - **Stop processes:** **Ctrl+C** sends `SIGINT` to the foreground job, allowing it
   to clean up; programs can ignore this signal. **Stop** sends `SIGKILL` and ends
@@ -147,7 +150,10 @@ it to preserve the original. JSON examples require `/usr/bin/jq`; log following
 requires read access to the log file.
 
 Button and terminal colors use `fg_color` and `bg_color`, with RGB arrays such as
-`[35, 105, 75]`.
+`[35, 105, 75]`. Omit terminal color fields (or use `null`) to follow the theme.
+Existing layouts with explicit terminal colors keep them until cleared using
+**Appearance → Use theme colors**. Standard ANSI colors adapt to the terminal
+background; extended colors (indices 16–255) and explicit RGB output stay exact.
 
 ### Terminal output logs
 

@@ -1,4 +1,4 @@
-//! Persisted UI theme choices, independent of button and terminal appearance.
+//! Persisted UI theme choices, also used by terminals without custom colors.
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]

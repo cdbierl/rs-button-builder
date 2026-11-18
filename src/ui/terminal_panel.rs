@@ -4,6 +4,7 @@ use super::terminal_selection::{SelectionViewport, live_row};
 use super::{CORNER_RADIUS, rgb};
 use crate::app::{ButtonBuilder, TerminalTab};
 use crate::layout_config::TerminalStyle;
+use crate::terminal::colors::Palette;
 use crate::terminal::screen::Cell;
 use egui::{FontFamily, FontId, Stroke, Vec2};
 use egui_material3::get_global_color;
@@ -66,7 +67,12 @@ impl ButtonBuilder {
             None => &self.config.terminal,
         };
         let font = terminal_font(style, &self.fonts);
-        let foreground = rgb(style.fg_color);
+        let colors = Palette::new(
+            self.theme.is_dark(ui.ctx().system_theme()),
+            style.fg_color,
+            style.bg_color,
+        );
+        let foreground = rgb(colors.foreground);
         let (char_width, line_height) = ui.fonts_mut(|fonts| {
             (
                 fonts.glyph_width(&font, 'M'),
@@ -78,7 +84,7 @@ impl ButtonBuilder {
         let rows = (((size.y - 16.0) / line_height) as usize).clamp(2, 200);
         self.terminal_size = (cols, rows);
         let rect = response.rect;
-        painter.rect_filled(rect, CORNER_RADIUS, rgb(style.bg_color));
+        painter.rect_filled(rect, CORNER_RADIUS, rgb(colors.background));
         // Inactive processes also receive viewport changes, using their own font metrics.
         for tab in &mut self.tabs {
             let tab_font = terminal_font(&tab.style, &self.fonts);
@@ -180,7 +186,6 @@ impl ButtonBuilder {
             return;
         };
         let tab = &mut self.tabs[index];
-        let style = &tab.style;
         let terminal = &mut tab.terminal;
         let screen = &terminal.screen;
         let history_len = if screen.is_alternate() {
@@ -204,7 +209,7 @@ impl ButtonBuilder {
                 char_width,
                 line_height,
                 cols,
-                style,
+                &colors,
                 tab.selection.columns(
                     live_row(screen).saturating_sub(tab.scrollback) + visible_row,
                     line,
@@ -256,7 +261,7 @@ impl ButtonBuilder {
                 painter.rect_stroke(
                     cursor,
                     0.0,
-                    Stroke::new(1.0_f32, rgb(style.fg_color)),
+                    Stroke::new(1.0_f32, foreground),
                     egui::StrokeKind::Inside,
                 );
             }
@@ -422,7 +427,7 @@ fn paint_line(
     char_width: f32,
     line_height: f32,
     cols: usize,
-    terminal_style: &TerminalStyle,
+    colors: &Palette,
     selected: std::ops::Range<usize>,
     selection_style: egui::style::Selection,
 ) {
@@ -437,8 +442,12 @@ fn paint_line(
         {
             end += 1;
         }
-        let mut foreground = rgb(style.fg_color.unwrap_or(terminal_style.fg_color));
-        let mut background = rgb(style.bg_color.unwrap_or(terminal_style.bg_color));
+        let mut foreground = rgb(style
+            .fg_color
+            .map_or(colors.foreground, |c| colors.resolve(c)));
+        let mut background = rgb(style
+            .bg_color
+            .map_or(colors.background, |c| colors.resolve(c)));
         if style.inverse {
             std::mem::swap(&mut foreground, &mut background);
         }
@@ -449,7 +458,7 @@ fn paint_line(
         let position = origin + Vec2::new(start as f32 * char_width, 0.0);
         let width = (end - start) as f32 * char_width;
         let rect = egui::Rect::from_min_size(position, Vec2::new(width, line_height));
-        if background != rgb(terminal_style.bg_color) {
+        if background != rgb(colors.background) {
             painter.rect_filled(rect, 0.0, background);
         }
         let text: String = line[start..end]

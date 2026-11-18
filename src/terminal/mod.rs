@@ -1,4 +1,5 @@
 //! Local Unix pseudo-terminal process management. No shell is implicitly invoked.
+pub mod colors;
 mod logging;
 pub mod screen;
 
@@ -968,7 +969,7 @@ mod tests {
         assert_eq!(terminal.screen.text().trim(), "colors:256\ngreen");
         assert_eq!(
             terminal.screen.line(1)[0].style.fg_color,
-            Some([13, 188, 121])
+            Some(colors::Color::Indexed(2))
         );
     }
 
@@ -992,9 +993,10 @@ mod tests {
         wait_for(&mut terminal, |t| t.screen.text().contains("PID"));
         let colored = (0..30).any(|row| {
             terminal.screen.line(row).iter().any(|cell| {
-                cell.style
-                    .fg_color
-                    .is_some_and(|[r, g, b]| r != g || g != b)
+                cell.style.fg_color.is_some_and(|color| {
+                    let [r, g, b] = colors::Palette::new(true, None, None).resolve(color);
+                    r != g || g != b
+                })
             })
         });
         terminal.resize(90, 25);

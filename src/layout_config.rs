@@ -63,8 +63,10 @@ pub struct TerminalStyle {
     pub font: String,
     pub font_size: f32,
     pub line_spacing: f32,
-    pub fg_color: [u8; 3],
-    pub bg_color: [u8; 3],
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fg_color: Option<[u8; 3]>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bg_color: Option<[u8; 3]>,
 }
 
 impl Default for TerminalStyle {
@@ -73,8 +75,8 @@ impl Default for TerminalStyle {
             font: "Monospace".into(),
             font_size: 14.0,
             line_spacing: 1.15,
-            fg_color: [220, 227, 238],
-            bg_color: [15, 19, 27],
+            fg_color: None,
+            bg_color: None,
         }
     }
 }
@@ -209,13 +211,33 @@ mod tests {
     }
 
     #[test]
+    fn automatic_terminal_colors_survive_yaml_round_trips() {
+        for source in [
+            "{}",
+            "terminal: {}",
+            "terminal:\n  fg_color: null\n  bg_color: null",
+        ] {
+            let config = Config::parse(source, Path::new("theme.yaml")).unwrap();
+            assert_eq!(config.terminal.fg_color, None);
+            assert_eq!(config.terminal.bg_color, None);
+            let saved = serde_yaml_ng::to_string(&config).unwrap();
+            let loaded = Config::parse(&saved, Path::new("theme.yaml")).unwrap();
+            assert_eq!(loaded.terminal.fg_color, None);
+            assert_eq!(loaded.terminal.bg_color, None);
+            let value: serde_yaml_ng::Value = serde_yaml_ng::from_str(&saved).unwrap();
+            assert!(value["terminal"].get("fg_color").is_none());
+            assert!(value["terminal"].get("bg_color").is_none());
+        }
+    }
+
+    #[test]
     fn color_keys_round_trip_with_the_new_names() {
         let source = "rows: 1\ncolumns: 1\nbuttons:\n  - label: Custom colors\n    fg_color: [12, 34, 56]\n    bg_color: [78, 90, 123]\n    log_output: true\nterminal:\n  fg_color: [210, 220, 230]\n  bg_color: [5, 10, 15]\n";
         let config = Config::parse(source, Path::new("custom-colors.yaml")).unwrap();
         assert_eq!(config.buttons[0].fg_color, Some([12, 34, 56]));
         assert_eq!(config.buttons[0].bg_color, Some([78, 90, 123]));
-        assert_eq!(config.terminal.fg_color, [210, 220, 230]);
-        assert_eq!(config.terminal.bg_color, [5, 10, 15]);
+        assert_eq!(config.terminal.fg_color, Some([210, 220, 230]));
+        assert_eq!(config.terminal.bg_color, Some([5, 10, 15]));
         assert!(config.buttons[0].log_output);
 
         let saved = serde_yaml_ng::to_string(&config).unwrap();

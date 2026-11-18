@@ -212,6 +212,102 @@ fn footer_theme_picker_applies_persists_and_follows_system_appearance() {
     crate::ui::setup(&ctx);
 }
 
+#[test]
+fn terminal_theme_recolors_scrollback_and_can_restore_automatic_colors() {
+    use crate::terminal::colors::{Color, Palette};
+    use crate::theme::Appearance;
+
+    let ctx = egui::Context::default();
+    let mut config = Config::default();
+    config.buttons[0] = ButtonConfig {
+        label: "Theme test".into(),
+        command: "/usr/bin/printf".into(),
+        arguments: "ready".into(),
+        ..Default::default()
+    };
+    let mut app = ButtonBuilder::new(&ctx, None, config);
+    app.launch(0, false);
+    wait_for_tabs(&mut app, &ctx, |app| !app.tabs[0].terminal.needs_poll());
+    app.tabs[0].terminal.screen.feed(b"\x1b[2J\x1b[H");
+    for _ in 0..100 {
+        app.tabs[0]
+            .terminal
+            .screen
+            .feed(b"\x1b[32mansi\x1b[38;2;205;49;49mexact\x1b[0mplain\r\n");
+    }
+    app.tabs[0].scrollback = app.tabs[0].terminal.screen.history.len();
+    let original = serde_yaml_ng::to_string(&app.config).unwrap();
+    let scrollback = app.tabs[0].scrollback;
+    let check_colors = |output: &egui::FullOutput, colors: &Palette| {
+        for (label, expected) in [
+            ("ansi", colors.resolve(Color::Indexed(2))),
+            ("exact", [205, 49, 49]),
+            ("plain", colors.foreground),
+        ] {
+            let color = output
+                .shapes
+                .iter()
+                .find_map(|shape| match &shape.shape {
+                    egui::Shape::Text(text) if text.galley.job.text.starts_with(label) => {
+                        Some(text.galley.job.sections[0].format.color)
+                    }
+                    _ => None,
+                })
+                .unwrap_or_else(|| panic!("Missing terminal output {label}"));
+            assert_eq!(color, rgb(expected), "{label}");
+        }
+        assert!(output.shapes.iter().any(|shape| matches!(&shape.shape,
+            egui::Shape::Rect(rect) if rect.fill == rgb(colors.background) && rect.rect.width() > 300.0)));
+    };
+    for (mode, system, dark) in [
+        (Appearance::Light, egui::Theme::Dark, false),
+        (Appearance::Dark, egui::Theme::Light, true),
+        (Appearance::System, egui::Theme::Light, false),
+        (Appearance::System, egui::Theme::Dark, true),
+    ] {
+        app.theme.mode = mode;
+        let output = ctx.run(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    Vec2::new(1200.0, 760.0),
+                )),
+                system_theme: Some(system),
+                ..Default::default()
+            },
+            |ctx| app.show(ctx),
+        );
+        check_colors(&output, &Palette::new(dark, None, None));
+        assert_eq!(app.tabs[0].scrollback, scrollback);
+    }
+    assert!(!app.dirty);
+    assert_eq!(serde_yaml_ng::to_string(&app.config).unwrap(), original);
+    app.tabs[0].style.fg_color = Some([210, 220, 230]);
+    app.tabs[0].style.bg_color = Some([5, 10, 15]);
+    app.theme.mode = Appearance::Light;
+    let output = frame(&mut app, &ctx, vec![]);
+    check_colors(
+        &output,
+        &Palette::new(false, Some([210, 220, 230]), Some([5, 10, 15])),
+    );
+
+    let font_size = app.tabs[0].style.font_size;
+    app.appearance_open = true;
+    frame(&mut app, &ctx, vec![]);
+    let output = frame(&mut app, &ctx, vec![]);
+    click(&mut app, &ctx, label_center(&output, "Use theme colors"));
+    assert_eq!(app.tabs[0].style.fg_color, None);
+    assert_eq!(app.tabs[0].style.bg_color, None);
+    assert_eq!(app.config.terminal.fg_color, None);
+    assert_eq!(app.config.terminal.bg_color, None);
+    assert_eq!(app.tabs[0].style.font_size, font_size);
+    assert!(app.dirty);
+    app.appearance_open = false;
+    let output = frame(&mut app, &ctx, vec![]);
+    check_colors(&output, &Palette::new(false, None, None));
+    crate::ui::setup(&ctx);
+}
+
 fn empty_button_centers(output: &egui::FullOutput) -> Vec<egui::Pos2> {
     output
         .shapes
@@ -1444,7 +1540,7 @@ fn tabs_preserve_appearance_history_and_resize_inactive_processes() {
     app.tabs[0].scrollback = 10;
     app.tabs[0].scroll_fraction = 0.5;
     app.tabs[0].style.font_size = 22.0;
-    app.tabs[0].style.bg_color = [10, 30, 40];
+    app.tabs[0].style.bg_color = Some([10, 30, 40]);
     app.select_tab(0);
     let output = frame(&mut app, &ctx, vec![]);
     let history_anchor = app.tabs[0].terminal.screen.history.len() - app.tabs[0].scrollback;
@@ -1563,7 +1659,7 @@ fn failed_launch_and_config_loading_preserve_multiple_sessions() {
     );
     app.launch(0, false);
     app.launch(0, true);
-    app.tabs[0].style.bg_color = [10, 30, 40];
+    app.tabs[0].style.bg_color = Some([10, 30, 40]);
     app.tabs[1].terminal.screen.feed(b"Retain me");
     let next_id = app.next_tab_id;
     app.launch(1, true);
@@ -1586,7 +1682,7 @@ fn failed_launch_and_config_loading_preserve_multiple_sessions() {
     );
     assert!(app.tabs[0].terminal.is_running());
     assert_eq!(app.tabs[0].label, "Alpha");
-    assert_eq!(app.tabs[0].style.bg_color, [10, 30, 40]);
+    assert_eq!(app.tabs[0].style.bg_color, Some([10, 30, 40]));
     assert!(app.tabs.iter().all(|tab| tab.button_index.is_none()));
     app.launch(0, true);
     assert_eq!(app.tabs[2].label, app.config.buttons[0].label);
@@ -2595,7 +2691,7 @@ fn new_layout_toolbar_clears_the_layout_and_preserves_running_terminals() {
     config.buttons[0] = interactive_button("Alpha");
     config.buttons[1] = interactive_button("Beta");
     config.terminal.font_size = 18.0;
-    config.terminal.bg_color = [10, 20, 30];
+    config.terminal.bg_color = Some([10, 20, 30]);
     config.save(&path).unwrap();
     let mut app = ButtonBuilder::new(&ctx, Some(path.clone()), config);
     app.launch(0, false);
@@ -2655,7 +2751,7 @@ fn new_layout_toolbar_clears_the_layout_and_preserves_running_terminals() {
     assert!(
         app.tabs
             .iter()
-            .all(|tab| tab.style.font_size == 18.0 && tab.style.bg_color == [10, 20, 30])
+            .all(|tab| tab.style.font_size == 18.0 && tab.style.bg_color == Some([10, 20, 30]))
     );
     assert_eq!(
         Config::load_existing(&path).unwrap().display_name,
