@@ -75,6 +75,7 @@ pub struct ButtonBuilder {
     fonts: Vec<String>,
     dirty: bool,
     notice: String,
+    completion_notice: Option<(String, Instant)>,
     error: Option<String>,
     terminal_size: (usize, usize),
     focus_terminal: bool,
@@ -111,6 +112,7 @@ impl ButtonBuilder {
             fonts,
             dirty: false,
             notice,
+            completion_notice: None,
             error: None,
             terminal_size: (80, 24),
             focus_terminal: false,
@@ -152,6 +154,7 @@ impl ButtonBuilder {
     }
 
     fn close_tab(&mut self, index: usize) {
+        let active_closed = self.active_tab == Some(index);
         // Dropping a terminal requests termination; reaping happens off the UI thread.
         self.tabs.remove(index);
         self.active_tab = match self.active_tab {
@@ -160,8 +163,10 @@ impl ButtonBuilder {
             Some(active) if active == index => Some(index.min(self.tabs.len() - 1)),
             active => active,
         };
-        self.focus_terminal = true;
-        self.reveal_active_tab = true;
+        if active_closed {
+            self.focus_terminal = true;
+            self.reveal_active_tab = true;
+        }
     }
 
     fn save(&mut self) {
@@ -189,6 +194,7 @@ impl ButtonBuilder {
     fn finish_save(&mut self, config: Config, path: PathBuf, close_editor: bool) {
         self.config = config;
         self.notice = format!("Saved {}", path.display());
+        self.completion_notice = None;
         self.config_path = Some(path);
         self.dirty = false;
         self.error = None;
@@ -234,6 +240,7 @@ impl ButtonBuilder {
 
     fn replace_layout(&mut self, config: Config, path: Option<PathBuf>) {
         self.config = config;
+        self.completion_notice = None;
         self.notice = match &path {
             Some(path) => format!("Loaded {}", path.display()),
             None => UNSAVED_LAYOUT_NOTICE.into(),
@@ -310,6 +317,7 @@ impl ButtonBuilder {
             self.terminal_size.1,
         ) {
             Ok(terminal) => {
+                self.completion_notice = None;
                 let replace = self.active_tab.filter(|_| !new_tab);
                 let id = replace.map_or(self.next_tab_id, |index| self.tabs[index].id);
                 let style = replace
@@ -342,6 +350,13 @@ impl ButtonBuilder {
     }
 
     fn show(&mut self, ctx: &egui::Context) {
+        if self
+            .completion_notice
+            .as_ref()
+            .is_some_and(|(_, until)| Instant::now() >= *until)
+        {
+            self.completion_notice = None;
+        }
         // Share a frame budget and rotate the starting tab so noisy tabs cannot starve others.
         let deadline = Instant::now() + Duration::from_millis(4);
         let count = self.tabs.len();
@@ -353,12 +368,25 @@ impl ButtonBuilder {
             self.tabs[index].poll();
             self.next_poll_tab = (index + 1) % count;
         }
+        // Remove only after polling has observed success and drained all terminal output.
+        for index in (0..self.tabs.len()).rev() {
+            if self.tabs[index].terminal.is_silent_success() {
+                self.completion_notice = Some((
+                    format!("{} completed successfully", self.tabs[index].label),
+                    Instant::now() + Duration::from_secs(4),
+                ));
+                self.close_tab(index);
+                ctx.request_repaint();
+            }
+        }
         egui::TopBottomPanel::top("header")
             .frame(egui::Frame::NONE)
             .show(ctx, |ui| self.header(ui));
         egui::TopBottomPanel::bottom("status").show(ctx, |ui| {
             if let Some(error) = &self.error {
                 ui.colored_label(Color32::LIGHT_RED, error);
+            } else if let Some((message, _)) = &self.completion_notice {
+                ui.small(message);
             } else {
                 ui.small(&self.notice);
             }
@@ -393,6 +421,9 @@ impl ButtonBuilder {
         }
         if self.tabs.iter().any(|tab| tab.terminal.needs_poll()) {
             ctx.request_repaint_after(Duration::from_millis(33));
+        }
+        if let Some((_, until)) = self.completion_notice {
+            ctx.request_repaint_after(until.saturating_duration_since(Instant::now()));
         }
     }
 }

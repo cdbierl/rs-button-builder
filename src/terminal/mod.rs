@@ -29,6 +29,8 @@ pub struct Terminal {
     input: VecDeque<u8>,
     output: VecDeque<u8>,
     eof: bool,
+    exit_status: Option<ExitStatus>,
+    keep_open: bool,
     log: Option<logging::OutputLog>,
 }
 
@@ -143,6 +145,8 @@ impl Terminal {
             input: VecDeque::new(),
             output: VecDeque::new(),
             eof: false,
+            exit_status: None,
+            keep_open: false,
             log: None,
         })
     }
@@ -159,8 +163,17 @@ impl Terminal {
             || self.log.as_ref().is_some_and(|log| !log.finished)
     }
 
+    /// A blank screen alone is insufficient: output may have been erased or remain unread.
+    pub fn is_silent_success(&self) -> bool {
+        self.exit_status.is_some_and(|status| status.success())
+            && !self.screen.has_printed_text()
+            && !self.keep_open
+            && self.log_error().is_none()
+            && !self.needs_poll()
+    }
+
     pub fn log_path(&self) -> Option<&Path> {
-        self.log.as_ref().map(|log| log.path.as_path())
+        self.log.as_ref().and_then(|log| log.path.as_deref())
     }
 
     pub fn log_error(&self) -> Option<&str> {
@@ -193,17 +206,13 @@ impl Terminal {
                     Ok(0) => self.eof = true,
                     Ok(count) => {
                         self.output.extend(&buffer[..count]);
-                        if let Some(log) = &mut self.log
-                            && !log.record(&buffer[..count])
-                        {
-                            break;
-                        }
                     }
                     Err(error) if error.kind() == io::ErrorKind::WouldBlock => break,
                     Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
                     // Linux reports EIO when the last slave descriptor closes.
                     Err(error) if error.raw_os_error() == Some(libc::EIO) => self.eof = true,
                     Err(error) => {
+                        self.keep_open = true;
                         self.status = format!("Terminal read error: {error}");
                         self.eof = true;
                     }
@@ -215,9 +224,19 @@ impl Terminal {
             let (count, replies) = self
                 .screen
                 .feed_until(self.output.make_contiguous(), deadline);
+            let logged = count == 0
+                || self.log.as_mut().is_none_or(|log| {
+                    log.record(
+                        &self.output.make_contiguous()[..count],
+                        self.screen.has_printed_text(),
+                    )
+                });
             self.output.drain(..count);
             processed += count;
             self.send(&replies);
+            if !logged {
+                break;
+            }
         }
         if !self.input.is_empty()
             && let Some(master) = &mut self.master
@@ -233,18 +252,21 @@ impl Terminal {
                         io::ErrorKind::WouldBlock | io::ErrorKind::Interrupted
                     ) => {}
                 Err(error) => {
+                    self.keep_open = true;
                     self.status = format!("Terminal input error: {error}");
                     self.input.clear();
                 }
             }
         }
-        if !self.is_running()
-            && self.eof
-            && self.output.is_empty()
-            && let Some(log) = &mut self.log
-        {
-            log.close();
-            log.poll();
+        if !self.is_running() && self.eof && self.output.is_empty() {
+            let incomplete_utf8 = self.screen.finish();
+            if let Some(log) = &mut self.log {
+                if incomplete_utf8 {
+                    log.record(&[], self.screen.has_printed_text());
+                }
+                log.close();
+                log.poll();
+            }
         }
     }
 
@@ -266,6 +288,7 @@ impl Terminal {
         if result == -1 {
             let error = io::Error::last_os_error();
             if error.kind() != io::ErrorKind::Interrupted {
+                self.keep_open = true;
                 self.status = format!("Could not read process status: {error}");
             }
             return;
@@ -284,7 +307,9 @@ impl Terminal {
                 0
             }
         };
-        self.status = format!("Process finished: {}", ExitStatus::from_raw(raw_status));
+        let exit_status = ExitStatus::from_raw(raw_status);
+        self.exit_status = Some(exit_status);
+        self.status = format!("Process finished: {exit_status}");
         let child = self.child.take().unwrap();
         terminate_groups(&child, self.master.as_ref());
         reap_in_background(child);
@@ -294,6 +319,7 @@ impl Terminal {
     /// Send SIGINT to the foreground job even when input is full or the PTY is in raw mode.
     pub fn interrupt(&mut self) {
         let Some(child) = &self.child else { return };
+        self.keep_open = true;
         self.input.clear();
         let group = foreground_group(self.master.as_ref()).unwrap_or(child.id() as i32);
         if let Err(error) = signal(-group, libc::SIGINT) {
@@ -311,6 +337,7 @@ impl Terminal {
         if let Some(master) = &self.master
             && unsafe { libc::ioctl(master.as_raw_fd(), libc::TIOCSWINSZ, &size) } == -1
         {
+            self.keep_open = true;
             self.status = format!("Could not resize terminal: {}", io::Error::last_os_error());
             return;
         }
@@ -318,6 +345,7 @@ impl Terminal {
     }
 
     pub fn stop(&mut self) {
+        self.keep_open = true;
         if let Some(child) = &self.child {
             // Check the direct child as well, so permission errors are visible to the user.
             if let Err(error) = signal(child.id() as i32, libc::SIGKILL) {
@@ -531,6 +559,175 @@ mod tests {
                 .unwrap()
                 .as_nanos(),
         ))
+    }
+
+    #[test]
+    fn silent_successes_and_failures_never_create_logs() {
+        for (command, success) in [("/usr/bin/true", true), ("/usr/bin/false", false)] {
+            let directory = log_directory("silent-run");
+            let button = ButtonConfig {
+                command: command.into(),
+                log_output: true,
+                ..Default::default()
+            };
+            let mut terminal =
+                Terminal::start_with_log_dir(&button, 80, 24, Some(&directory)).unwrap();
+            assert!(terminal.log_path().is_none());
+            wait_for(&mut terminal, |t| !t.needs_poll());
+            assert_eq!(terminal.is_silent_success(), success);
+            assert!(terminal.log_error().is_none());
+            assert!(terminal.log_path().is_none());
+            assert!(
+                !directory.exists(),
+                "Silent runs must never create log directories"
+            );
+        }
+    }
+
+    #[test]
+    fn control_only_output_never_creates_logs_and_only_success_is_silent() {
+        for output in [
+            "\\r\\033[2K\\033[3D", // Pause EO's exact log bytes.
+            " \\t\\r\\n\\000\\007",
+            "\\033]0;title\\007\\033Pmetadata\\033\\\\\\033[32m\\033[0m",
+            "\u{200b}\u{200d}\u{feff}",
+        ] {
+            for status in [0, 1] {
+                let directory = log_directory("control-only");
+                let button = ButtonConfig {
+                    command: format!("printf '{output}'; exit {status}"),
+                    shell: true,
+                    log_output: true,
+                    ..Default::default()
+                };
+                let mut terminal =
+                    Terminal::start_with_log_dir(&button, 80, 24, Some(&directory)).unwrap();
+                wait_for(&mut terminal, |t| !t.needs_poll());
+                assert_eq!(terminal.is_silent_success(), status == 0, "{output:?}");
+                assert!(!terminal.screen.has_printed_text());
+                assert!(terminal.log_error().is_none());
+                assert!(terminal.log_path().is_none());
+                assert!(!directory.exists());
+            }
+        }
+    }
+
+    #[test]
+    fn incomplete_utf8_at_eof_is_visible_and_logged() {
+        let directory = log_directory("incomplete-utf8");
+        let button = ButtonConfig {
+            command: "printf '\\342\\202'".into(),
+            shell: true,
+            log_output: true,
+            ..Default::default()
+        };
+        let mut terminal = Terminal::start_with_log_dir(&button, 80, 24, Some(&directory)).unwrap();
+        wait_for(&mut terminal, |t| !t.needs_poll());
+        assert!(!terminal.is_silent_success());
+        assert!(terminal.screen.text().contains('\u{fffd}'));
+        assert_eq!(
+            std::fs::read(terminal.log_path().unwrap()).unwrap(),
+            b"\xe2\x82"
+        );
+    }
+
+    #[test]
+    fn logging_waits_for_first_output_and_preserves_first_and_last_chunks() {
+        let directory = log_directory("lazy-log");
+        let button = ButtonConfig {
+            command: "stty -echo; printf '\\r\\033[2K\\033[3D'; sleep 0.1; printf 'first chunk'; read line; printf 'last chunk'"
+                .into(),
+            shell: true,
+            log_output: true,
+            ..Default::default()
+        };
+        let mut terminal = Terminal::start_with_log_dir(&button, 80, 24, Some(&directory)).unwrap();
+        assert!(terminal.log_path().is_none());
+        assert!(!directory.exists());
+        wait_for(&mut terminal, |t| {
+            t.log_path()
+                .and_then(|path| std::fs::read(path).ok())
+                .is_some_and(|bytes| bytes == b"\r\x1b[2K\x1b[3Dfirst chunk")
+        });
+        assert!(terminal.is_running());
+        terminal.send(b"\n");
+        wait_for(&mut terminal, |t| !t.needs_poll());
+        assert!(terminal.exit_status.unwrap().success());
+        assert!(!terminal.is_silent_success());
+        assert_eq!(
+            std::fs::read(terminal.log_path().unwrap()).unwrap(),
+            b"\r\x1b[2K\x1b[3Dfirst chunklast chunk"
+        );
+    }
+
+    #[test]
+    fn final_output_after_exit_and_a_cleared_screen_are_never_silent() {
+        let directory = log_directory("erased-output");
+        let button = ButtonConfig {
+            command: "printf 'final output\\033[2J\\033[H'".into(),
+            shell: true,
+            log_output: true,
+            ..Default::default()
+        };
+        let mut terminal = Terminal::start_with_log_dir(&button, 80, 24, Some(&directory)).unwrap();
+        let pid = terminal.child.as_ref().unwrap().id();
+        wait_until(|| state(pid) == Some('Z'));
+        terminal.check_exit();
+        assert!(terminal.exit_status.unwrap().success());
+        assert!(
+            !terminal.screen.has_printed_text(),
+            "The terminal has not read the queued output yet"
+        );
+        assert!(
+            !terminal.is_silent_success(),
+            "Exit status alone cannot close a tab"
+        );
+        wait_for(&mut terminal, |t| !t.needs_poll());
+        assert!(terminal.screen.text().trim().is_empty());
+        assert!(!terminal.is_silent_success());
+        assert_eq!(
+            std::fs::read(terminal.log_path().unwrap()).unwrap(),
+            b"final output\x1b[2J\x1b[H"
+        );
+    }
+
+    #[test]
+    fn stopped_and_interrupted_silent_runs_keep_tabs_without_creating_logs() {
+        for interrupt in [false, true] {
+            let directory = log_directory("silent-interruption");
+            let button = ButtonConfig {
+                command: "/bin/sleep".into(),
+                arguments: "60".into(),
+                log_output: true,
+                ..Default::default()
+            };
+            let mut terminal =
+                Terminal::start_with_log_dir(&button, 80, 24, Some(&directory)).unwrap();
+            if interrupt {
+                terminal.interrupt();
+            } else {
+                terminal.stop();
+            }
+            wait_for(&mut terminal, |t| !t.needs_poll());
+            assert!(!terminal.is_silent_success());
+            assert!(terminal.log_path().is_none());
+            assert!(!directory.exists());
+        }
+        // Some programs handle SIGINT and still return zero; retain the requested interruption.
+        let button = ButtonConfig {
+            command: "trap 'exit 0' INT; kill -STOP $$; while :; do :; done".into(),
+            shell: true,
+            ..Default::default()
+        };
+        let mut terminal = Terminal::start(&button, 80, 24).unwrap();
+        let pid = terminal.child.as_ref().unwrap().id();
+        wait_until(|| state(pid) == Some('T'));
+        terminal.interrupt();
+        signal(pid as i32, libc::SIGCONT).unwrap();
+        wait_for(&mut terminal, |t| !t.needs_poll());
+        assert!(terminal.exit_status.unwrap().success());
+        assert!(!terminal.screen.has_printed_text());
+        assert!(!terminal.is_silent_success());
     }
 
     #[test]

@@ -73,6 +73,7 @@ enum Parser {
     #[default]
     Ground,
     Escape,
+    EscapeIntermediate,
     Csi(Vec<u8>),
     String {
         escaped: bool,
@@ -96,6 +97,7 @@ pub struct Screen {
     origin: bool,
     charsets: [bool; 2],
     charset: usize,
+    printed_text: bool,
 }
 
 impl Screen {
@@ -118,6 +120,7 @@ impl Screen {
             origin: false,
             charsets: [false; 2],
             charset: 0,
+            printed_text: false,
         }
     }
 
@@ -146,6 +149,12 @@ impl Screen {
     }
     pub fn is_alternate(&self) -> bool {
         self.alternate.is_some()
+    }
+
+    /// Remember non-whitespace glyphs with a display width, even after a clear/reset.
+    /// Zero-width marks alone do not count; their printable base already does.
+    pub fn has_printed_text(&self) -> bool {
+        self.printed_text
     }
 
     pub fn text(&self) -> String {
@@ -191,14 +200,34 @@ impl Screen {
         (count, replies)
     }
 
+    /// At EOF, malformed UTF-8 must remain visible rather than count as silence.
+    pub fn finish(&mut self) -> bool {
+        if self.utf8.is_empty() {
+            return false;
+        }
+        self.utf8.clear();
+        self.put('\u{fffd}');
+        true
+    }
+
     fn feed_byte(&mut self, byte: u8, replies: &mut Vec<u8>) {
+        // CAN/SUB cancel any partial terminal command; ESC starts a fresh command.
+        if matches!(byte, 0x18 | 0x1a) && !matches!(self.parser, Parser::Ground) {
+            self.parser = Parser::Ground;
+            return;
+        }
+        if byte == 0x1b && !matches!(self.parser, Parser::Ground | Parser::String { .. }) {
+            self.parser = Parser::Escape;
+            return;
+        }
         let parser = std::mem::take(&mut self.parser);
         match parser {
             Parser::Ground => self.ground(byte),
             Parser::Escape => match byte {
                 b'[' => self.parser = Parser::Csi(Vec::new()),
-                b']' | b'P' | b'^' | b'_' => self.parser = Parser::String { escaped: false },
+                b']' | b'P' | b'X' | b'^' | b'_' => self.parser = Parser::String { escaped: false },
                 b'(' | b')' => self.parser = Parser::Charset(byte),
+                0x20..=0x2f => self.parser = Parser::EscapeIntermediate,
                 b'7' => self.save_cursor(),
                 b'8' => self.restore_cursor(),
                 b'D' => self.line_feed(),
@@ -213,18 +242,25 @@ impl Screen {
                         self.buffer.y = self.buffer.y.saturating_sub(1);
                     }
                 }
-                b'c' => *self = Self::new(self.cols, self.rows),
+                b'c' => {
+                    let printed_text = self.printed_text;
+                    *self = Self::new(self.cols, self.rows);
+                    self.printed_text = printed_text;
+                }
                 b'Z' => replies.extend_from_slice(b"\x1b[?1;2c"),
-                0x1b => self.parser = Parser::Escape,
+                0x00..=0x1f | 0x7f => self.parser = Parser::Escape,
                 _ => {}
             },
+            Parser::EscapeIntermediate => {
+                if !(0x30..=0x7e).contains(&byte) {
+                    self.parser = Parser::EscapeIntermediate;
+                }
+            }
             Parser::Csi(mut sequence) => {
                 if (0x40..=0x7e).contains(&byte) {
                     self.csi(&sequence, byte, replies);
-                } else if byte == 0x1b {
-                    self.parser = Parser::Escape;
                 } else {
-                    if sequence.len() < 256 {
+                    if byte >= 0x20 && byte != 0x7f && sequence.len() < 256 {
                         sequence.push(byte);
                     }
                     self.parser = Parser::Csi(sequence);
@@ -237,7 +273,13 @@ impl Screen {
                     };
                 }
             }
-            Parser::Charset(which) => self.charsets[usize::from(which == b')')] = byte == b'0',
+            Parser::Charset(which) => {
+                if byte < 0x20 || byte == 0x7f {
+                    self.parser = Parser::Charset(which);
+                } else {
+                    self.charsets[usize::from(which == b')')] = byte == b'0';
+                }
+            }
         }
     }
 
@@ -309,6 +351,7 @@ impl Screen {
 
     fn put(&mut self, ch: char) {
         let width = ch.width().unwrap_or(0).min(2);
+        self.printed_text |= !ch.is_whitespace() && width > 0;
         if width == 0 {
             let x = if self.buffer.wrap_pending {
                 self.buffer.x
@@ -658,6 +701,52 @@ fn ansi_color(index: usize) -> [u8; 3] {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn meaningful_output_detection_handles_chunked_controls_and_unicode() {
+        let silent: &[&[u8]] = &[
+            b"\r\x1b[2K\x1b[3D", // Pause EO's exact output.
+            b" \t\r\n\0\x07\x08\x7f",
+            b"\x1b[31m\x1b[0m\x1b[?25l\x1b[?1049h\x1b[?1049l\x1bc",
+            b"\x1b]0;window title\x07\x1b]8;;https://example.test\x1b\\",
+            b"\x1bPignored payload\x1b\\\x1bXignored\x1b\\\x1b^ignored\x1b\\\x1b_ignored\x1b\\",
+            b"\x1b%G\x1b(B\x1b)0\x1b[12\x18\x1b]cancelled\x1a",
+            b"\x1b[999;", // An unfinished control sequence is still not text.
+            "\u{a0}\u{2003}\u{200b}\u{200d}\u{feff}\u{fe0f}".as_bytes(),
+        ];
+        for bytes in silent {
+            for split in 0..=bytes.len() {
+                let mut screen = Screen::new(80, 24);
+                screen.feed(&bytes[..split]);
+                screen.feed(&bytes[split..]);
+                screen.finish();
+                assert!(!screen.has_printed_text(), "Silent bytes: {bytes:?}");
+            }
+        }
+        for bytes in [
+            b"\x1b[31mmessage\x1b[0m".as_slice(),
+            "é 界 e\u{301} 👩\u{200d}💻".as_bytes(),
+            b"\x1b(0q\x1b(B", // DEC line drawing is visible text.
+            b"\x1b[?1049hbrief output\x1b[?1049l",
+            b"\xff",     // Invalid UTF-8 renders a replacement glyph.
+            b"\xe2\x82", // So does incomplete UTF-8 at EOF.
+        ] {
+            let mut screen = Screen::new(80, 24);
+            for byte in bytes {
+                screen.feed(&[*byte]);
+            }
+            screen.finish();
+            assert!(screen.has_printed_text(), "Visible bytes: {bytes:?}");
+            screen.feed(b"\x1b[2J\x1b[H\x1bc");
+            assert!(
+                screen.has_printed_text(),
+                "Clears/resets cannot forget text"
+            );
+        }
+        let mut screen = Screen::new(80, 24);
+        screen.feed(b"\x1b[12\x18visible after cancellation");
+        assert!(screen.has_printed_text());
+    }
 
     #[test]
     fn parsing_yields_at_a_deadline_and_preserves_partial_sequences() {

@@ -86,6 +86,9 @@ select a YAML layout file. Dependency versions are recorded in [Cargo.lock](Carg
 - **Manage terminals:** click a button to use the active terminal, or **Ctrl-click**
   to open another tab. Running tabs keep collecting output. Click the terminal to
   type; use the tab bar and its arrows to switch sessions.
+  Commands that finish successfully without printing meaningful text close their tabs
+  automatically and show a brief success notice. Commands with output, failures,
+  and interrupted or stopped commands keep their tabs.
 - **Copy terminal text:** click and drag to highlight text; releasing the mouse
   automatically copies it to the clipboard. **Copy** or **Ctrl+Shift+C** copies the
   selection, or all output when nothing is selected. Click in the terminal to clear
@@ -155,11 +158,19 @@ Enable **Log output** in a button's edit dialog, or set `log_output: true` in th
 button's YAML definition. It is unchecked by default, including when loading
 older layouts without this field. Changes apply to newly launched processes.
 
-Each opted-in process gets its own log, for example
+Each opted-in process that produces output gets its own log, for example
 `logs/run_top/20261117_183100.log`. Button labels become lowercase directory names
 with underscores replacing spaces and punctuation. Directories are created as
 needed; runs started in the same second get a numeric filename suffix to avoid
 overwriting earlier logs. Relative paths resolve from the app's working directory.
+Log files and directories are created on the first meaningful text: a parsed,
+non-whitespace character with a display width. Whitespace, zero-width Unicode
+characters alone, and terminal controls (colors, cursor movement, title changes,
+etc.) never create a log, regardless of the exit status. The terminal parser
+handles sequences split across reads. Text counts even if later erased or reset;
+malformed UTF-8 counts as visible replacement text. Successful tabs close only
+after all output and log writes are drained. Up to 64 KiB of preceding terminal
+controls are retained to preserve startup styling.
 
 Logs capture the original terminal output stream, including stdout, stderr, ANSI
 colors, and screen updates, independently of the 2,000-row scrollback limit.

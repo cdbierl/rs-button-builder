@@ -262,6 +262,148 @@ fn wait_for_tabs(
 }
 
 #[test]
+fn silent_successes_close_without_disturbing_other_tabs_and_show_a_temporary_notice() {
+    let ctx = egui::Context::default();
+    let mut config = Config::default();
+    for index in 0..2 {
+        config.buttons[index] = ButtonConfig {
+            label: format!("Silent {}", index + 1),
+            command: "/usr/bin/true".into(),
+            ..Default::default()
+        };
+    }
+    config.buttons[2] = interactive_button("Keep open");
+    let mut app = ButtonBuilder::new(&ctx, None, config);
+    let baseline_notice = app.notice.clone();
+    app.launch(2, false);
+    wait_for_tabs(&mut app, &ctx, |app| {
+        app.tabs[0]
+            .terminal
+            .screen
+            .text()
+            .contains("Keep open-ready")
+    });
+    let kept_id = app.tabs[0].id;
+    app.launch(0, true);
+    app.launch(1, true);
+    app.select_tab(0);
+    frame(&mut app, &ctx, vec![]);
+    let focused = ctx.memory(|memory| memory.focused());
+    wait_for_tabs(&mut app, &ctx, |app| app.tabs.len() == 1);
+    assert_eq!(app.active_tab, Some(0));
+    assert_eq!(app.tabs[0].id, kept_id);
+    assert!(app.tabs[0].terminal.is_running());
+    assert_eq!(ctx.memory(|memory| memory.focused()), focused);
+    assert!(!app.dirty);
+    assert_eq!(app.notice, baseline_notice);
+    let notice = app.completion_notice.as_ref().unwrap().0.clone();
+    assert!(notice.ends_with("completed successfully"));
+    let output = frame(&mut app, &ctx, vec![]);
+    label_center(&output, &notice);
+    app.completion_notice.as_mut().unwrap().1 = Instant::now() - Duration::from_secs(1);
+    let output = frame(&mut app, &ctx, vec![]);
+    assert!(app.completion_notice.is_none());
+    label_center(&output, &baseline_notice);
+    app.close_tab(0);
+    app.launch(0, false);
+    wait_for_tabs(&mut app, &ctx, |app| app.tabs.is_empty());
+    assert_eq!(app.active_tab, None);
+    let output = frame(&mut app, &ctx, vec![]);
+    label_center(&output, "No process output yet.");
+    label_center(&output, "Silent 1 completed successfully");
+    app.launch(2, false);
+    assert!(app.completion_notice.is_none());
+    wait_for_tabs(&mut app, &ctx, |app| {
+        app.tabs[0]
+            .terminal
+            .screen
+            .text()
+            .contains("Keep open-ready")
+    });
+}
+
+#[test]
+fn silent_active_success_selects_a_remaining_tab_and_failures_and_output_stay_open() {
+    let ctx = egui::Context::default();
+    let mut config = Config::default();
+    config.buttons[0] = interactive_button("Keep open");
+    for (index, command) in [
+        (1, "printf '\\r\\033[2K\\033[3D'"),
+        (2, "printf 'failure details' >&2; exit 7"),
+        (3, "printf '\\r\\033[2K\\033[3D'; exit 1"),
+        (4, "printf 'successful output'"),
+        (5, "printf 'erased output\\033[2J\\033[H'"),
+    ] {
+        config.buttons[index] = ButtonConfig {
+            label: format!("Run {index}"),
+            command: command.into(),
+            shell: true,
+            ..Default::default()
+        };
+    }
+    config.buttons[6] = ButtonConfig {
+        command: "/bin/sleep".into(),
+        arguments: "60".into(),
+        ..Default::default()
+    };
+    let mut app = ButtonBuilder::new(&ctx, None, config);
+    app.launch(0, false);
+    wait_for_tabs(&mut app, &ctx, |app| {
+        app.tabs[0]
+            .terminal
+            .screen
+            .text()
+            .contains("Keep open-ready")
+    });
+    app.launch(1, true);
+    assert_eq!(app.active_tab, Some(1));
+    wait_for_tabs(&mut app, &ctx, |app| app.tabs.len() == 1);
+    assert_eq!(app.active_tab, Some(0));
+    for index in 2..=5 {
+        app.launch(index, true);
+    }
+    wait_for_tabs(&mut app, &ctx, |app| {
+        app.tabs
+            .iter()
+            .skip(1)
+            .all(|tab| !tab.terminal.needs_poll())
+    });
+    assert_eq!(app.tabs.len(), 5);
+    assert_eq!(
+        app.tabs[1].terminal.status,
+        "Process finished: exit status: 7"
+    );
+    assert!(
+        app.tabs[1]
+            .terminal
+            .screen
+            .text()
+            .contains("failure details")
+    );
+    assert_eq!(
+        app.tabs[2].terminal.status,
+        "Process finished: exit status: 1"
+    );
+    assert!(app.tabs[2].terminal.screen.text().trim().is_empty());
+    assert!(
+        app.tabs[3]
+            .terminal
+            .screen
+            .text()
+            .contains("successful output")
+    );
+    assert!(app.tabs[4].terminal.screen.text().trim().is_empty());
+    app.select_tab(2);
+    let output = frame(&mut app, &ctx, vec![]);
+    label_center(&output, "Process finished: exit status: 1");
+    app.launch(6, true);
+    app.tabs[5].terminal.stop();
+    frame(&mut app, &ctx, vec![]);
+    assert_eq!(app.tabs.len(), 6);
+    assert_eq!(app.tabs[5].terminal.status, "Stopped");
+}
+
+#[test]
 fn ctrl_click_tabs_route_input_and_toolbar_actions_to_the_selected_process() {
     let ctx = egui::Context::default();
     let mut config = Config::default();
@@ -916,7 +1058,8 @@ fn terminal_scrollbar_handles_full_buffer_and_alternate_screen_at_minimum_window
     let mut config = Config::default();
     config.buttons[0] = ButtonConfig {
         label: "Local demo".into(),
-        command: "/usr/bin/true".into(),
+        command: "/bin/sleep".into(),
+        arguments: "60".into(),
         ..Default::default()
     };
     let mut app = ButtonBuilder::new(&ctx, Some("/tmp/scrollbar-small.yaml".into()), config);
