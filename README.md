@@ -1,108 +1,146 @@
 # Button Builder
 
-A Linux egui app with a configurable command grid and an embedded terminal.
-The interface uses `egui-material3` controls with an orange accent, warm dark
-surfaces, and small corners on buttons, dialogs, inputs, and menus. Dialog frames
-use the Material theme with a shared 6-pixel radius. Text and numeric inputs use a matching theme.
-Fonts and theme colors are loaded locally; optional downloadable assets are disabled.
-The header's grid icon uses the bundled [Material Symbols Rounded font](assets/README.md).
+A Linux desktop app for launching commands from a configurable button grid,
+with interactive terminal tabs. Built with Rust 2024, egui, and egui-material3.
+The Cargo package and executable are named `rs_button_builder` (version `0.1.0`).
+
+![Button Builder GUI with a command grid, three terminal tabs, and JSON output](docs/images/button-builder.png)
+
+GUI preview with generated sample output.
+
+## Features
+
+- Named YAML layouts with configurable grid dimensions, button labels, actions, and colors.
+- Multiple process terminals with independent output, scrollback, fonts, and colors.
+- Interactive commands, shell pipelines, and log following through Unix pseudo-terminals.
+- Material controls with an orange accent and locally loaded fonts.
+
+## Requirements
+
+- Linux desktop with X11 or Wayland and an OpenGL-capable graphics driver.
+- Rust 1.88 or newer, Cargo, and a system C toolchain/linker to build from source.
+- The executables used by your buttons and permission to read their input files.
+
+## Dependencies
+
+Direct Rust dependencies from [Cargo.toml](Cargo.toml):
+
+| Dependency | Version requirement | Purpose |
+| --- | --- | --- |
+| `eframe` | `0.33` | Native window and OpenGL rendering, with X11 and Wayland support. |
+| `egui` | `0.33.0` | GUI layout, widgets, and input handling. |
+| `egui-material3` | `0.0.9` | Material controls and theme colors. |
+| `serde` | `1.0` | Configuration serialization and deserialization. |
+| `serde_yaml_ng` | `0.10` | YAML layout parsing and writing. |
+| `libc` | `0.2` | Unix pseudo-terminals, process groups, and terminal sizing. |
+| `shlex` | `2.0` | Parsing quoted program arguments. |
+| `fontdb` | `0.23` | Discovering installed fonts and Fontconfig directories. |
+| `ttf-parser` | `0.25` | Inspecting font glyph widths. |
+| `unicode-width` | `0.2` | Unicode character widths for terminal cells. |
+| `log` | `0.4` | Application logging. |
+| `env_logger` | `0.11` | Logging configuration through `RUST_LOG`. |
+| `dotenvy` | `0.15` | Loading environment variables from `.env`. |
+
+Fonts and theme assets are loaded locally. Optional asset downloads in
+`egui-material3` are disabled.
+
+## Build and run
+
+From the project directory:
 
 ```sh
-cargo run --offline
-cargo run --offline -- my-buttons.yaml
-cargo run --offline -- --help
+cargo build --locked --release
+./target/release/rs_button_builder
+./target/release/rs_button_builder my-buttons.yaml
 ```
 
-The first button is **Run Top**, using `/usr/bin/top`. Click an unassigned button,
-right-click a button, or enable **Edit buttons** to configure its label and action.
-Uncheck **Edit buttons** to launch commands. Saving a button does not run it.
-The editor also has **Text color** and **Background** pickers, a live button preview,
-and **Reset colors** to restore the theme defaults. Colors are saved per button.
-When only a background is set, the label automatically uses contrasting black or white text.
-
-Each layout can set `display_name` in its YAML file, for example
-`display_name: System Monitor`. It appears as the heading above the button grid.
-Click the heading to rename the current layout; press Enter or click elsewhere to
-apply, or Escape to cancel. Use **Save layout** to persist the name. Missing or blank
-names display **Your buttons**, so existing files keep working.
-
-Use **Rows** and **Columns** above the grid to change its dimensions (1–12 rows,
-1–8 columns; initially 3×3). The grid scrolls when it exceeds the available space.
-Buttons keep their order from left to right, then top to bottom. Shrinking hides
-extra buttons without deleting their labels or commands; expanding restores them.
-Use **Save layout** in the header toolbar to persist the dimensions along with the
-button definitions. An asterisk marks unsaved layout or appearance changes.
-
-Click **Load config…** in the header toolbar to browse local YAML files or enter a
-path. The chooser's **Examples** button opens the bundled [example layouts](examples/README.md): system
-monitoring, local JSON pipelines, terminal demonstrations, and a live log tail. Loading restores the
-grid, button definitions/colors, and default terminal appearance, and selects that file as
-the save destination. Existing terminal tabs and their processes continue with their
-own appearance settings. Unsaved changes must be saved or explicitly replaced;
-missing or invalid files leave the current
-layout intact.
-
-For a program, enter the executable separately from its optional arguments. Quote
-arguments containing spaces. A blank working directory inherits the app's working
-directory. Programs must already be available locally.
-
-For a pipeline, select **Shell pipeline** and enter the entire command. For example,
-if `WS_URL` is already set to your WebSocket endpoint and the messages are JSON:
+For development, Cargo can build and launch the GUI directly:
 
 ```sh
-wscat --no-color -c "$WS_URL" | jq --unbuffered .
+cargo run --locked
+cargo run --locked -- my-buttons.yaml
+cargo run --locked -- --help
 ```
 
-Shell mode runs `/bin/sh -c`, enabling pipes, redirection, and environment-variable
-expansion. Program mode passes the parsed arguments directly to the executable.
-The existing `.env` loading in `main` also applies to launched commands.
+`--help` prints command-line usage. The optional positional argument selects a YAML
+layout file. Dependency versions are recorded in [Cargo.lock](Cargo.lock);
+`--locked` preserves those versions.
 
-The terminal uses a real pseudo-terminal, so interactive commands such as `top`
-receive a terminal size and keyboard input. Click the pane to type; `q` quits `top`.
-**Ctrl+C** sends an interrupt, and **Stop** forcibly ends the running process group.
-Click a button to start a process in the active tab. **Ctrl-click** a button to open
-another terminal tab, including another instance of the same command. The tab bar
-switches between sessions; inactive processes keep running and collecting output.
-Each tab has its own output, scroll position, font, and colors. Normal clicks reuse
-the active tab after its process stops; hold Ctrl to launch while it is running.
-Tab numbers distinguish duplicate commands, and an orange dot marks running tabs.
-The compact toolbar's **Copy**, **Ctrl+C**, **Stop**, **Jump to live**, and
-**Close tab** controls act on the selected tab. Closing a tab stops its process group;
-closing the window or clicking **Exit** in the main toolbar stops every tab's process.
-Finished output stays until the tab
-is reused or closed. The tab bar scrolls horizontally when needed. Use the left
-and right arrows at its ends to select the previous or next tab; the selected tab
-scrolls into view. Arrows disable at the first and last tab.
+## Usage
+
+- **Configure buttons:** right-click a button, click an unassigned button, or enable
+  **Edit buttons**. Set its label, executable, arguments, working directory, and colors.
+  **Shell pipeline** runs the complete command through `/bin/sh`.
+- **Customize layouts:** change **Rows** and **Columns**, or click the heading above
+  the grid to rename the layout.
+- **Manage terminals:** click a button to use the active terminal, or **Ctrl-click**
+  to open another tab. Running tabs keep collecting output. Click the terminal to
+  type; use the tab bar and its arrows to switch sessions.
+- **Adjust appearance:** **Appearance** changes the selected tab's font and colors
+  and the defaults for new tabs. **Refresh fonts** discovers installed monospace fonts.
+- **Stop processes:** **Ctrl+C** interrupts; **Stop** ends the active process group.
+  **Close tab** stops that tab's process. **Exit** closes the app and stops all tabs.
+
+## Configuration and examples
+
+The default layout file is `./buttons.yaml`. If it is missing, the app starts with
+its built-in layout. An explicitly selected missing or invalid file reports an error.
+**Load config…** selects a layout and makes it the destination for subsequent saves.
+**Save layout**, **Save button**, and **Save appearance** write to that file;
+unsaved changes are not automatically saved on exit.
+
+A minimal layout:
+
+```yaml
+display_name: System Monitor
+rows: 1
+columns: 1
+buttons:
+  - label: Run Top
+    command: /usr/bin/top
+    arguments: -d 1
+```
+
+See [example layouts](examples/README.md) for system monitoring, JSON pipelines,
+terminal demos, and following `/var/log/syslog`. Copy an example before customizing
+it to preserve the original. JSON examples require `/usr/bin/jq`; log following
+requires read access to the log file.
+
+## Development
+
+| Source | Responsibility |
+| --- | --- |
+| `src/main.rs`, `src/cli.rs` | Startup, arguments, logging, and `.env` loading. |
+| `src/app.rs` | GUI, button editing, layouts, and terminal tabs. |
+| `src/config.rs`, `src/config_picker.rs` | YAML persistence and layout selection. |
+| `src/terminal/` | Pseudo-terminal processes, input, and screen rendering. |
+| `src/ui.rs`, `src/fonts.rs` | Shared styling, bundled icons, and local font discovery. |
+
+Run the checks before submitting changes:
+
+```sh
+cargo test --locked
+cargo clippy --locked --all-targets -- -D warnings
+cargo fmt --all -- --check
+```
+
+Tests use local Linux tools, including `/usr/bin/top` and `/usr/bin/jq`, and generated
+input. The log-follow test uses a temporary log file. Keep changes focused and
+include updated GUI screenshots when changing the interface.
+
+Logging uses `RUST_LOG` (default: `info`). Startup loads an optional `.env` file;
+child processes inherit the app's environment, including those values.
+
+## Known limitations
+
+Linux is the supported platform. The embedded terminal uses `TERM=vt100` and
+supports ANSI colors, Unicode, and alternate screens. Terminal graphics, mouse
+reporting, and full text reflow on width changes are not implemented.
 Keep shell commands in the foreground: background jobs that outlive their shell
 are no longer tracked by **Stop** or window cleanup.
 
-Use **Appearance** to change the selected tab's monospace font, font size, line spacing,
-and text and background colors. Changes also become the default for new tabs;
-**Save appearance** persists that default in the layout file. Existing tabs keep
-their own settings. Built-in monospace is always available. Installed monospace
-fonts are discovered through Fontconfig and user font directories, including
-`~/.local/share/fonts`, `~/.fonts`, and `$XDG_DATA_HOME/fonts`. Nested directories
-are scanned. Click **Refresh fonts** after installing more fonts. Scroll
-over the terminal for up to 2,000 lines of history, and use **Jump to live** to
-return to current output. **Copy** or Ctrl+Shift+C copies the selected tab's retained text.
+## License
 
-**Save button**, **Save appearance**, and **Save layout** write buttons and appearance
-to the selected YAML file (default: `./buttons.yaml`). Appearance changes preview
-immediately and need saving to persist. If the default `buttons.yaml` is missing,
-the app starts with the default layout. An explicitly selected missing file or a
-malformed file reports an error rather than being overwritten.
-
-The embedded screen supports VT100 cursor movement, erase operations, scrolling
-regions, ANSI colors, Unicode, and common alternate-screen sequences. It is a small
-terminal implementation: terminal graphics, mouse reporting, and full text reflow
-on width changes are not implemented. Commands receive `TERM=vt100`. Font/window
-changes notify the process of its new terminal dimensions.
-
-Checks use local commands and generated data, including interactive `top` and a
-JSON pipeline through `/usr/bin/jq`; no WebSocket connection is opened by the tests.
-
-```sh
-cargo test --offline
-cargo clippy --offline --all-targets -- -D warnings
-cargo fmt --check
-```
+An application license has not yet been declared in [Cargo.toml](Cargo.toml).
+The [bundled Material Symbols font](assets/README.md) is distributed under
+[Apache License 2.0](licenses/Apache-2.0.txt); that license applies to the font asset.

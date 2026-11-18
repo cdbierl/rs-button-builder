@@ -4,7 +4,7 @@ Click **Load config…**, then **Examples**, select a YAML file, and click
 **Load selected config**. You can also start with one directly:
 
 ```sh
-cargo run --offline -- examples/system-monitor.yaml
+cargo run --locked -- examples/system-monitor.yaml
 ```
 
 | File | Grid | Buttons |
