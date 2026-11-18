@@ -7,139 +7,157 @@ buttons:
   arguments: ''
   working_directory: ''
   shell: false
-  foreground: null
-  background:
+  log_output: false
+  fg_color: null
+  bg_color:
   - 123
   - 250
   - 255
-- label: mavlink-router
-  command: docker logs mavlink-router -f
+- label: Kern Log
+  command: tail -f /var/log/kern.log
   arguments: ''
   working_directory: ''
   shell: true
-  foreground: null
-  background: null
-- label: Button 3
-  command: ''
+  log_output: true
+  fg_color: null
+  bg_color: null
+- label: Syslog
+  command: tail -n 5000 -f /var/log/syslog
   arguments: ''
   working_directory: ''
-  shell: false
-  foreground: null
-  background: null
+  shell: true
+  log_output: true
+  fg_color: null
+  bg_color: null
 - label: Button 4
   command: ''
   arguments: ''
   working_directory: ''
   shell: false
-  foreground: null
-  background: null
+  log_output: false
+  fg_color: null
+  bg_color: null
 - label: Button 5
   command: ''
   arguments: ''
   working_directory: ''
   shell: false
-  foreground: null
-  background: null
+  log_output: false
+  fg_color: null
+  bg_color: null
 - label: Button 6
   command: ''
   arguments: ''
   working_directory: ''
   shell: false
-  foreground: null
-  background: null
+  log_output: false
+  fg_color: null
+  bg_color: null
 - label: Button 7
   command: ''
   arguments: ''
   working_directory: ''
   shell: false
-  foreground: null
-  background: null
+  log_output: false
+  fg_color: null
+  bg_color: null
 - label: Button 8
   command: ''
   arguments: ''
   working_directory: ''
   shell: false
-  foreground: null
-  background: null
+  log_output: false
+  fg_color: null
+  bg_color: null
 - label: Button 9
   command: ''
   arguments: ''
   working_directory: ''
   shell: false
-  foreground: null
-  background: null
+  log_output: false
+  fg_color: null
+  bg_color: null
 - label: Button 10
   command: ''
   arguments: ''
   working_directory: ''
   shell: false
-  foreground: null
-  background: null
+  log_output: false
+  fg_color: null
+  bg_color: null
 - label: Button 11
   command: ''
   arguments: ''
   working_directory: ''
   shell: false
-  foreground: null
-  background: null
+  log_output: false
+  fg_color: null
+  bg_color: null
 - label: Button 12
   command: ''
   arguments: ''
   working_directory: ''
   shell: false
-  foreground: null
-  background: null
+  log_output: false
+  fg_color: null
+  bg_color: null
 - label: Button 13
   command: ''
   arguments: ''
   working_directory: ''
   shell: false
-  foreground: null
-  background: null
+  log_output: false
+  fg_color: null
+  bg_color: null
 - label: Button 14
   command: ''
   arguments: ''
   working_directory: ''
   shell: false
-  foreground: null
-  background: null
+  log_output: false
+  fg_color: null
+  bg_color: null
 - label: Button 15
   command: ''
   arguments: ''
   working_directory: ''
   shell: false
-  foreground: null
-  background: null
+  log_output: false
+  fg_color: null
+  bg_color: null
 - label: Button 16
   command: ''
   arguments: ''
   working_directory: ''
   shell: false
-  foreground: null
-  background: null
+  log_output: false
+  fg_color: null
+  bg_color: null
 - label: Button 17
   command: ''
   arguments: ''
   working_directory: ''
   shell: false
-  foreground: null
-  background: null
+  log_output: false
+  fg_color: null
+  bg_color: null
 - label: Button 18
   command: ''
   arguments: ''
   working_directory: ''
   shell: false
-  foreground: null
-  background: null
+  log_output: false
+  fg_color: null
+  bg_color: null
 terminal:
   font: JetBrains Mono
   font_size: 14.0
   line_spacing: 1.15
-  foreground:
+  fg_color:
   - 220
   - 227
   - 238
-  background:
+  bg_color:
   - 15
   - 19
   - 27

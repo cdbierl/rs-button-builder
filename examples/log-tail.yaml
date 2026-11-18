@@ -7,11 +7,11 @@ terminal:
   font: Monospace
   font_size: 14
   line_spacing: 1.2
-  foreground: [220, 240, 230]
-  background: [12, 22, 18]
+  fg_color: [220, 240, 230]
+  bg_color: [12, 22, 18]
 buttons:
   - label: Follow Syslog
     command: /usr/bin/tail
     arguments: -n 50 -F /var/log/syslog
-    foreground: [235, 255, 245]
-    background: [35, 105, 75]
+    fg_color: [235, 255, 245]
+    bg_color: [35, 105, 75]

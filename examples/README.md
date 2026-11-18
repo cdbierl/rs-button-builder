@@ -30,7 +30,7 @@ To follow one of your own logs, configure a program button with `/usr/bin/tail`
 and arguments such as `-n 50 -F "/path/to/your.log"`.
 
 The loaded file becomes the destination for subsequent saves. Copy an example to
-your own YAML file to keep a separate customized layout. Colors are RGB arrays
-such as `[35, 105, 75]`; omitted fields use the app's defaults.
+your own YAML file to keep a separate customized layout. `fg_color` and `bg_color`
+are RGB arrays such as `[35, 105, 75]`; omitted fields use the app's defaults.
 Each example includes a `display_name`, shown above the button grid. Click that
 heading to rename the loaded layout, then use **Save layout** to persist it.

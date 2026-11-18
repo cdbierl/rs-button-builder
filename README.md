@@ -112,6 +112,9 @@ terminal demos, and following `/var/log/syslog`. Copy an example before customiz
 it to preserve the original. JSON examples require `/usr/bin/jq`; log following
 requires read access to the log file.
 
+Button and terminal colors use `fg_color` and `bg_color`, with RGB arrays such as
+`[35, 105, 75]`.
+
 ### Terminal output logs
 
 Set `BUTTON_BUILDER_LOG_DIR` in your environment or in `.env` at the project root

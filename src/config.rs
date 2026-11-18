@@ -18,8 +18,8 @@ pub struct ButtonConfig {
     pub working_directory: String,
     pub shell: bool,
     pub log_output: bool,
-    pub foreground: Option<[u8; 3]>,
-    pub background: Option<[u8; 3]>,
+    pub fg_color: Option<[u8; 3]>,
+    pub bg_color: Option<[u8; 3]>,
 }
 
 impl Default for ButtonConfig {
@@ -31,8 +31,8 @@ impl Default for ButtonConfig {
             working_directory: String::new(),
             shell: false,
             log_output: false,
-            foreground: None,
-            background: None,
+            fg_color: None,
+            bg_color: None,
         }
     }
 }
@@ -59,8 +59,8 @@ pub struct TerminalStyle {
     pub font: String,
     pub font_size: f32,
     pub line_spacing: f32,
-    pub foreground: [u8; 3],
-    pub background: [u8; 3],
+    pub fg_color: [u8; 3],
+    pub bg_color: [u8; 3],
 }
 
 impl Default for TerminalStyle {
@@ -69,8 +69,8 @@ impl Default for TerminalStyle {
             font: "Monospace".into(),
             font_size: 14.0,
             line_spacing: 1.15,
-            foreground: [220, 227, 238],
-            background: [15, 19, 27],
+            fg_color: [220, 227, 238],
+            bg_color: [15, 19, 27],
         }
     }
 }
@@ -216,6 +216,31 @@ mod tests {
     }
 
     #[test]
+    fn color_keys_round_trip_with_the_new_names() {
+        let source = "rows: 1\ncolumns: 1\nbuttons:\n  - label: Custom colors\n    fg_color: [12, 34, 56]\n    bg_color: [78, 90, 123]\n    log_output: true\nterminal:\n  fg_color: [210, 220, 230]\n  bg_color: [5, 10, 15]\n";
+        let config = Config::parse(source, Path::new("custom-colors.yaml")).unwrap();
+        assert_eq!(config.buttons[0].fg_color, Some([12, 34, 56]));
+        assert_eq!(config.buttons[0].bg_color, Some([78, 90, 123]));
+        assert_eq!(config.terminal.fg_color, [210, 220, 230]);
+        assert_eq!(config.terminal.bg_color, [5, 10, 15]);
+        assert!(config.buttons[0].log_output);
+
+        let saved = serde_yaml_ng::to_string(&config).unwrap();
+        let value: serde_yaml_ng::Value = serde_yaml_ng::from_str(&saved).unwrap();
+        for colors in [&value["buttons"][0], &value["terminal"]] {
+            assert!(colors.get("fg_color").is_some());
+            assert!(colors.get("bg_color").is_some());
+            assert!(colors.get("foreground").is_none());
+            assert!(colors.get("background").is_none());
+        }
+        let loaded = Config::parse(&saved, Path::new("renamed-colors.yaml")).unwrap();
+        assert_eq!(loaded.buttons[0].fg_color, config.buttons[0].fg_color);
+        assert_eq!(loaded.buttons[0].bg_color, config.buttons[0].bg_color);
+        assert_eq!(loaded.terminal.fg_color, config.terminal.fg_color);
+        assert_eq!(loaded.terminal.bg_color, config.terminal.bg_color);
+    }
+
+    #[test]
     fn yaml_round_trip_preserves_all_nine_buttons_and_style() {
         let mut config = Config {
             display_name: "System Monitor · Local".into(),
@@ -241,8 +266,8 @@ mod tests {
         config.resize_grid(4, 5).unwrap();
         config.buttons[19].label = "Keep me".into();
         config.buttons[19].command = "/usr/bin/top".into();
-        config.buttons[19].foreground = Some([240, 230, 220]);
-        config.buttons[19].background = Some([30, 40, 50]);
+        config.buttons[19].fg_color = Some([240, 230, 220]);
+        config.buttons[19].bg_color = Some([30, 40, 50]);
         config.resize_grid(1, 2).unwrap();
         let path = std::env::temp_dir().join(format!(
             "rs-button-builder-grid-test-{}.yaml",
@@ -257,8 +282,8 @@ mod tests {
         loaded.resize_grid(4, 5).unwrap();
         assert_eq!(loaded.buttons[19].label, "Keep me");
         assert_eq!(loaded.buttons[19].command, "/usr/bin/top");
-        assert_eq!(loaded.buttons[19].foreground, Some([240, 230, 220]));
-        assert_eq!(loaded.buttons[19].background, Some([30, 40, 50]));
+        assert_eq!(loaded.buttons[19].fg_color, Some([240, 230, 220]));
+        assert_eq!(loaded.buttons[19].bg_color, Some([30, 40, 50]));
         assert!(loaded.resize_grid(0, 3).is_err());
         assert!(loaded.resize_grid(3, MAX_GRID_COLUMNS + 1).is_err());
     }

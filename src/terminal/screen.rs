@@ -7,8 +7,8 @@ pub const HISTORY_LIMIT: usize = 2000;
 
 #[derive(Clone, Copy, Default, Debug, PartialEq)]
 pub struct Style {
-    pub foreground: Option<[u8; 3]>,
-    pub background: Option<[u8; 3]>,
+    pub fg_color: Option<[u8; 3]>,
+    pub bg_color: Option<[u8; 3]>,
     pub bold: bool,
     pub underline: bool,
     pub inverse: bool,
@@ -588,14 +588,14 @@ impl Screen {
                 22 => self.style.bold = false,
                 24 => self.style.underline = false,
                 27 => self.style.inverse = false,
-                30..=37 => self.style.foreground = Some(ansi_color(params[i] - 30)),
-                40..=47 => self.style.background = Some(ansi_color(params[i] - 40)),
-                90..=97 => self.style.foreground = Some(ansi_color(params[i] - 90 + 8)),
-                100..=107 => self.style.background = Some(ansi_color(params[i] - 100 + 8)),
-                39 => self.style.foreground = None,
-                49 => self.style.background = None,
+                30..=37 => self.style.fg_color = Some(ansi_color(params[i] - 30)),
+                40..=47 => self.style.bg_color = Some(ansi_color(params[i] - 40)),
+                90..=97 => self.style.fg_color = Some(ansi_color(params[i] - 90 + 8)),
+                100..=107 => self.style.bg_color = Some(ansi_color(params[i] - 100 + 8)),
+                39 => self.style.fg_color = None,
+                49 => self.style.bg_color = None,
                 38 | 48 => {
-                    let foreground = params[i] == 38;
+                    let is_fg_color = params[i] == 38;
                     let color = if params.get(i + 1) == Some(&5) && i + 2 < params.len() {
                         i += 2;
                         Some(ansi_color(params[i].min(255)))
@@ -611,10 +611,10 @@ impl Screen {
                         None
                     };
                     if let Some(color) = color {
-                        if foreground {
-                            self.style.foreground = Some(color);
+                        if is_fg_color {
+                            self.style.fg_color = Some(color);
                         } else {
-                            self.style.background = Some(color);
+                            self.style.bg_color = Some(color);
                         }
                     }
                 }
@@ -674,7 +674,7 @@ mod tests {
             );
         }
         assert_eq!(screen.line(0)[0].text, "é");
-        assert!(screen.line(0)[0].style.foreground.is_some());
+        assert!(screen.line(0)[0].style.fg_color.is_some());
         let flood = vec![b'x'; 1_000_000];
         let started = Instant::now();
         let (count, _) = screen.feed_until(&flood, started + std::time::Duration::from_millis(1));
@@ -699,7 +699,7 @@ mod tests {
         let mut screen = Screen::new(20, 4);
         screen.feed(b"old content\r\nsecond\x1b[H\x1b[31;1mnew\x1b[K");
         assert_eq!(screen.text().lines().next(), Some("new"));
-        assert_eq!(screen.line(0)[0].style.foreground, Some([205, 49, 49]));
+        assert_eq!(screen.line(0)[0].style.fg_color, Some([205, 49, 49]));
         assert!(screen.line(0)[0].style.bold);
         assert_eq!(screen.feed(b"\x1b[6n"), b"\x1b[1;4R");
     }

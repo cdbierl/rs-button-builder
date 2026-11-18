@@ -502,15 +502,15 @@ impl ButtonBuilder {
                         let mut background = [fill.r(), fill.g(), fill.b()];
                         ui.label("Text color");
                         if ui.color_edit_button_srgb(&mut foreground).changed() {
-                            editor.button.foreground = Some(foreground);
+                            editor.button.fg_color = Some(foreground);
                         }
                         ui.label("Background");
                         if ui.color_edit_button_srgb(&mut background).changed() {
-                            editor.button.background = Some(background);
+                            editor.button.bg_color = Some(background);
                         }
                         if ui.add(text_button("Reset colors").small()).clicked() {
-                            editor.button.foreground = None;
-                            editor.button.background = None;
+                            editor.button.fg_color = None;
+                            editor.button.bg_color = None;
                         }
                     });
                     ui.horizontal(|ui| {
@@ -624,9 +624,9 @@ impl ButtonBuilder {
                     });
                     ui.horizontal(|ui| {
                         ui.label("Text");
-                        changed |= ui.color_edit_button_srgb(&mut style.foreground).changed();
+                        changed |= ui.color_edit_button_srgb(&mut style.fg_color).changed();
                         ui.label("Background");
-                        changed |= ui.color_edit_button_srgb(&mut style.background).changed();
+                        changed |= ui.color_edit_button_srgb(&mut style.bg_color).changed();
                     });
                 });
                 crate::ui::dialog_footer(ui, |ui| {
@@ -942,7 +942,7 @@ impl ButtonBuilder {
             None => &self.config.terminal,
         };
         let font = terminal_font(style, &self.fonts);
-        let foreground = rgb(style.foreground);
+        let foreground = rgb(style.fg_color);
         let (char_width, line_height) = ui.fonts_mut(|fonts| {
             (
                 fonts.glyph_width(&font, 'M'),
@@ -953,7 +953,7 @@ impl ButtonBuilder {
         let rows = (((size.y - 16.0) / line_height) as usize).clamp(2, 200);
         self.terminal_size = (cols, rows);
         let rect = response.rect;
-        painter.rect_filled(rect, CORNER_RADIUS, rgb(style.background));
+        painter.rect_filled(rect, CORNER_RADIUS, rgb(style.bg_color));
         // Inactive processes also receive viewport changes, using their own font metrics.
         for tab in &mut self.tabs {
             let tab_font = terminal_font(&tab.style, &self.fonts);
@@ -1058,7 +1058,7 @@ impl ButtonBuilder {
             painter.rect_stroke(
                 cursor,
                 0.0,
-                Stroke::new(1.0_f32, rgb(style.foreground)),
+                Stroke::new(1.0_f32, rgb(style.fg_color)),
                 egui::StrokeKind::Inside,
             );
         }
@@ -1203,11 +1203,11 @@ fn button_colors(button: &ButtonConfig) -> (Color32, Color32) {
         ("onPrimary", "primary")
     };
     let fill = button
-        .background
+        .bg_color
         .map(rgb)
         .unwrap_or_else(|| get_global_color(fill));
-    let text = button.foreground.map(rgb).unwrap_or_else(|| {
-        if button.background.is_some() {
+    let text = button.fg_color.map(rgb).unwrap_or_else(|| {
+        if button.bg_color.is_some() {
             let linear = egui::Rgba::from(fill);
             let luminance = 0.2126 * linear.r() + 0.7152 * linear.g() + 0.0722 * linear.b();
             // Black or white gives at least 4.5:1 contrast against any opaque background.
@@ -1241,15 +1241,15 @@ fn paint_line(
         while end < line.len().min(cols) && line[end].style == style {
             end += 1;
         }
-        let mut foreground = rgb(style.foreground.unwrap_or(terminal_style.foreground));
-        let mut background = rgb(style.background.unwrap_or(terminal_style.background));
+        let mut foreground = rgb(style.fg_color.unwrap_or(terminal_style.fg_color));
+        let mut background = rgb(style.bg_color.unwrap_or(terminal_style.bg_color));
         if style.inverse {
             std::mem::swap(&mut foreground, &mut background);
         }
         let position = origin + Vec2::new(start as f32 * char_width, 0.0);
         let width = (end - start) as f32 * char_width;
         let rect = egui::Rect::from_min_size(position, Vec2::new(width, line_height));
-        if background != rgb(terminal_style.background) {
+        if background != rgb(terminal_style.bg_color) {
             painter.rect_filled(rect, 0.0, background);
         }
         let text: String = line[start..end]
@@ -1954,7 +1954,7 @@ mod tests {
         app.tabs[0].scrollback = 10;
         app.tabs[0].scroll_fraction = 0.5;
         app.tabs[0].style.font_size = 22.0;
-        app.tabs[0].style.background = [10, 30, 40];
+        app.tabs[0].style.bg_color = [10, 30, 40];
         app.select_tab(0);
         let output = frame(&mut app, &ctx, vec![]);
         let history_anchor = app.tabs[0].terminal.screen.history.len() - app.tabs[0].scrollback;
@@ -2073,7 +2073,7 @@ mod tests {
         );
         app.launch(0, false);
         app.launch(0, true);
-        app.tabs[0].style.background = [10, 30, 40];
+        app.tabs[0].style.bg_color = [10, 30, 40];
         app.tabs[1].terminal.screen.feed(b"Retain me");
         let next_id = app.next_tab_id;
         app.launch(1, true);
@@ -2098,7 +2098,7 @@ mod tests {
         );
         assert!(app.tabs[0].terminal.is_running());
         assert_eq!(app.tabs[0].label, "Alpha");
-        assert_eq!(app.tabs[0].style.background, [10, 30, 40]);
+        assert_eq!(app.tabs[0].style.bg_color, [10, 30, 40]);
         assert!(app.tabs.iter().all(|tab| tab.button_index.is_none()));
         app.launch(0, true);
         assert_eq!(app.tabs[2].label, app.config.buttons[0].label);
@@ -2396,8 +2396,8 @@ mod tests {
         editor.button.label = "Local output".into();
         editor.button.command = "/usr/bin/printf".into();
         editor.button.arguments = "'hello from a button\\n'".into();
-        editor.button.foreground = Some([250, 230, 210]);
-        editor.button.background = Some([20, 50, 80]);
+        editor.button.fg_color = Some([250, 230, 210]);
+        editor.button.bg_color = Some([20, 50, 80]);
         let output = frame(&mut app, &ctx, vec![]);
         click(&mut app, &ctx, label_center(&output, "Save button"));
         assert!(app.editor.is_none());
@@ -2407,11 +2407,11 @@ mod tests {
             "Local output"
         );
         assert_eq!(
-            Config::load(&path).unwrap().buttons[1].foreground,
+            Config::load(&path).unwrap().buttons[1].fg_color,
             Some([250, 230, 210])
         );
         assert_eq!(
-            Config::load(&path).unwrap().buttons[1].background,
+            Config::load(&path).unwrap().buttons[1].bg_color,
             Some([20, 50, 80])
         );
         let output = frame(&mut app, &ctx, vec![]);
@@ -2657,7 +2657,7 @@ mod tests {
             [120, 73, 20],
             [75, 55, 120],
         ] {
-            button.background = Some(background);
+            button.bg_color = Some(background);
             let (text, fill) = button_colors(&button);
             let (text, fill) = (luminance(text), luminance(fill));
             let contrast = (text.max(fill) + 0.05) / (text.min(fill) + 0.05);
@@ -2666,7 +2666,7 @@ mod tests {
                 "Low contrast on {background:?}: {contrast}"
             );
         }
-        button.foreground = Some([220, 180, 140]);
+        button.fg_color = Some([220, 180, 140]);
         assert_eq!(button_colors(&button).0, rgb([220, 180, 140]));
     }
 
@@ -2757,7 +2757,7 @@ mod tests {
         assert!(!app.dirty);
         assert_eq!((app.config.rows, app.config.columns), (2, 3));
         assert_eq!(app.config.buttons[0].label, "Pretty JSON");
-        assert_eq!(app.config.buttons[0].background, Some([75, 55, 120]));
+        assert_eq!(app.config.buttons[0].bg_color, Some([75, 55, 120]));
         assert_eq!(app.config.terminal.font_size, 15.0);
         assert_eq!(app.config_path.file_name().unwrap(), "json-streams.yaml");
         assert!(app.tabs.is_empty(), "Loading must not execute a command");

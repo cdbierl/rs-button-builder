@@ -6,45 +6,45 @@ terminal:
   font: Monospace
   font_size: 14
   line_spacing: 1.15
-  foreground: [220, 235, 225]
-  background: [12, 22, 18]
+  fg_color: [220, 235, 225]
+  bg_color: [12, 22, 18]
 buttons:
   - label: Run Top
     command: /usr/bin/top
     arguments: -d 1
-    foreground: [240, 255, 245]
-    background: [35, 105, 75]
+    fg_color: [240, 255, 245]
+    bg_color: [35, 105, 75]
   - label: Uptime
     command: /usr/bin/uptime
-    foreground: [230, 240, 255]
-    background: [35, 65, 100]
+    fg_color: [230, 240, 255]
+    bg_color: [35, 65, 100]
   - label: Memory
     command: /usr/bin/free
     arguments: -h
-    foreground: [240, 230, 255]
-    background: [75, 50, 105]
+    fg_color: [240, 230, 255]
+    bg_color: [75, 50, 105]
   - label: Disk Space
     command: /usr/bin/df
     arguments: -h
-    foreground: [255, 240, 215]
-    background: [105, 70, 30]
+    fg_color: [255, 240, 215]
+    bg_color: [105, 70, 30]
   - label: Processes
     command: /usr/bin/ps
     arguments: -eo pid,comm,%cpu,%mem --sort=-%cpu
-    background: [35, 65, 100]
+    bg_color: [35, 65, 100]
   - label: VM Statistics
     command: /usr/bin/vmstat
     arguments: -s
-    background: [75, 50, 105]
+    bg_color: [75, 50, 105]
   - label: Kernel Info
     command: /usr/bin/uname
     arguments: -a
-    background: [35, 65, 100]
+    bg_color: [35, 65, 100]
   - label: Date and Time
     command: /usr/bin/date
     arguments: "'+%Y-%m-%d %H:%M:%S %Z'"
-    background: [105, 70, 30]
+    bg_color: [105, 70, 30]
   - label: Current Folder
     command: /usr/bin/ls
     arguments: -lah
-    background: [35, 105, 75]
+    bg_color: [35, 105, 75]

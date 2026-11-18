@@ -7,16 +7,16 @@ terminal:
   font: Monospace
   font_size: 15
   line_spacing: 1.2
-  foreground: [225, 230, 245]
-  background: [15, 18, 30]
+  fg_color: [225, 230, 245]
+  bg_color: [15, 18, 30]
 buttons:
   - label: Pretty JSON
     shell: true
     command: |
       printf '%s\n' '{"service":"demo","healthy":true,"ports":[8080,9090]}' |
         /usr/bin/jq -C .
-    foreground: [245, 240, 255]
-    background: [75, 55, 120]
+    fg_color: [245, 240, 255]
+    bg_color: [75, 55, 120]
   - label: Stream Events
     shell: true
     command: |
@@ -26,8 +26,8 @@ buttons:
         n=$((n + 1))
         sleep 0.2
       done | /usr/bin/jq -C --unbuffered .
-    foreground: [225, 255, 245]
-    background: [25, 100, 80]
+    fg_color: [225, 255, 245]
+    bg_color: [25, 100, 80]
   - label: Errors Only
     shell: true
     command: |
@@ -36,23 +36,23 @@ buttons:
         '{"level":"error","message":"example failure"}' \
         '{"level":"info","message":"finished"}' |
         /usr/bin/jq -C 'select(.level == "error")'
-    foreground: [255, 235, 235]
-    background: [120, 45, 55]
+    fg_color: [255, 235, 235]
+    bg_color: [120, 45, 55]
   - label: Select Names
     shell: true
     command: |
       printf '%s\n' '[{"name":"Ada"},{"name":"Grace"},{"name":"Linus"}]' |
         /usr/bin/jq -r '.[].name'
-    background: [40, 70, 120]
+    bg_color: [40, 70, 120]
   - label: Summarize Values
     shell: true
     command: |
       printf '%s\n' '[{"value":10},{"value":20},{"value":30}]' |
         /usr/bin/jq -C '{total: (map(.value) | add), count: length}'
-    background: [75, 55, 120]
+    bg_color: [75, 55, 120]
   - label: Text to JSON
     shell: true
     command: |
       printf '%s\n' alpha beta gamma |
         /usr/bin/jq -R -C '{text: ., length: length}'
-    background: [40, 70, 120]
+    bg_color: [40, 70, 120]
