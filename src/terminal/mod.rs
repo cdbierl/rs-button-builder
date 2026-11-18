@@ -2,7 +2,7 @@
 mod logging;
 pub mod screen;
 
-use crate::config::ButtonConfig;
+use crate::layout_config::ButtonConfig;
 use screen::Screen;
 use std::collections::VecDeque;
 use std::fs::File;
@@ -114,7 +114,8 @@ impl Terminal {
         });
         command
             .args(args)
-            .env("TERM", "vt100")
+            // Advertise colors so terminfo-based apps such as htop enable their themes.
+            .env("TERM", "xterm-256color")
             .env_remove("COLORTERM")
             .stdin(Stdio::from(slave.try_clone()?))
             .stdout(Stdio::from(slave.try_clone()?))
@@ -758,6 +759,58 @@ mod tests {
     }
 
     #[test]
+    fn terminfo_reports_colors_and_styles_output() {
+        let button = ButtonConfig {
+            command: "printf 'colors:'; /usr/bin/tput colors; /usr/bin/tput setaf 2; printf 'green'; /usr/bin/tput sgr0".into(),
+            shell: true,
+            ..Default::default()
+        };
+        let mut terminal = Terminal::start(&button, 80, 24).unwrap();
+        wait_for(&mut terminal, |t| !t.needs_poll());
+        assert!(terminal.status.contains("exit status: 0"));
+        assert_eq!(terminal.screen.text().trim(), "colors:256\ngreen");
+        assert_eq!(
+            terminal.screen.line(1)[0].style.fg_color,
+            Some([13, 188, 121])
+        );
+    }
+
+    #[test]
+    fn interactive_htop_renders_colors_and_accepts_quit() {
+        if !Path::new("/usr/bin/htop").is_file() {
+            eprintln!("Skipping htop integration check: /usr/bin/htop is unavailable");
+            return;
+        }
+        // Use a fresh config so a user's monochrome theme cannot affect the check.
+        let config = format!("HTOPRC={}", log_directory("htop-config").display());
+        let button = ButtonConfig {
+            command: "/usr/bin/env".into(),
+            arguments: format!(
+                "{} /usr/bin/htop --no-mouse",
+                shlex::try_quote(&config).unwrap()
+            ),
+            ..Default::default()
+        };
+        let mut terminal = Terminal::start(&button, 100, 30).unwrap();
+        wait_for(&mut terminal, |t| t.screen.text().contains("PID"));
+        let colored = (0..30).any(|row| {
+            terminal.screen.line(row).iter().any(|cell| {
+                cell.style
+                    .fg_color
+                    .is_some_and(|[r, g, b]| r != g || g != b)
+            })
+        });
+        terminal.resize(90, 25);
+        terminal.send(b"q");
+        wait_for(&mut terminal, |t| !t.needs_poll());
+        assert!(terminal.status.contains("exit status: 0"));
+        assert!(
+            colored,
+            "htop should detect and emit colored terminal output"
+        );
+    }
+
+    #[test]
     fn interactive_top_renders_and_accepts_quit() {
         let button = ButtonConfig {
             command: "/usr/bin/top".into(),
@@ -844,7 +897,7 @@ mod tests {
             let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
                 .join("examples")
                 .join(name);
-            let config = crate::config::Config::load_existing(&path).unwrap();
+            let config = crate::layout_config::Config::load_existing(&path).unwrap();
             assert_eq!(config.buttons.len(), config.visible_buttons());
             for button in &config.buttons {
                 let mut button = button.clone();

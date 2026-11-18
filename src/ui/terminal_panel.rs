@@ -2,7 +2,7 @@
 
 use super::{CORNER_RADIUS, rgb};
 use crate::app::ButtonBuilder;
-use crate::config::TerminalStyle;
+use crate::layout_config::TerminalStyle;
 use crate::terminal::screen::Cell;
 use egui::{Color32, FontFamily, FontId, Stroke, Vec2};
 use egui_material3::get_global_color;

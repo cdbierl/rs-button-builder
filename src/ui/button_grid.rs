@@ -2,7 +2,7 @@
 
 use super::{styled_button, text_button};
 use crate::app::ButtonBuilder;
-use crate::config::{DEFAULT_LAYOUT_NAME, MAX_GRID_COLUMNS, MAX_GRID_ROWS};
+use crate::layout_config::{DEFAULT_LAYOUT_NAME, MAX_GRID_COLUMNS, MAX_GRID_ROWS};
 use egui::{RichText, Stroke};
 use egui_material3::{MaterialCheckbox, get_global_color};
 

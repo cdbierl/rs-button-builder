@@ -1,12 +1,98 @@
 use super::{ButtonBuilder, SaveAs};
-use crate::config::{ButtonConfig, Config, DEFAULT_LAYOUT_NAME};
 use crate::config_picker::ConfigPicker;
+use crate::layout_config::{ButtonConfig, Config, DEFAULT_LAYOUT_NAME};
+use crate::settings::SettingsStore;
 use crate::terminal::Terminal;
 use crate::ui::{TERMINAL_SCROLLBAR_WIDTH, button_colors, key_bytes, rgb};
 use egui::{Color32, FontFamily, Vec2};
 use egui_material3::get_global_color;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
+
+#[test]
+fn selected_and_saved_layouts_are_remembered_and_failed_loads_preserve_settings() {
+    let ctx = egui::Context::default();
+    let directory = std::env::temp_dir().join(format!(
+        "rs-button-builder-app-settings-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    let settings = directory.join("rs_button_builder/settings.yaml");
+    let mut app = ButtonBuilder::new(&ctx, None, Config::default())
+        .with_settings(SettingsStore::open(settings.clone()));
+    assert!(!settings.exists());
+    let selected = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("examples/system-monitor.yaml");
+    app.load_config(selected.clone()).unwrap();
+    assert_eq!(
+        SettingsStore::open(settings.clone())
+            .startup_layout(None)
+            .unwrap()
+            .0,
+        Some(selected.clone())
+    );
+    assert!(app.load_config(directory.join("missing.yaml")).is_err());
+    assert_eq!(
+        SettingsStore::open(settings.clone())
+            .startup_layout(None)
+            .unwrap()
+            .0,
+        Some(selected.clone())
+    );
+    app.create_new_layout();
+    assert_eq!(
+        SettingsStore::open(settings.clone())
+            .startup_layout(None)
+            .unwrap()
+            .0,
+        Some(selected)
+    );
+    let saved = directory.join("New layout.yaml");
+    app.config.save(&saved).unwrap();
+    app.finish_save(app.config.clone(), saved.clone(), false);
+    assert_eq!(
+        SettingsStore::open(settings)
+            .startup_layout(None)
+            .unwrap()
+            .0,
+        Some(saved)
+    );
+}
+
+#[test]
+fn settings_write_failures_do_not_prevent_loading_or_saving_a_layout() {
+    let ctx = egui::Context::default();
+    let directory = std::env::temp_dir().join(format!(
+        "rs-button-builder-blocked-settings-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&directory).unwrap();
+    let blocker = directory.join("blocked");
+    std::fs::write(&blocker, "not a directory").unwrap();
+    let settings = SettingsStore::open(blocker.join("settings.yaml"));
+    let mut app = ButtonBuilder::new(&ctx, None, Config::default()).with_settings(settings);
+    let selected = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("examples/system-monitor.yaml");
+    app.load_config(selected.clone()).unwrap();
+    assert_eq!(app.config_path, Some(selected));
+    assert!(app.error.as_deref().unwrap().contains("app settings"));
+    let saved = directory.join("Saved layout.yaml");
+    app.config_path = Some(saved.clone());
+    app.config.display_name = "Saved despite settings failure".into();
+    app.dirty = true;
+    app.save();
+    assert_eq!(
+        Config::load_existing(&saved).unwrap().display_name(),
+        "Saved despite settings failure"
+    );
+    assert!(!app.dirty);
+    assert!(app.error.as_deref().unwrap().contains("app settings"));
+}
 
 fn frame(
     app: &mut ButtonBuilder,
@@ -1107,8 +1193,24 @@ fn layout_heading_edits_cancel_save_and_follow_the_loaded_config() {
         std::process::id()
     ));
     let mut app = ButtonBuilder::new(&ctx, Some(path.clone()), Config::default());
-    frame(&mut app, &ctx, vec![]);
     let output = frame(&mut app, &ctx, vec![]);
+    let assert_title = |output: &egui::FullOutput, expected: &str| {
+        assert!(output.viewport_output[&egui::ViewportId::ROOT]
+            .commands
+            .iter()
+            .any(|command| matches!(command, egui::ViewportCommand::Title(title) if title == expected)));
+    };
+    let assert_no_title_change = |output: &egui::FullOutput| {
+        assert!(
+            output.viewport_output[&egui::ViewportId::ROOT]
+                .commands
+                .iter()
+                .all(|command| !matches!(command, egui::ViewportCommand::Title(_)))
+        );
+    };
+    assert_title(&output, "Button Builder - Your buttons");
+    let output = frame(&mut app, &ctx, vec![]);
+    assert_no_title_change(&output);
     click(&mut app, &ctx, label_center(&output, DEFAULT_LAYOUT_NAME));
     assert!(app.layout_name_edit.is_some());
     frame(&mut app, &ctx, vec![]);
@@ -1134,11 +1236,12 @@ fn layout_heading_edits_cancel_save_and_follow_the_loaded_config() {
         frame(app, &ctx, vec![egui::Event::Text(name.into())]);
     };
     replace_name(&mut app, "  Workstation · Local  ");
-    frame(
+    let output = frame(
         &mut app,
         &ctx,
         vec![key(egui::Key::Enter, egui::Modifiers::NONE)],
     );
+    assert_title(&output, "Button Builder - Workstation · Local");
     assert_eq!(app.config.display_name, "Workstation · Local");
     assert!(app.dirty && app.layout_name_edit.is_none());
     assert!(app.tabs.is_empty(), "Renaming must not launch a process");
@@ -1153,11 +1256,12 @@ fn layout_heading_edits_cancel_save_and_follow_the_loaded_config() {
     click(&mut app, &ctx, label_center(&output, "Workstation · Local"));
     frame(&mut app, &ctx, vec![]);
     replace_name(&mut app, "Cancel this change");
-    frame(
+    let output = frame(
         &mut app,
         &ctx,
         vec![key(egui::Key::Escape, egui::Modifiers::NONE)],
     );
+    assert_no_title_change(&output);
     assert_eq!(app.config.display_name, "Workstation · Local");
     assert!(!app.dirty && app.layout_name_edit.is_none());
 
@@ -1186,6 +1290,7 @@ fn layout_heading_edits_cancel_save_and_follow_the_loaded_config() {
         .unwrap();
     let output = frame(&mut app, &ctx, vec![]);
     label_center(&output, "JSON Streams");
+    assert_title(&output, "Button Builder - JSON Streams");
     assert!(!app.dirty && app.layout_name_edit.is_none());
     click(&mut app, &ctx, label_center(&output, "JSON Streams"));
     assert!(app.layout_name_edit.is_some());
@@ -1193,6 +1298,11 @@ fn layout_heading_edits_cancel_save_and_follow_the_loaded_config() {
         .unwrap();
     assert!(app.layout_name_edit.is_none());
     assert_eq!(app.config.display_name, "System Monitor");
+    let output = frame(&mut app, &ctx, vec![]);
+    assert_title(&output, "Button Builder - System Monitor");
+    app.create_new_layout();
+    let output = frame(&mut app, &ctx, vec![]);
+    assert_title(&output, "Button Builder - Your buttons");
 }
 
 #[test]

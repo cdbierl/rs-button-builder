@@ -4,8 +4,9 @@
 #[path = "ui/mod.rs"]
 pub(crate) mod ui;
 
-use crate::config::{ButtonConfig, Config, DEFAULT_LAYOUT_NAME, TerminalStyle};
 use crate::config_picker::ConfigPicker;
+use crate::layout_config::{ButtonConfig, Config, DEFAULT_LAYOUT_NAME, TerminalStyle};
+use crate::settings::SettingsStore;
 use crate::terminal::Terminal;
 use egui::Color32;
 use std::path::PathBuf;
@@ -52,6 +53,8 @@ impl TerminalTab {
 pub struct ButtonBuilder {
     config: Config,
     config_path: Option<PathBuf>,
+    title_display_name: Option<String>,
+    settings: SettingsStore,
     config_picker: Option<ConfigPicker>,
     save_as: Option<SaveAs>,
     new_layout_requested: bool,
@@ -85,6 +88,8 @@ impl ButtonBuilder {
         Self {
             config,
             config_path,
+            title_display_name: None,
+            settings: SettingsStore::default(),
             config_picker: None,
             save_as: None,
             new_layout_requested: false,
@@ -105,6 +110,22 @@ impl ButtonBuilder {
             error: None,
             terminal_size: (80, 24),
             focus_terminal: false,
+        }
+    }
+
+    pub fn with_settings(mut self, settings: SettingsStore) -> Self {
+        self.error = settings.warning.clone();
+        self.settings = settings;
+        self.remember_layout();
+        self
+    }
+
+    fn remember_layout(&mut self) {
+        if let Some(path) = &self.config_path
+            && let Err(error) = self.settings.remember_layout(path)
+        {
+            log::warn!("{error}");
+            self.error = Some(error);
         }
     }
 
@@ -173,6 +194,7 @@ impl ButtonBuilder {
         if let Some(picker) = &mut self.config_picker {
             picker.error = None;
         }
+        self.remember_layout();
     }
 
     fn apply_layout_name(&mut self) {
@@ -227,6 +249,7 @@ impl ButtonBuilder {
         }
         self.dirty = false;
         self.error = None;
+        self.remember_layout();
     }
 
     fn has_unsaved_changes(&self) -> bool {
@@ -355,6 +378,13 @@ impl ButtonBuilder {
             self.new_layout_window(ctx);
         }
         self.save_as_window(ctx);
+        let display_name = self.config.display_name();
+        if self.title_display_name.as_deref() != Some(display_name) {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Title(format!(
+                "Button Builder - {display_name}"
+            )));
+            self.title_display_name = Some(display_name.to_owned());
+        }
         if self.tabs.iter().any(|tab| tab.terminal.needs_poll()) {
             ctx.request_repaint_after(Duration::from_millis(33));
         }

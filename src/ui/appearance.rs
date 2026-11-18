@@ -2,7 +2,7 @@
 
 use super::{dialog, dialog_footer, filled_button, font_picker, form, text_button};
 use crate::app::ButtonBuilder;
-use crate::config::TerminalStyle;
+use crate::layout_config::TerminalStyle;
 use egui::Vec2;
 use egui_material3::MaterialSlider;
 

@@ -1,3 +1,5 @@
+//! Button layout definitions, terminal appearance, and YAML persistence.
+
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io::Write;
@@ -156,25 +158,30 @@ impl Config {
 
     /// Write beside the destination, then atomically replace it after the write succeeds.
     pub fn save(&self, path: &Path) -> Result<(), String> {
-        let source = serde_yaml_ng::to_string(self).map_err(|error| error.to_string())?;
-        static NEXT_SAVE: AtomicU64 = AtomicU64::new(0);
-        let temp = path.with_extension(format!(
-            "{}.{}.tmp",
-            std::process::id(),
-            NEXT_SAVE.fetch_add(1, Ordering::Relaxed)
-        ));
-        let result = (|| -> std::io::Result<()> {
-            let mut file = fs::OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .mode(0o600)
-                .open(&temp)?;
-            file.write_all(source.as_bytes())?;
-            file.sync_all()?;
-            fs::rename(&temp, path)
-        })();
-        result.map_err(|error| format!("Could not save {}: {error}", path.display()))
+        save_yaml(self, path)
     }
+}
+
+/// Atomically persist YAML for both layouts and application preferences.
+pub(crate) fn save_yaml(value: &impl Serialize, path: &Path) -> Result<(), String> {
+    let source = serde_yaml_ng::to_string(value).map_err(|error| error.to_string())?;
+    static NEXT_SAVE: AtomicU64 = AtomicU64::new(0);
+    let temp = path.with_extension(format!(
+        "{}.{}.tmp",
+        std::process::id(),
+        NEXT_SAVE.fetch_add(1, Ordering::Relaxed)
+    ));
+    let result = (|| -> std::io::Result<()> {
+        let mut file = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&temp)?;
+        file.write_all(source.as_bytes())?;
+        file.sync_all()?;
+        fs::rename(&temp, path)
+    })();
+    result.map_err(|error| format!("Could not save {}: {error}", path.display()))
 }
 
 #[cfg(test)]

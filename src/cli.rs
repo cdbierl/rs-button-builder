@@ -5,8 +5,8 @@ use std::path::PathBuf;
 pub const USAGE: &str = "Usage: rs_button_builder [OPTIONS]
 
 Launch a configurable command button grid with an interactive terminal.
-Without a config file, start with an empty layout
-and load a config or choose a file when saving in the GUI.
+Without --file, reopen the last layout saved in the app settings.
+If no layout is remembered, start with an empty layout.
 
 Options:
   -f, --file <FILEPATH>      Load a local YAML configuration file

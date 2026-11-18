@@ -1,8 +1,9 @@
 mod app;
 mod cli;
-mod config;
 mod config_picker;
 mod fonts;
+mod layout_config;
+mod settings;
 mod terminal;
 
 use app::ui;
@@ -39,15 +40,11 @@ fn run() -> Result<(), String> {
     match action {
         cli::Action::Help => print!("{}", cli::USAGE),
         cli::Action::Run { config } => {
-            let (path, settings) = match config {
-                Some(path) => {
-                    let settings = config::Config::load_existing(&path)?;
-                    (Some(path), settings)
-                }
-                None => (None, config::Config::default()),
-            };
+            let mut app_settings = settings::SettingsStore::load();
+            let (path, settings) = app_settings.startup_layout(config)?;
             let options = eframe::NativeOptions {
                 viewport: egui::ViewportBuilder::default()
+                    .with_title(format!("Button Builder - {}", settings.display_name()))
                     .with_inner_size([1200.0, 760.0])
                     .with_min_inner_size([850.0, 500.0]),
                 ..Default::default()
@@ -56,11 +53,10 @@ fn run() -> Result<(), String> {
                 "Button Builder",
                 options,
                 Box::new(move |cc| {
-                    Ok(Box::new(app::ButtonBuilder::new(
-                        &cc.egui_ctx,
-                        path,
-                        settings,
-                    )))
+                    Ok(Box::new(
+                        app::ButtonBuilder::new(&cc.egui_ctx, path, settings)
+                            .with_settings(app_settings),
+                    ))
                 }),
             );
             terminal::finish_cleanup();

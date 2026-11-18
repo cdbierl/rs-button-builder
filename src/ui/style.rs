@@ -1,5 +1,5 @@
 //! Shared Material styling for controls and the egui inputs used by the forms.
-use crate::config::ButtonConfig;
+use crate::layout_config::ButtonConfig;
 use egui::{Color32, FontId, RichText, Stroke, TextStyle};
 use egui_material3::{MaterialThemeContext, ThemeMode, get_global_color, update_global_theme};
 

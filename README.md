@@ -73,9 +73,10 @@ select a YAML layout file. Dependency versions are recorded in [Cargo.lock](Carg
   **Edit buttons**. Set its label, executable, arguments, working directory, and colors.
   **Shell pipeline** runs the complete command through `/bin/sh`.
 - **Customize layouts:** change **Rows** and **Columns**, or click the heading above
-  the grid to rename the layout. **New layout** creates an empty 3×3 grid and asks
-  how to handle unsaved changes. Existing terminal tabs stay open; the new layout's
-  first save asks for a filename.
+  the grid to rename the layout. The window title shows
+  **Button Builder - {display name}**. **New layout** creates an empty 3×3 grid and
+  asks how to handle unsaved changes. Existing terminal tabs stay open; the new
+  layout's first save asks for a filename.
 - **Manage terminals:** click a button to use the active terminal, or **Ctrl-click**
   to open another tab. Running tabs keep collecting output. Click the terminal to
   type; use the tab bar and its arrows to switch sessions.
@@ -92,10 +93,19 @@ select a YAML layout file. Dependency versions are recorded in [Cargo.lock](Carg
 
 ## Configuration and examples
 
-There is no default config file. Without a command-line config, the app starts with
-an [empty, unsaved grid](docs/images/unsaved-layout.png). Load a config or create
-buttons and choose a filename when saving. An explicitly selected missing or
-invalid file reports an error.
+Without `--file`, the app reopens the last successfully loaded or saved layout.
+App settings live in `~/.config/rs_button_builder/settings.yaml`, or
+`$XDG_CONFIG_HOME/rs_button_builder/settings.yaml` when that variable contains an
+absolute path. Settings are separate from button layouts and can hold future app
+preferences. The remembered layout path is absolute, so startup works from another
+working directory.
+
+On first launch, the app starts with an
+[empty, unsaved grid](docs/images/unsaved-layout.png). A missing or invalid remembered
+layout also opens an empty grid and displays an error. An explicit `--file` overrides
+the remembered layout; a missing or invalid explicit file reports an error and exits.
+Creating a new unsaved layout keeps the last file remembered until the new layout
+is saved. Unsaved edits and running processes are not restored.
 **Load config…** selects a layout and makes it the destination for subsequent saves.
 **Save layout**, **Save button**, and **Save appearance** write to that file;
 without a selected file, they open a save dialog. Unsaved changes are not
@@ -160,7 +170,8 @@ two-second timeout if storage stalls. Log files and `.env` are excluded from Git
 | `src/app.rs` | Application state, layout persistence, terminal lifecycle, and frame composition. |
 | `src/ui/` | Header, button grid/editor, layout dialogs, appearance, terminal sections, and shared styling. |
 | `src/app/tests.rs` | UI interaction and application workflow tests. |
-| `src/config.rs`, `src/config_picker.rs` | YAML persistence and layout selection. |
+| `src/layout_config.rs`, `src/config_picker.rs` | YAML persistence and layout selection. |
+| `src/settings.rs` | App preferences and startup layout restoration. |
 | `src/terminal/` | Pseudo-terminal processes, input, and screen rendering. |
 | `src/fonts.rs` | Bundled icons and local font discovery. |
 
@@ -172,20 +183,23 @@ cargo clippy --locked --all-targets -- -D warnings
 cargo fmt --all -- --check
 ```
 
-Tests use local Linux tools, including `/usr/bin/top` and `/usr/bin/jq`, and generated
-input. They cover stalled input, ignored interrupts, raw terminal mode, continuous
-output, and cleanup of background jobs. The log-follow test uses a temporary log file.
-Keep changes focused and
-include updated GUI screenshots when changing the interface.
+Tests use local Linux tools, including `/usr/bin/top`, `/usr/bin/jq`, and
+`/usr/bin/tput`, and generated input. They cover stalled input, ignored interrupts,
+raw terminal mode, continuous output, and cleanup of background jobs. The log-follow
+test uses a temporary log file.
+When `/usr/bin/htop` is installed, tests also check its colors, resizing, and
+keyboard quit.
+Keep changes focused and include updated GUI screenshots when changing the interface.
 
 Logging uses `RUST_LOG` (default: `info`). Startup loads an optional `.env` file;
 child processes inherit the app's environment, including those values.
 
 ## Known limitations
 
-Linux is the supported platform. The embedded terminal uses `TERM=vt100` and
-supports ANSI colors, Unicode, and alternate screens. Terminal graphics, mouse
-reporting, and full text reflow on width changes are not implemented.
+Linux is the supported platform. The embedded terminal uses `TERM=xterm-256color`
+and supports ANSI colors (including 256-color and RGB sequences), Unicode, and
+alternate screens. Terminal graphics, mouse reporting, and full text reflow on
+width changes are not implemented.
 Session cleanup uses Linux pidfd APIs to avoid targeting reused process IDs.
 Jobs that detach into a new session and processes running on remote hosts can
 require separate cleanup. A process stuck in uninterruptible kernel I/O can take
