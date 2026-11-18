@@ -158,6 +158,11 @@ Enable **Log output** in a button's edit dialog, or set `log_output: true` in th
 button's YAML definition. It is unchecked by default, including when loading
 older layouts without this field. Changes apply to newly launched processes.
 
+Enable **Auto Start** in a button's edit dialog, or set `auto_start: true` in its
+YAML definition, to open that button in a terminal tab whenever the layout file
+is loaded. Each enabled, visible button opens in its own tab. Auto Start is
+unchecked by default and does not run when merely saving a layout.
+
 Each opted-in process that produces output gets its own log, for example
 `logs/run_top/20261117_183100.log`. Button labels become lowercase directory names
 with underscores replacing spaces and punctuation. Directories are created as

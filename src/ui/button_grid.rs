@@ -166,12 +166,12 @@ impl ButtonBuilder {
                                 clicked = Some(index);
                             }
                             response.context_menu(|ui| {
-                                if ui.add(text_button("Edit button").small()).clicked() {
+                                if ui.add(text_button("Edit Button...").small()).clicked() {
                                     edit = Some(index);
                                     ui.close();
                                 }
                                 if ui
-                                    .add(text_button("Reset button").small())
+                                    .add(text_button("Reset").small())
                                     .on_hover_text("Clear this slot's label, command, and custom settings")
                                     .clicked()
                                 {

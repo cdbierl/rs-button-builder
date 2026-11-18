@@ -1765,7 +1765,7 @@ fn layout_heading_edits_cancel_save_and_follow_the_loaded_config() {
 }
 
 #[test]
-fn button_logging_checkbox_cancels_and_saves_per_button() {
+fn button_run_options_cancel_and_save_per_button() {
     let ctx = egui::Context::default();
     let path = std::env::temp_dir().join(format!(
         "rs-button-builder-log-checkbox-{}.yaml",
@@ -1776,28 +1776,103 @@ fn button_logging_checkbox_cancels_and_saves_per_button() {
     frame(&mut app, &ctx, vec![]);
     let output = frame(&mut app, &ctx, vec![]);
     assert!(!app.editor.as_ref().unwrap().button.log_output);
+    assert!(!app.editor.as_ref().unwrap().button.auto_start);
     click(&mut app, &ctx, label_center(&output, "Log output"));
+    click(&mut app, &ctx, label_center(&output, "Auto Start"));
     assert!(app.editor.as_ref().unwrap().button.log_output);
+    assert!(app.editor.as_ref().unwrap().button.auto_start);
     let output = frame(&mut app, &ctx, vec![]);
     click(&mut app, &ctx, label_center(&output, "Cancel"));
     assert!(!app.config.buttons[0].log_output);
+    assert!(!app.config.buttons[0].auto_start);
 
     app.edit(0);
     let output = frame(&mut app, &ctx, vec![]);
     click(&mut app, &ctx, label_center(&output, "Log output"));
+    click(&mut app, &ctx, label_center(&output, "Auto Start"));
     let output = frame(&mut app, &ctx, vec![]);
     click(&mut app, &ctx, label_center(&output, "Save button"));
     let saved = Config::load_existing(&path).unwrap();
     assert!(saved.buttons[0].log_output);
+    assert!(saved.buttons[0].auto_start);
     assert!(!saved.buttons[1].log_output);
+    assert!(!saved.buttons[1].auto_start);
 
     app.edit(0);
     let output = frame(&mut app, &ctx, vec![]);
     assert!(app.editor.as_ref().unwrap().button.log_output);
+    assert!(app.editor.as_ref().unwrap().button.auto_start);
     click(&mut app, &ctx, label_center(&output, "Log output"));
+    click(&mut app, &ctx, label_center(&output, "Auto Start"));
     let output = frame(&mut app, &ctx, vec![]);
     click(&mut app, &ctx, label_center(&output, "Save button"));
-    assert!(!Config::load_existing(&path).unwrap().buttons[0].log_output);
+    let saved = Config::load_existing(&path).unwrap();
+    assert!(!saved.buttons[0].log_output);
+    assert!(!saved.buttons[0].auto_start);
+}
+
+#[test]
+fn loaded_layouts_auto_start_visible_buttons_in_separate_tabs() {
+    let ctx = egui::Context::default();
+    let directory = std::env::temp_dir();
+    let startup_path = directory.join(format!(
+        "rs-button-builder-auto-start-{}.yaml",
+        std::process::id()
+    ));
+    let loaded_path = directory.join(format!(
+        "rs-button-builder-auto-load-{}.yaml",
+        std::process::id()
+    ));
+    let mut startup = Config {
+        rows: 1,
+        columns: 2,
+        ..Default::default()
+    };
+    startup.buttons[0] = ButtonConfig {
+        auto_start: true,
+        ..interactive_button("Alpha")
+    };
+    startup.buttons[1] = ButtonConfig {
+        auto_start: true,
+        ..interactive_button("Beta")
+    };
+    startup.buttons[2] = ButtonConfig {
+        auto_start: true,
+        ..interactive_button("Hidden")
+    };
+    startup.save(&startup_path).unwrap();
+
+    let mut app = ButtonBuilder::new(&ctx, Some(startup_path), startup);
+    assert_eq!(app.tabs.len(), 2);
+    assert_eq!(
+        app.tabs
+            .iter()
+            .map(|tab| (tab.label.as_str(), tab.button_index))
+            .collect::<Vec<_>>(),
+        [("Alpha", Some(0)), ("Beta", Some(1))]
+    );
+    wait_for_tabs(&mut app, &ctx, |app| {
+        app.tabs
+            .iter()
+            .all(|tab| tab.terminal.screen.text().contains("-ready"))
+    });
+
+    let mut loaded = Config {
+        rows: 1,
+        columns: 1,
+        ..Default::default()
+    };
+    loaded.buttons[0] = ButtonConfig {
+        auto_start: true,
+        ..interactive_button("Gamma")
+    };
+    loaded.save(&loaded_path).unwrap();
+    app.load_config(loaded_path).unwrap();
+
+    assert_eq!(app.tabs.len(), 3);
+    assert!(app.tabs[..2].iter().all(|tab| tab.button_index.is_none()));
+    assert_eq!(app.tabs[2].label, "Gamma");
+    assert_eq!(app.tabs[2].button_index, Some(0));
 }
 
 #[test]
@@ -1812,6 +1887,7 @@ fn button_context_menu_resets_one_slot_and_preserves_running_terminals() {
         arguments: "'unused argument'".into(),
         working_directory: "/tmp".into(),
         log_output: true,
+        auto_start: false,
         fg_color: Some([230, 240, 250]),
         bg_color: Some([20, 40, 60]),
         ..interactive_button("Alpha")
@@ -1845,8 +1921,8 @@ fn button_context_menu_resets_one_slot_and_preserves_running_terminals() {
         );
     }
     let output = frame(&mut app, &ctx, vec![]);
-    label_center(&output, "Edit button");
-    let reset = label_center(&output, "Reset button");
+    label_center(&output, "Edit Button...");
+    let reset = label_center(&output, "Reset");
     assert!(
         !app.dirty && app.editor.is_none(),
         "Opening the menu must not change the button"
@@ -1892,6 +1968,7 @@ fn button_drag_swaps_positions_without_running_and_saves_full_definitions() {
         arguments: "'alpha output\\n'".into(),
         working_directory: "/tmp".into(),
         log_output: true,
+        auto_start: false,
         fg_color: Some([230, 240, 250]),
         bg_color: Some([20, 40, 60]),
         ..Default::default()

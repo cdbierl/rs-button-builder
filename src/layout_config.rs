@@ -20,6 +20,7 @@ pub struct ButtonConfig {
     pub working_directory: String,
     pub shell: bool,
     pub log_output: bool,
+    pub auto_start: bool,
     pub fg_color: Option<[u8; 3]>,
     pub bg_color: Option<[u8; 3]>,
 }
@@ -33,6 +34,7 @@ impl Default for ButtonConfig {
             working_directory: String::new(),
             shell: false,
             log_output: false,
+            auto_start: false,
             fg_color: None,
             bg_color: None,
         }
@@ -239,6 +241,7 @@ mod tests {
         };
         config.buttons[8].label = "Last button".into();
         config.buttons[8].log_output = true;
+        config.buttons[8].auto_start = true;
         config.terminal.font_size = 22.0;
         let decoded: Config =
             serde_yaml_ng::from_str(&serde_yaml_ng::to_string(&config).unwrap()).unwrap();
@@ -246,7 +249,9 @@ mod tests {
         assert_eq!(decoded.display_name, "System Monitor · Local");
         assert_eq!(decoded.buttons[8].label, "Last button");
         assert!(decoded.buttons[8].log_output);
+        assert!(decoded.buttons[8].auto_start);
         assert!(!decoded.buttons[0].log_output);
+        assert!(!decoded.buttons[0].auto_start);
         assert_eq!(decoded.terminal.font_size, 22.0);
         assert_eq!((decoded.rows, decoded.columns), (3, 3));
     }
@@ -289,6 +294,7 @@ mod tests {
         assert_eq!(config.buttons.len(), 9);
         assert_eq!(config.buttons[0].label, "Existing");
         assert!(config.buttons.iter().all(|button| !button.log_output));
+        assert!(config.buttons.iter().all(|button| !button.auto_start));
         assert_eq!(config.display_name(), DEFAULT_LAYOUT_NAME);
         config.display_name = "   ".into();
         assert_eq!(config.display_name(), DEFAULT_LAYOUT_NAME);

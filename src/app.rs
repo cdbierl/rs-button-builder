@@ -105,11 +105,12 @@ impl ButtonBuilder {
     pub fn new(ctx: &egui::Context, config_path: Option<PathBuf>, config: Config) -> Self {
         crate::ui::setup(ctx);
         let fonts = crate::fonts::load(ctx);
+        let loaded_layout = config_path.is_some();
         let notice = match &config_path {
             Some(path) => format!("Loaded {}", path.display()),
             None => UNSAVED_LAYOUT_NOTICE.into(),
         };
-        Self {
+        let mut app = Self {
             config,
             config_path,
             title_display_name: None,
@@ -136,11 +137,17 @@ impl ButtonBuilder {
             error: None,
             terminal_size: (80, 24),
             focus_terminal: false,
+        };
+        if loaded_layout {
+            app.start_auto_buttons();
         }
+        app
     }
 
     pub fn with_settings(mut self, settings: SettingsStore) -> Self {
-        self.error = settings.warning.clone();
+        if settings.warning.is_some() {
+            self.error = settings.warning.clone();
+        }
         self.settings = settings;
         self.remember_layout();
         self
@@ -282,6 +289,9 @@ impl ButtonBuilder {
         self.dirty = false;
         self.error = None;
         self.remember_layout();
+        if self.config_path.is_some() {
+            self.start_auto_buttons();
+        }
     }
 
     fn has_unsaved_changes(&self) -> bool {
@@ -366,6 +376,29 @@ impl ButtonBuilder {
                 self.error = None;
             }
             Err(error) => self.error = Some(error),
+        }
+    }
+
+    fn start_auto_buttons(&mut self) {
+        let buttons: Vec<_> = self
+            .config
+            .buttons
+            .iter()
+            .take(self.config.visible_buttons())
+            .enumerate()
+            .filter_map(|(index, button)| {
+                (button.auto_start && !button.command.trim().is_empty()).then_some(index)
+            })
+            .collect();
+        let mut errors = Vec::new();
+        for index in buttons {
+            self.launch(index, true);
+            if let Some(error) = self.error.take() {
+                errors.push(error);
+            }
+        }
+        if !errors.is_empty() {
+            self.error = Some(errors.join(" · "));
         }
     }
 

@@ -28,10 +28,12 @@ impl ButtonBuilder {
                     ui.horizontal_wrapped(|ui| {
                         ui.add(MaterialCheckbox::new(
                             &mut editor.button.shell,
-                            "Shell pipeline (/bin/sh)",
+                            "Shell Script (/bin/sh)",
                         ));
-                        ui.add(MaterialCheckbox::new(&mut editor.button.log_output, "Log output"))
+                        ui.add(MaterialCheckbox::new(&mut editor.button.log_output, "Log Output"))
                             .on_hover_text("Save this button's output to a file. Requires BUTTON_BUILDER_LOG_DIR in .env; applies to new runs.");
+                        ui.add(MaterialCheckbox::new(&mut editor.button.auto_start, "Auto Start"))
+                            .on_hover_text("Open this button in a terminal tab when its layout is loaded.");
                     });
                     if editor.button.shell {
                         ui.label("Command or pipeline");
@@ -62,7 +64,7 @@ impl ButtonBuilder {
                         let (text, fill) = button_colors(&editor.button);
                         let mut foreground = [text.r(), text.g(), text.b()];
                         let mut background = [fill.r(), fill.g(), fill.b()];
-                        ui.label("Text color");
+                        ui.label("Text Color");
                         if ui.color_edit_button_srgb(&mut foreground).changed() {
                             editor.button.fg_color = Some(foreground);
                         }
@@ -70,7 +72,7 @@ impl ButtonBuilder {
                         if ui.color_edit_button_srgb(&mut background).changed() {
                             editor.button.bg_color = Some(background);
                         }
-                        if ui.add(text_button("Reset colors").small()).clicked() {
+                        if ui.add(text_button("Reset Colors").small()).clicked() {
                             editor.button.fg_color = None;
                             editor.button.bg_color = None;
                         }
