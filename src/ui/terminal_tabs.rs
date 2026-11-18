@@ -62,12 +62,12 @@ impl ButtonBuilder {
                                             .truncate()
                                             .min_size(Vec2::new(0.0, 32.0))
                                             .fill(get_global_color(if active {
-                                                "primaryContainer"
+                                                "primary"
                                             } else {
                                                 "surfaceContainerLow"
                                             }))
                                             .text_color(get_global_color(if active {
-                                                "onPrimaryContainer"
+                                                "onPrimary"
                                             } else {
                                                 "onSurfaceVariant"
                                             }));
@@ -84,7 +84,7 @@ impl ButtonBuilder {
                                             dot,
                                             2.5,
                                             get_global_color(if running {
-                                                "primary"
+                                                if active { "onPrimary" } else { "primary" }
                                             } else {
                                                 "outline"
                                             }),

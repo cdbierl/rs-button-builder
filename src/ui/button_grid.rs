@@ -125,9 +125,9 @@ impl ButtonBuilder {
                             .enumerate()
                         {
                             let configured = !button.command.trim().is_empty();
-                            let selected = self.active().is_some_and(|tab| {
-                                tab.button_index == Some(index) && tab.terminal.is_running()
-                            });
+                            let selected = self
+                                .active()
+                                .is_some_and(|tab| tab.button_index == Some(index));
                             let caption = if configured {
                                 button.label.clone()
                             } else {
@@ -138,7 +138,9 @@ impl ButtonBuilder {
                                 .sense(egui::Sense::click_and_drag());
                             if selected {
                                 widget = widget
-                                    .stroke(Stroke::new(2.0_f32, get_global_color("primary")));
+                                    .fill(get_global_color("primaryContainer"))
+                                    .text_color(get_global_color("onPrimaryContainer"))
+                                    .stroke(Stroke::new(3.0_f32, get_global_color("primary")));
                             }
                             let response = ui.add_sized([width, 88.0], widget);
                             if !configured {

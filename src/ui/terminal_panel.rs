@@ -5,7 +5,7 @@ use super::{CORNER_RADIUS, rgb};
 use crate::app::{ButtonBuilder, TerminalTab};
 use crate::layout_config::TerminalStyle;
 use crate::terminal::screen::Cell;
-use egui::{Color32, FontFamily, FontId, Stroke, Vec2};
+use egui::{FontFamily, FontId, Stroke, Vec2};
 use egui_material3::get_global_color;
 
 // Reserve the gutter even without history so the PTY width stays stable as output arrives.
@@ -164,7 +164,7 @@ impl ButtonBuilder {
             painter.rect_stroke(
                 rect,
                 CORNER_RADIUS,
-                Stroke::new(1.0_f32, Color32::from_rgb(76, 142, 205)),
+                Stroke::new(1.0_f32, get_global_color("primary")),
                 egui::StrokeKind::Inside,
             );
         }
