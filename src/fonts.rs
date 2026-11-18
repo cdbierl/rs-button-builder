@@ -1,6 +1,8 @@
-//! Discover installed outline monospace fonts, including the user's font directories.
+//! Load bundled UI icons and discover installed monospace fonts, including user directories.
 use egui::{FontData, FontDefinitions, FontFamily};
 use std::path::PathBuf;
+
+pub const MATERIAL_SYMBOLS: &str = "Material Symbols Rounded";
 
 pub fn load(ctx: &egui::Context) -> Vec<String> {
     let mut database = fontdb::Database::new();
@@ -22,6 +24,17 @@ pub fn load(ctx: &egui::Context) -> Vec<String> {
 
 fn definitions(database: &fontdb::Database) -> (FontDefinitions, Vec<String>) {
     let mut definitions = FontDefinitions::default();
+    definitions.font_data.insert(
+        MATERIAL_SYMBOLS.into(),
+        FontData::from_static(include_bytes!(
+            "../assets/MaterialSymbolsRounded-Regular.ttf"
+        ))
+        .into(),
+    );
+    definitions.families.insert(
+        FontFamily::Name(MATERIAL_SYMBOLS.into()),
+        vec![MATERIAL_SYMBOLS.into()],
+    );
     let mut names = vec!["Monospace".into()];
     let mut faces: Vec<_> = database
         .faces()

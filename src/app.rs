@@ -295,9 +295,21 @@ impl ButtonBuilder {
                 .top(true)
                 .min_height(64.0)
                 .padding(Vec2::new(20.0, 12.0))
+                .item_fn(|ui| ui.add(crate::ui::material_icon("apps")))
                 .item_fn(|ui| ui.heading("Button Builder"))
                 .item_fn(|ui| {
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui
+                            .add(
+                                outlined_button("Exit")
+                                    .small()
+                                    .min_size(Vec2::new(0.0, 40.0)),
+                            )
+                            .on_hover_text("Close Button Builder")
+                            .clicked()
+                        {
+                            ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
+                        }
                         if ui
                             .add(
                                 filled_button(if self.dirty {
@@ -2003,7 +2015,8 @@ mod tests {
             std::process::id()
         ));
         let mut app = ButtonBuilder::new(&ctx, path, Config::default());
-        let mut definitions = egui::FontDefinitions::default();
+        frame(&mut app, &ctx, vec![]);
+        let mut definitions = ctx.fonts(|fonts| fonts.definitions().clone());
         definitions.families.insert(
             FontFamily::Name("Test font".into()),
             definitions.families[&FontFamily::Monospace].clone(),

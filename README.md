@@ -5,6 +5,7 @@ The interface uses `egui-material3` controls with an orange accent, warm dark
 surfaces, and small corners on buttons, dialogs, inputs, and menus. Dialog frames
 use the Material theme with a shared 6-pixel radius. Text and numeric inputs use a matching theme.
 Fonts and theme colors are loaded locally; optional downloadable assets are disabled.
+The header's grid icon uses the bundled [Material Symbols Rounded font](assets/README.md).
 
 ```sh
 cargo run --offline
@@ -67,7 +68,8 @@ the active tab after its process stops; hold Ctrl to launch while it is running.
 Tab numbers distinguish duplicate commands, and an orange dot marks running tabs.
 The compact toolbar's **Copy**, **Ctrl+C**, **Stop**, **Jump to live**, and
 **Close tab** controls act on the selected tab. Closing a tab stops its process group;
-closing the window stops every tab's process. Finished output stays until the tab
+closing the window or clicking **Exit** in the main toolbar stops every tab's process.
+Finished output stays until the tab
 is reused or closed. The tab bar scrolls horizontally when needed. Use the left
 and right arrows at its ends to select the previous or next tab; the selected tab
 scrolls into view. Arrows disable at the first and last tab.
