@@ -226,7 +226,7 @@ fn terminal_theme_recolors_scrollback_and_can_restore_automatic_colors() {
         ..Default::default()
     };
     let mut app = ButtonBuilder::new(&ctx, None, config);
-    app.launch(0, false);
+    app.launch(0);
     wait_for_tabs(&mut app, &ctx, |app| !app.tabs[0].terminal.needs_poll());
     app.tabs[0].terminal.screen.feed(b"\x1b[2J\x1b[H");
     for _ in 0..100 {
@@ -473,7 +473,7 @@ fn silent_successes_close_without_disturbing_other_tabs_and_show_a_temporary_not
     config.buttons[2] = interactive_button("Keep open");
     let mut app = ButtonBuilder::new(&ctx, None, config);
     let baseline_notice = app.notice.clone();
-    app.launch(2, false);
+    app.launch(2);
     wait_for_tabs(&mut app, &ctx, |app| {
         app.tabs[0]
             .terminal
@@ -482,8 +482,8 @@ fn silent_successes_close_without_disturbing_other_tabs_and_show_a_temporary_not
             .contains("Keep open-ready")
     });
     let kept_id = app.tabs[0].id;
-    app.launch(0, true);
-    app.launch(1, true);
+    app.launch(0);
+    app.launch(1);
     app.select_tab(0);
     frame(&mut app, &ctx, vec![]);
     let focused = ctx.memory(|memory| memory.focused());
@@ -503,13 +503,13 @@ fn silent_successes_close_without_disturbing_other_tabs_and_show_a_temporary_not
     assert!(app.completion_notice.is_none());
     label_center(&output, &baseline_notice);
     app.close_tab(0);
-    app.launch(0, false);
+    app.launch(0);
     wait_for_tabs(&mut app, &ctx, |app| app.tabs.is_empty());
     assert_eq!(app.active_tab, None);
     let output = frame(&mut app, &ctx, vec![]);
     label_center(&output, "No process output yet.");
     label_center(&output, "Silent 1 completed successfully");
-    app.launch(2, false);
+    app.launch(2);
     assert!(app.completion_notice.is_none());
     wait_for_tabs(&mut app, &ctx, |app| {
         app.tabs[0]
@@ -545,7 +545,7 @@ fn silent_active_success_selects_a_remaining_tab_and_failures_and_output_stay_op
         ..Default::default()
     };
     let mut app = ButtonBuilder::new(&ctx, None, config);
-    app.launch(0, false);
+    app.launch(0);
     wait_for_tabs(&mut app, &ctx, |app| {
         app.tabs[0]
             .terminal
@@ -553,12 +553,12 @@ fn silent_active_success_selects_a_remaining_tab_and_failures_and_output_stay_op
             .text()
             .contains("Keep open-ready")
     });
-    app.launch(1, true);
+    app.launch(1);
     assert_eq!(app.active_tab, Some(1));
     wait_for_tabs(&mut app, &ctx, |app| app.tabs.len() == 1);
     assert_eq!(app.active_tab, Some(0));
     for index in 2..=5 {
-        app.launch(index, true);
+        app.launch(index);
     }
     wait_for_tabs(&mut app, &ctx, |app| {
         app.tabs
@@ -594,7 +594,7 @@ fn silent_active_success_selects_a_remaining_tab_and_failures_and_output_stay_op
     app.select_tab(2);
     let output = frame(&mut app, &ctx, vec![]);
     label_center(&output, "Process finished: exit status: 1");
-    app.launch(6, true);
+    app.launch(6);
     app.tabs[5].terminal.stop();
     frame(&mut app, &ctx, vec![]);
     assert_eq!(app.tabs.len(), 6);
@@ -602,7 +602,7 @@ fn silent_active_success_selects_a_remaining_tab_and_failures_and_output_stay_op
 }
 
 #[test]
-fn ctrl_click_tabs_route_input_and_toolbar_actions_to_the_selected_process() {
+fn button_clicks_route_input_and_toolbar_actions_to_the_selected_process() {
     let ctx = egui::Context::default();
     let mut config = Config::default();
     config.buttons[0] = interactive_button("Alpha");
@@ -620,10 +620,19 @@ fn ctrl_click_tabs_route_input_and_toolbar_actions_to_the_selected_process() {
     click(&mut app, &ctx, label_center(&output, "Beta"));
     assert_eq!(
         app.tabs.len(),
-        1,
-        "A normal click must not replace a running process"
+        2,
+        "Clicking a different button opens a tab without replacing a running process"
     );
     let output = frame(&mut app, &ctx, vec![]);
+    click(&mut app, &ctx, label_center(&output, "Alpha"));
+    assert_eq!(app.active_tab, Some(0));
+    assert_eq!(
+        app.tabs.len(),
+        2,
+        "Clicking a running button focuses its tab"
+    );
+    let output = frame(&mut app, &ctx, vec![]);
+    // Ctrl no longer changes the click behavior.
     click_with_modifiers(
         &mut app,
         &ctx,
@@ -713,14 +722,24 @@ fn ctrl_click_tabs_route_input_and_toolbar_actions_to_the_selected_process() {
 
     let output = frame(&mut app, &ctx, vec![]);
     click(&mut app, &ctx, label_center(&output, "Alpha"));
-    assert_eq!(app.tabs.len(), 2, "Normal clicks reuse a finished tab");
+    assert_eq!(app.tabs.len(), 3, "Rerunning preserves the finished tab");
     assert_eq!(app.tabs[0].id, 1);
-    assert!(app.tabs[0].terminal.is_running());
+    assert!(
+        app.tabs[0]
+            .terminal
+            .screen
+            .text()
+            .contains("Alpha:background")
+    );
+    assert!(!app.tabs[0].terminal.is_running());
+    assert_eq!(app.active_tab, Some(2));
+    assert_eq!(app.tabs[2].id, 3);
+    assert!(app.tabs[2].terminal.is_running());
     let output = frame(&mut app, &ctx, vec![]);
     click(&mut app, &ctx, label_center(&output, "Stop"));
     assert!(!app.tabs[0].terminal.is_running());
     assert!(app.tabs[1].terminal.is_running());
-    assert_eq!(app.tabs[0].terminal.status, "Stopped");
+    assert_eq!(app.tabs[2].terminal.status, "Stopped");
 
     let output = frame(&mut app, &ctx, vec![]);
     click(&mut app, &ctx, label_center(&output, "2 · Beta"));
@@ -736,8 +755,8 @@ fn ctrl_click_tabs_route_input_and_toolbar_actions_to_the_selected_process() {
         .unwrap();
     let output = frame(&mut app, &ctx, vec![]);
     click(&mut app, &ctx, label_center(&output, "Close tab"));
-    assert_eq!(app.tabs.len(), 1);
-    assert_eq!(app.active_tab, Some(0));
+    assert_eq!(app.tabs.len(), 2);
+    assert_eq!(app.active_tab, Some(1));
     // Reaping is asynchronous; wait for the worker while the UI keeps rendering.
     wait_for_tabs(&mut app, &ctx, |_| {
         // SAFETY: signal zero only checks whether this test's child still exists.
@@ -751,10 +770,13 @@ fn ctrl_click_tabs_route_input_and_toolbar_actions_to_the_selected_process() {
     );
     let output = frame(&mut app, &ctx, vec![]);
     click(&mut app, &ctx, label_center(&output, "Close tab"));
+    assert_eq!(app.tabs.len(), 1);
+    let output = frame(&mut app, &ctx, vec![]);
+    click(&mut app, &ctx, label_center(&output, "Close tab"));
     assert!(app.tabs.is_empty() && app.active_tab.is_none());
     let output = frame(&mut app, &ctx, vec![]);
     click(&mut app, &ctx, label_center(&output, "Alpha"));
-    assert_eq!(app.tabs[0].id, 3, "New tabs must not reuse old UI IDs");
+    assert_eq!(app.tabs[0].id, 4, "New tabs must not reuse old UI IDs");
 }
 
 #[test]
@@ -780,12 +802,7 @@ fn noisy_processes_can_be_interrupted_stopped_closed_and_run_alongside_new_tabs(
         !app.tabs[0].terminal.screen.text().trim().is_empty()
     });
     let output = frame(&mut app, &ctx, vec![]);
-    click_with_modifiers(
-        &mut app,
-        &ctx,
-        label_center(&output, "Quiet"),
-        egui::Modifiers::CTRL,
-    );
+    click(&mut app, &ctx, label_center(&output, "Quiet"));
     assert_eq!(app.tabs.len(), 2);
     wait_for_tabs(&mut app, &ctx, |app| {
         app.tabs[1].terminal.screen.text().contains("Quiet-ready")
@@ -813,8 +830,8 @@ fn noisy_processes_can_be_interrupted_stopped_closed_and_run_alongside_new_tabs(
     assert!(app.tabs[1].terminal.is_running());
     let output = frame(&mut app, &ctx, vec![]);
     click(&mut app, &ctx, label_center(&output, "Flood"));
-    assert!(app.tabs[0].terminal.is_running());
-    let pid: i32 = app.tabs[0]
+    assert!(app.tabs[2].terminal.is_running());
+    let pid: i32 = app.tabs[2]
         .terminal
         .status
         .split_whitespace()
@@ -824,13 +841,14 @@ fn noisy_processes_can_be_interrupted_stopped_closed_and_run_alongside_new_tabs(
         .unwrap();
     let output = frame(&mut app, &ctx, vec![]);
     click(&mut app, &ctx, label_center(&output, "Close tab"));
-    assert_eq!(app.tabs.len(), 1);
-    assert_eq!(app.tabs[0].label, "Quiet");
+    assert_eq!(app.tabs.len(), 2);
+    assert_eq!(app.tabs[1].label, "Quiet");
+    assert_eq!(app.tabs[0].terminal.status, "Stopped");
     wait_for_tabs(&mut app, &ctx, |_| {
         // SAFETY: signal zero only observes this test's child.
         (unsafe { libc::kill(pid, 0) }) == -1
     });
-    assert!(app.tabs[0].terminal.is_running());
+    assert!(app.tabs[1].terminal.is_running());
 }
 
 #[test]
@@ -839,7 +857,7 @@ fn terminal_drag_selects_highlights_and_copies_on_release() {
     let mut config = Config::default();
     config.buttons[0] = interactive_button("Alpha");
     let mut app = ButtonBuilder::new(&ctx, None, config);
-    app.launch(0, false);
+    app.launch(0);
     wait_for_tabs(&mut app, &ctx, |app| {
         app.tabs[0].terminal.screen.text().contains("Alpha-ready")
     });
@@ -1016,8 +1034,8 @@ fn terminal_selection_copies_scrollback_survives_tab_switches_and_releases_outsi
     config.buttons[0] = interactive_button("Alpha");
     config.buttons[1] = interactive_button("Beta");
     let mut app = ButtonBuilder::new(&ctx, None, config);
-    app.launch(0, false);
-    app.launch(1, true);
+    app.launch(0);
+    app.launch(1);
     wait_for_tabs(&mut app, &ctx, |app| {
         app.tabs
             .iter()
@@ -1143,8 +1161,8 @@ fn terminal_scrollbar_drags_history_and_preserves_tab_position_and_input_focus()
     config.buttons[0] = interactive_button("Alpha");
     config.buttons[1] = interactive_button("Beta");
     let mut app = ButtonBuilder::new(&ctx, Some("/tmp/scrollbar-tabs.yaml".into()), config);
-    app.launch(0, false);
-    app.launch(1, true);
+    app.launch(0);
+    app.launch(1);
     wait_for_tabs(&mut app, &ctx, |app| {
         app.tabs
             .iter()
@@ -1261,7 +1279,7 @@ fn terminal_scrollbar_handles_full_buffer_and_alternate_screen_at_minimum_window
         ..Default::default()
     };
     let mut app = ButtonBuilder::new(&ctx, Some("/tmp/scrollbar-small.yaml".into()), config);
-    app.launch(0, false);
+    app.launch(0);
     let small_frame = |app: &mut ButtonBuilder, events| {
         frame_with(
             app,
@@ -1338,8 +1356,8 @@ fn control_wheel_zooms_only_active_tab_and_preserves_history_anchor() {
         Some("/tmp/rs-button-builder-wheel-zoom-test.yaml".into()),
         config,
     );
-    app.launch(0, false);
-    app.launch(1, true);
+    app.launch(0);
+    app.launch(1);
     wait_for_tabs(&mut app, &ctx, |app| {
         app.tabs
             .iter()
@@ -1441,7 +1459,8 @@ fn control_wheel_zooms_only_active_tab_and_preserves_history_anchor() {
             .font_size,
         15.0
     );
-    app.launch(1, true);
+    app.config.buttons[2] = interactive_button("Gamma");
+    app.launch(2);
     assert_eq!(app.tabs[2].style.font_size, 15.0);
     assert_eq!(app.tabs[1].style.font_size, 14.0);
 }
@@ -1549,13 +1568,15 @@ fn tabs_preserve_appearance_history_and_resize_inactive_processes() {
     let ctx = egui::Context::default();
     let mut config = Config::default();
     config.buttons[0] = interactive_button("Alpha");
+    config.buttons[1] = interactive_button("Beta");
+    config.buttons[2] = interactive_button("Gamma");
     let mut app = ButtonBuilder::new(
         &ctx,
         Some("/tmp/rs-button-builder-tab-appearance-test.yaml".into()),
         config,
     );
-    app.launch(0, false);
-    app.launch(0, true);
+    app.launch(0);
+    app.launch(1);
     frame(&mut app, &ctx, vec![]);
     wait_for_tabs(&mut app, &ctx, |app| {
         app.tabs
@@ -1656,7 +1677,7 @@ fn tabs_preserve_appearance_history_and_resize_inactive_processes() {
     click(&mut app, &ctx, label_center(&output, "Jump to live"));
     assert_eq!(app.tabs[0].scrollback, 0);
     assert_eq!(app.tabs[0].scroll_fraction, 0.0);
-    app.launch(0, true);
+    app.launch(2);
     assert_eq!(
         app.tabs[2].style.font_size, 20.0,
         "New tabs inherit the edited appearance default"
@@ -1683,24 +1704,25 @@ fn failed_launch_and_config_loading_preserve_multiple_sessions() {
     let ctx = egui::Context::default();
     let mut config = Config::default();
     config.buttons[0] = interactive_button("Alpha");
+    config.buttons[2] = interactive_button("Beta");
     config.buttons[1].command = "/this/local/program/does/not/exist".into();
     let mut app = ButtonBuilder::new(
         &ctx,
         Some("/tmp/rs-button-builder-tab-load-test.yaml".into()),
         config,
     );
-    app.launch(0, false);
-    app.launch(0, true);
+    app.launch(0);
+    app.launch(2);
     app.tabs[0].style.bg_color = Some([10, 30, 40]);
     app.tabs[1].terminal.screen.feed(b"Retain me");
     let next_id = app.next_tab_id;
-    app.launch(1, true);
+    app.launch(1);
     assert!(app.error.is_some());
     assert_eq!(app.tabs.len(), 2);
     assert_eq!(app.active_tab, Some(1));
     assert_eq!(app.next_tab_id, next_id);
     app.tabs[1].terminal.stop();
-    app.launch(1, false);
+    app.launch(1);
     assert!(app.error.is_some());
     assert!(app.tabs[1].terminal.screen.text().contains("Retain me"));
     assert_eq!(app.tabs[1].id, 2);
@@ -1716,7 +1738,7 @@ fn failed_launch_and_config_loading_preserve_multiple_sessions() {
     assert_eq!(app.tabs[0].label, "Alpha");
     assert_eq!(app.tabs[0].style.bg_color, Some([10, 30, 40]));
     assert!(app.tabs.iter().all(|tab| tab.button_index.is_none()));
-    app.launch(0, true);
+    app.launch(0);
     assert_eq!(app.tabs[2].label, app.config.buttons[0].label);
     assert_eq!(app.tabs[2].style.font_size, app.config.terminal.font_size);
     app.close_tab(0);
@@ -1731,14 +1753,16 @@ fn failed_launch_and_config_loading_preserve_multiple_sessions() {
 fn many_tabs_scroll_and_keep_toolbar_controls_visible_at_minimum_size() {
     let ctx = egui::Context::default();
     let mut config = Config::default();
-    config.buttons[0] = interactive_button("A long running command label");
+    for button in &mut config.buttons[..8] {
+        *button = interactive_button("A long running command label");
+    }
     let mut app = ButtonBuilder::new(
         &ctx,
         Some("/tmp/rs-button-builder-many-tabs-test.yaml".into()),
         config,
     );
-    for _ in 0..8 {
-        app.launch(0, true);
+    for index in 0..8 {
+        app.launch(index);
     }
     let size = Vec2::new(850.0, 500.0);
     let mut output = egui::FullOutput::default();
@@ -1825,18 +1849,17 @@ fn many_tabs_scroll_and_keep_toolbar_controls_visible_at_minimum_size() {
         assert_eq!(app.active_tab, Some(expected));
     }
     assert!(app.tabs.iter().all(|tab| tab.terminal.is_running()));
-    // Ctrl-click keeps configuring empty buttons and editing in edit mode.
-    app.launch(1, true);
+    // Empty slots and edit mode keep configuring buttons instead of launching.
+    app.launch(8);
     assert_eq!(app.tabs.len(), 8);
-    assert_eq!(app.editor.as_ref().unwrap().index, 1);
+    assert_eq!(app.editor.as_ref().unwrap().index, 8);
     app.editor = None;
     app.edit_mode = true;
     let output = frame(&mut app, &ctx, vec![]);
-    click_with_modifiers(
+    click(
         &mut app,
         &ctx,
         label_center(&output, "A long running command label"),
-        egui::Modifiers::CTRL,
     );
     assert_eq!(app.tabs.len(), 8);
     assert_eq!(app.editor.as_ref().unwrap().index, 0);
@@ -2103,9 +2126,8 @@ fn button_context_menu_resets_one_slot_and_preserves_running_terminals() {
     config.buttons[2] = interactive_button("Beta");
     let mut expected = config.clone();
     let mut app = ButtonBuilder::new(&ctx, Some(path.clone()), config);
-    app.launch(1, false);
-    app.launch(1, true);
-    app.launch(2, true);
+    app.launch(1);
+    app.launch(2);
     wait_for_tabs(&mut app, &ctx, |app| {
         app.tabs
             .iter()
@@ -2142,11 +2164,10 @@ fn button_context_menu_resets_one_slot_and_preserves_running_terminals() {
         serde_yaml_ng::to_string(&expected).unwrap()
     );
     assert!(app.dirty && app.editor.is_none());
-    assert_eq!(app.tabs.len(), 3);
+    assert_eq!(app.tabs.len(), 2);
     assert!(app.tabs.iter().all(|tab| tab.terminal.is_running()));
     assert_eq!(app.tabs[0].button_index, None);
-    assert_eq!(app.tabs[1].button_index, None);
-    assert_eq!(app.tabs[2].button_index, Some(2));
+    assert_eq!(app.tabs[1].button_index, Some(2));
     assert!(app.tabs[0].terminal.screen.text().contains("Alpha-ready"));
     let output = frame(&mut app, &ctx, vec![]);
     let empty = empty_button_centers(&output)[1];
@@ -2319,11 +2340,10 @@ fn repositioning_buttons_preserves_tab_associations_and_editor_drafts() {
     config.buttons[0] = interactive_button("Alpha");
     config.buttons[1] = interactive_button("Beta");
     let mut app = ButtonBuilder::new(&ctx, None, config);
-    app.launch(0, false);
-    app.launch(0, true);
-    app.launch(1, true);
-    app.launch(1, true);
-    app.tabs[3].button_index = None;
+    app.launch(0);
+    app.tabs[0].button_index = None; // A tab retained from a previous layout.
+    app.launch(0);
+    app.launch(1);
     app.edit(0);
     app.editor.as_mut().unwrap().button.label = "Alpha draft".into();
     app.reposition_button(0, 1);
@@ -2332,10 +2352,17 @@ fn repositioning_buttons_preserves_tab_associations_and_editor_drafts() {
             .iter()
             .map(|tab| tab.button_index)
             .collect::<Vec<_>>(),
-        [Some(1), Some(1), Some(0), None]
+        [None, Some(1), Some(0)]
     );
     assert!(app.tabs.iter().all(|tab| tab.terminal.is_running()));
-    assert_eq!(app.active_tab, Some(3));
+    assert_eq!(app.active_tab, Some(2));
+    app.launch(1);
+    assert_eq!(app.tabs.len(), 3);
+    assert_eq!(
+        app.active_tab,
+        Some(1),
+        "Moved buttons still focus their running tab"
+    );
     assert_eq!(app.editor.as_ref().unwrap().index, 1);
     assert_eq!(app.editor.as_ref().unwrap().button.label, "Alpha draft");
     assert_eq!(app.config.buttons[1].label, "Alpha");
@@ -2736,8 +2763,8 @@ fn new_layout_toolbar_clears_the_layout_and_preserves_running_terminals() {
     config.terminal.bg_color = Some([10, 20, 30]);
     config.save(&path).unwrap();
     let mut app = ButtonBuilder::new(&ctx, Some(path.clone()), config);
-    app.launch(0, false);
-    app.launch(1, true);
+    app.launch(0);
+    app.launch(1);
     wait_for_tabs(&mut app, &ctx, |app| {
         app.tabs
             .iter()
@@ -3093,7 +3120,7 @@ fn first_button_save_preserves_its_draft_on_cancel_and_error_and_confirms_overwr
         "Local output"
     );
     assert!(app.tabs.is_empty(), "Saving a config must not run commands");
-    app.launch(0, false);
+    app.launch(0);
     wait_for_tabs(&mut app, &ctx, |app| {
         app.tabs[0]
             .terminal
@@ -3263,7 +3290,7 @@ fn failed_load_keeps_layout_and_successful_load_keeps_running_process() {
     terminal.screen.feed(b"Retained output");
     let status = terminal.status.clone();
     app.config.buttons[0] = button;
-    app.launch(0, false);
+    app.launch(0);
     app.tabs[0].terminal = terminal;
     app.load_config(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("examples/terminal-demo.yaml"))
         .unwrap();

@@ -75,7 +75,7 @@ impl ButtonBuilder {
         let mut status = self
             .active()
             .map(|tab| tab.terminal.status.as_str())
-            .unwrap_or("Ready · Ctrl-click a button to open another terminal tab")
+            .unwrap_or("Ready · Click a button to open a terminal tab")
             .to_owned();
         let log_error = self.active().and_then(|tab| tab.terminal.log_error());
         if let Some(error) = log_error {

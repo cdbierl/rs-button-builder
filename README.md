@@ -83,8 +83,10 @@ select a YAML layout file. Dependency versions are recorded in [Cargo.lock](Carg
   **Button Builder - {display name}**. **New layout** creates an empty 3×3 grid and
   asks how to handle unsaved changes. Existing terminal tabs stay open; the new
   layout's first save asks for a filename.
-- **Manage terminals:** click a button to use the active terminal, or **Ctrl-click**
-  to open another tab. Running tabs keep collecting output. Click the terminal to
+- **Manage terminals:** click a button to focus its running terminal, or open a new
+  tab if it has no running terminal in the current layout. Finished tabs and their
+  output are preserved. New tabs use the layout's terminal appearance defaults.
+  Running tabs keep collecting output. Click the terminal to
   type; use the tab bar and its arrows to switch sessions.
   Commands that finish successfully without printing meaningful text close their tabs
   automatically and show a brief success notice. Enable **Close on success** for a

@@ -338,12 +338,17 @@ impl ButtonBuilder {
         }
     }
 
-    fn launch(&mut self, index: usize, new_tab: bool) {
+    fn launch(&mut self, index: usize) {
         if self.config.buttons[index].command.trim().is_empty() {
             self.edit(index);
             return;
         }
-        if !new_tab && self.active_running() {
+        if let Some(tab) = self
+            .tabs
+            .iter()
+            .position(|tab| tab.button_index == Some(index) && tab.terminal.is_running())
+        {
+            self.select_tab(tab);
             return;
         }
         match Terminal::start(
@@ -353,31 +358,20 @@ impl ButtonBuilder {
         ) {
             Ok(terminal) => {
                 self.completion_notice = None;
-                let replace = self.active_tab.filter(|_| !new_tab);
-                let id = replace.map_or(self.next_tab_id, |index| self.tabs[index].id);
-                let style = replace
-                    .map(|index| self.tabs[index].style.clone())
-                    .unwrap_or_else(|| self.config.terminal.clone());
                 let tab = TerminalTab {
-                    id,
+                    id: self.next_tab_id,
                     label: self.config.buttons[index].label.clone(),
                     command: self.config.buttons[index].command.clone(),
                     button_index: Some(index),
                     terminal,
-                    style,
+                    style: self.config.terminal.clone(),
                     scrollback: 0,
                     scroll_fraction: 0.0,
                     selection: ui::TerminalSelection::default(),
                 };
-                if let Some(index) = replace {
-                    self.tabs[index] = tab;
-                } else {
-                    self.next_tab_id += 1;
-                    self.tabs.push(tab);
-                    self.active_tab = Some(self.tabs.len() - 1);
-                }
-                self.focus_terminal = true;
-                self.reveal_active_tab = true;
+                self.next_tab_id += 1;
+                self.tabs.push(tab);
+                self.select_tab(self.tabs.len() - 1);
                 self.error = None;
             }
             Err(error) => self.error = Some(error),
@@ -397,7 +391,7 @@ impl ButtonBuilder {
             .collect();
         let mut errors = Vec::new();
         for index in buttons {
-            self.launch(index, true);
+            self.launch(index);
             if let Some(error) = self.error.take() {
                 errors.push(error);
             }

@@ -96,7 +96,6 @@ impl ButtonBuilder {
                 "Click buttons to edit instead of running them. Right-click also edits.",
             );
         ui.add_space(12.0);
-        let new_tab = ui.input(|input| input.modifiers.ctrl);
         let columns = self.config.columns;
         let width =
             ((ui.available_width() - 8.0 * (columns - 1) as f32) / columns as f32).max(90.0);
@@ -194,7 +193,7 @@ impl ButtonBuilder {
                             });
                             slots.push((index, response.clone(), ui.painter().clone()));
                             response.on_hover_text(if configured {
-                                format!("{}\nCtrl-click to open a new terminal tab\nDrag onto another button to swap positions", button.command)
+                                format!("{}\nClick to open a terminal or focus this button's running tab\nDrag onto another button to swap positions", button.command)
                             } else {
                                 "Click to assign a label and command\nDrag onto another button to swap positions".into()
                             });
@@ -275,7 +274,7 @@ impl ButtonBuilder {
             if self.edit_mode {
                 self.edit(index);
             } else {
-                self.launch(index, new_tab);
+                self.launch(index);
             }
         }
     }
