@@ -19,6 +19,12 @@ The editor also has **Text color** and **Background** pickers, a live button pre
 and **Reset colors** to restore the theme defaults. Colors are saved per button.
 When only a background is set, the label automatically uses contrasting black or white text.
 
+Each layout can set `display_name` in its YAML file, for example
+`display_name: System Monitor`. It appears as the heading above the button grid.
+Click the heading to rename the current layout; press Enter or click elsewhere to
+apply, or Escape to cancel. Use **Save layout** to persist the name. Missing or blank
+names display **Your buttons**, so existing files keep working.
+
 Use **Rows** and **Columns** above the grid to change its dimensions (1–12 rows,
 1–8 columns; initially 3×3). The grid scrolls when it exceeds the available space.
 Buttons keep their order from left to right, then top to bottom. Shrinking hides

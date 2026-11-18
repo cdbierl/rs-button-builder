@@ -1,4 +1,5 @@
 # Local Linux system commands. Quit the interactive Top session with q.
+display_name: System Monitor
 rows: 3
 columns: 3
 terminal:

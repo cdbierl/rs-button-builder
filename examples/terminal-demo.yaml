@@ -1,4 +1,5 @@
 # Small local commands demonstrate colors, redraws, Unicode, and keyboard input.
+display_name: Terminal Demo
 rows: 2
 columns: 2
 terminal:

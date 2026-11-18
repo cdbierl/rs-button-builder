@@ -7,6 +7,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 pub const MAX_GRID_ROWS: usize = 12;
 pub const MAX_GRID_COLUMNS: usize = 8;
+pub const DEFAULT_LAYOUT_NAME: &str = "Your buttons";
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -75,6 +76,7 @@ impl Default for TerminalStyle {
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {
+    pub display_name: String,
     pub rows: usize,
     pub columns: usize,
     pub buttons: Vec<ButtonConfig>,
@@ -95,6 +97,7 @@ impl Default for Config {
             ..Default::default()
         };
         Self {
+            display_name: DEFAULT_LAYOUT_NAME.into(),
             rows: 3,
             columns: 3,
             buttons,
@@ -104,6 +107,15 @@ impl Default for Config {
 }
 
 impl Config {
+    pub fn display_name(&self) -> &str {
+        let name = self.display_name.trim();
+        if name.is_empty() {
+            DEFAULT_LAYOUT_NAME
+        } else {
+            name
+        }
+    }
+
     pub fn visible_buttons(&self) -> usize {
         self.rows * self.columns
     }
@@ -203,12 +215,16 @@ mod tests {
 
     #[test]
     fn yaml_round_trip_preserves_all_nine_buttons_and_style() {
-        let mut config = Config::default();
+        let mut config = Config {
+            display_name: "System Monitor · Local".into(),
+            ..Default::default()
+        };
         config.buttons[8].label = "Last button".into();
         config.terminal.font_size = 22.0;
         let decoded: Config =
             serde_yaml_ng::from_str(&serde_yaml_ng::to_string(&config).unwrap()).unwrap();
         assert_eq!(decoded.buttons[0].command, "/usr/bin/top");
+        assert_eq!(decoded.display_name, "System Monitor · Local");
         assert_eq!(decoded.buttons[8].label, "Last button");
         assert_eq!(decoded.terminal.font_size, 22.0);
         assert_eq!((decoded.rows, decoded.columns), (3, 3));
@@ -251,5 +267,8 @@ mod tests {
         assert_eq!((config.rows, config.columns), (3, 3));
         assert_eq!(config.buttons.len(), 9);
         assert_eq!(config.buttons[0].label, "Existing");
+        assert_eq!(config.display_name(), DEFAULT_LAYOUT_NAME);
+        config.display_name = "   ".into();
+        assert_eq!(config.display_name(), DEFAULT_LAYOUT_NAME);
     }
 }

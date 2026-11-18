@@ -1,5 +1,6 @@
 # Generated local JSON demonstrates shell pipelines without a network connection.
 # These examples require /usr/bin/jq already available locally.
+display_name: JSON Streams
 rows: 2
 columns: 3
 terminal:

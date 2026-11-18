@@ -1,4 +1,6 @@
-use crate::config::{ButtonConfig, Config, MAX_GRID_COLUMNS, MAX_GRID_ROWS, TerminalStyle};
+use crate::config::{
+    ButtonConfig, Config, DEFAULT_LAYOUT_NAME, MAX_GRID_COLUMNS, MAX_GRID_ROWS, TerminalStyle,
+};
 use crate::config_picker::{Action as PickerAction, ConfigPicker};
 use crate::terminal::{Terminal, screen::Cell};
 use crate::ui::{CORNER_RADIUS, filled_button, outlined_button, text_button};
@@ -42,6 +44,8 @@ pub struct ButtonBuilder {
     config: Config,
     config_path: PathBuf,
     config_picker: Option<ConfigPicker>,
+    layout_name_edit: Option<String>,
+    focus_layout_name: bool,
     tabs: Vec<TerminalTab>,
     active_tab: Option<usize>,
     next_tab_id: u64,
@@ -65,6 +69,8 @@ impl ButtonBuilder {
             config,
             config_path,
             config_picker: None,
+            layout_name_edit: None,
+            focus_layout_name: false,
             tabs: Vec::new(),
             active_tab: None,
             next_tab_id: 1,
@@ -113,6 +119,7 @@ impl ButtonBuilder {
     }
 
     fn save(&mut self) {
+        self.apply_layout_name();
         match self.config.save(&self.config_path) {
             Ok(()) => {
                 self.dirty = false;
@@ -120,6 +127,69 @@ impl ButtonBuilder {
                 self.notice = format!("Saved {}", self.config_path.display());
             }
             Err(error) => self.error = Some(error),
+        }
+    }
+
+    fn apply_layout_name(&mut self) {
+        let Some(draft) = self.layout_name_edit.take() else {
+            return;
+        };
+        let name = draft.trim();
+        let name = if name.is_empty() {
+            DEFAULT_LAYOUT_NAME
+        } else {
+            name
+        };
+        if self.config.display_name != name {
+            self.config.display_name = name.to_owned();
+            self.dirty = true;
+        }
+        self.focus_layout_name = false;
+    }
+
+    fn layout_heading(&mut self, ui: &mut egui::Ui) {
+        let Some(draft) = &mut self.layout_name_edit else {
+            if ui
+                .add(
+                    egui::Label::new(RichText::new(self.config.display_name()).heading())
+                        .sense(egui::Sense::click()),
+                )
+                .on_hover_cursor(egui::CursorIcon::PointingHand)
+                .on_hover_text("Click to rename this layout")
+                .clicked()
+            {
+                self.layout_name_edit = Some(self.config.display_name().to_owned());
+                self.focus_layout_name = true;
+            }
+            return;
+        };
+        let id = ui.make_persistent_id("layout_name");
+        if self.focus_layout_name {
+            ui.memory_mut(|memory| memory.request_focus(id));
+            let mut state = egui::TextEdit::load_state(ui.ctx(), id).unwrap_or_default();
+            state
+                .cursor
+                .set_char_range(Some(egui::text::CCursorRange::two(
+                    egui::text::CCursor::new(0),
+                    egui::text::CCursor::new(draft.chars().count()),
+                )));
+            state.store(ui.ctx(), id);
+            self.focus_layout_name = false;
+        }
+        let response = ui
+            .add(
+                egui::TextEdit::singleline(draft)
+                    .id(id)
+                    .font(egui::TextStyle::Heading)
+                    .margin(egui::Margin::symmetric(6, 4))
+                    .desired_width(ui.available_width())
+                    .hint_text(DEFAULT_LAYOUT_NAME),
+            )
+            .on_hover_text("Enter to apply, Escape to cancel");
+        if ui.input(|input| input.key_pressed(egui::Key::Escape)) {
+            self.layout_name_edit = None;
+        } else if response.lost_focus() || ui.input(|input| input.key_pressed(egui::Key::Enter)) {
+            self.apply_layout_name();
         }
     }
 
@@ -135,6 +205,8 @@ impl ButtonBuilder {
         let config = Config::load_existing(&path)?;
         self.config = config;
         self.config_path = path;
+        self.layout_name_edit = None;
+        self.focus_layout_name = false;
         self.editor = None;
         self.appearance_open = false;
         self.edit_mode = false;
@@ -149,7 +221,7 @@ impl ButtonBuilder {
 
     fn config_picker_window(&mut self, ctx: &egui::Context) {
         let running = self.running();
-        let unsaved = self.dirty || self.editor.is_some();
+        let unsaved = self.dirty || self.editor.is_some() || self.layout_name_edit.is_some();
         let Some(picker) = &mut self.config_picker else {
             return;
         };
@@ -258,7 +330,7 @@ impl ButtonBuilder {
 
     fn buttons_panel(&mut self, ui: &mut egui::Ui) {
         ui.add_space(10.0);
-        ui.heading("Your buttons");
+        self.layout_heading(ui);
         ui.add_space(8.0);
         let (mut rows, mut columns) = (self.config.rows, self.config.columns);
         ui.horizontal(|ui| {
@@ -1737,6 +1809,106 @@ mod tests {
         );
         assert_eq!(app.tabs.len(), 8);
         assert_eq!(app.editor.as_ref().unwrap().index, 0);
+    }
+
+    #[test]
+    fn layout_heading_edits_cancel_save_and_follow_the_loaded_config() {
+        let ctx = egui::Context::default();
+        let path = std::env::temp_dir().join(format!(
+            "rs-button-builder-layout-name-{}.yaml",
+            std::process::id()
+        ));
+        let mut app = ButtonBuilder::new(&ctx, path.clone(), Config::default());
+        frame(&mut app, &ctx, vec![]);
+        let output = frame(&mut app, &ctx, vec![]);
+        click(&mut app, &ctx, label_center(&output, DEFAULT_LAYOUT_NAME));
+        assert!(app.layout_name_edit.is_some());
+        frame(&mut app, &ctx, vec![]);
+        let key = |key, modifiers| egui::Event::Key {
+            key,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers,
+        };
+        let replace_name = |app: &mut ButtonBuilder, name: &str| {
+            let select_all = egui::Modifiers {
+                command: true,
+                ..egui::Modifiers::CTRL
+            };
+            frame_with(
+                app,
+                &ctx,
+                Vec2::new(1200.0, 760.0),
+                select_all,
+                vec![key(egui::Key::A, select_all)],
+            );
+            frame(app, &ctx, vec![egui::Event::Text(name.into())]);
+        };
+        replace_name(&mut app, "  Workstation · Local  ");
+        frame(
+            &mut app,
+            &ctx,
+            vec![key(egui::Key::Enter, egui::Modifiers::NONE)],
+        );
+        assert_eq!(app.config.display_name, "Workstation · Local");
+        assert!(app.dirty && app.layout_name_edit.is_none());
+        assert!(app.tabs.is_empty(), "Renaming must not launch a process");
+        let output = frame(&mut app, &ctx, vec![]);
+        click(&mut app, &ctx, label_center(&output, "Save layout *"));
+        assert_eq!(
+            Config::load_existing(&path).unwrap().display_name,
+            "Workstation · Local"
+        );
+
+        let output = frame(&mut app, &ctx, vec![]);
+        click(&mut app, &ctx, label_center(&output, "Workstation · Local"));
+        frame(&mut app, &ctx, vec![]);
+        replace_name(&mut app, "Cancel this change");
+        frame(
+            &mut app,
+            &ctx,
+            vec![key(egui::Key::Escape, egui::Modifiers::NONE)],
+        );
+        assert_eq!(app.config.display_name, "Workstation · Local");
+        assert!(!app.dirty && app.layout_name_edit.is_none());
+
+        let output = frame(&mut app, &ctx, vec![]);
+        click(&mut app, &ctx, label_center(&output, "Workstation · Local"));
+        frame(&mut app, &ctx, vec![]);
+        replace_name(&mut app, "Save while typing");
+        let output = frame(&mut app, &ctx, vec![]);
+        click(&mut app, &ctx, label_center(&output, "Save layout"));
+        assert_eq!(
+            Config::load_existing(&path).unwrap().display_name,
+            "Save while typing"
+        );
+        assert!(!app.dirty && app.layout_name_edit.is_none());
+
+        let output = frame(&mut app, &ctx, vec![]);
+        click(&mut app, &ctx, label_center(&output, "Save while typing"));
+        frame(&mut app, &ctx, vec![]);
+        replace_name(&mut app, "   ");
+        let output = frame(&mut app, &ctx, vec![]);
+        click(&mut app, &ctx, label_center(&output, "Edit buttons"));
+        assert_eq!(app.config.display_name, DEFAULT_LAYOUT_NAME);
+        assert!(app.dirty && app.layout_name_edit.is_none());
+
+        app.load_config(
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("examples/json-streams.yaml"),
+        )
+        .unwrap();
+        let output = frame(&mut app, &ctx, vec![]);
+        label_center(&output, "JSON Streams");
+        assert!(!app.dirty && app.layout_name_edit.is_none());
+        click(&mut app, &ctx, label_center(&output, "JSON Streams"));
+        assert!(app.layout_name_edit.is_some());
+        app.load_config(
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("examples/system-monitor.yaml"),
+        )
+        .unwrap();
+        assert!(app.layout_name_edit.is_none());
+        assert_eq!(app.config.display_name, "System Monitor");
     }
 
     #[test]
