@@ -27,7 +27,7 @@ impl ButtonBuilder {
                 ui.set_min_width(200.0);
                 ui.add(
                     egui::Label::new(
-                        RichText::new(self.config.display_name())
+                        RichText::new(self.layout_display_label())
                             .small()
                             .color(get_global_color("onSurfaceVariant")),
                     )
@@ -40,6 +40,14 @@ impl ButtonBuilder {
                 }
                 if menu_action(ui, "Load config…", Action::LoadConfig) {
                     self.perform_action(ui.ctx(), Action::LoadConfig);
+                    ui.close();
+                }
+                if ui
+                    .add_enabled(!self.edit_mode, egui::Button::new("Edit layout"))
+                    .clicked()
+                {
+                    self.edit_mode = true;
+                    self.dragged_button = None;
                     ui.close();
                 }
                 let save_label = if self.config_path.is_none() {

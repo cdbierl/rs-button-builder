@@ -69,23 +69,27 @@ select a YAML layout file. Dependency versions are recorded in [Cargo.lock](Carg
 
 ## Usage
 
-- **Configure buttons:** right-click a button, click an unassigned button, or enable
-  **Edit buttons**. Set its label, executable, arguments, working directory, and colors.
+- **Configure buttons:** right-click a button, click an unassigned button, or choose
+  **Edit layout** from the footer menu. Set its label, executable, arguments,
+  working directory, and colors.
   Empty slots show a muted **new window** icon. **Shell script (/bin/sh)** runs the complete
   command through `/bin/sh`.
 - **Clear a button:** right-click it and choose **Reset** to restore an empty
   slot with its default label and colors. Use **Save layout** to keep the reset.
 - **Reposition buttons:** drag a button onto another slot to swap their positions.
-  Dragging works with **Edit buttons** on or off. Drop outside the grid or press
+  Dragging works during normal use and while editing. Drop outside the grid or press
   **Escape** to cancel. Use **Save layout** to keep the new positions.
 - **Layout actions:** click **Button Builder** in the bottom-left footer to open
   the application menu. It opens upward with **New layout**, **Load config…**,
-  **Save layout**, **Save layout as…**, and **Exit**. Choose an action, click outside,
+  **Edit layout**, **Save layout**, **Save layout as…**, and **Exit**. Choose an action, click outside,
   or press **Escape** to close it.
-- **Customize layouts:** change **Rows** and **Columns**, or click the heading above
-  the grid to rename the layout. The window title shows
+- **Customize layouts:** choose **Edit layout** to show the layout name and grid
+  controls above the buttons. Change **Rows** and **Columns**, or click the name
+  to rename the layout. Clicking a button opens its editor while this mode is active.
+  **Done** hides the controls and restores normal button clicks; use **Save layout**
+  to save your changes. The window title shows
   **Button Builder - {display name}**. An asterisk after the name in the window
-  title and grid heading marks unsaved layout changes. **New layout** creates an
+  title, footer menu, and editing panel marks unsaved layout changes. **New layout** creates an
   empty 3×3 grid and asks how to handle unsaved changes. Existing terminal tabs
   stay open; the new layout's first save asks for a filename.
 - **Manage terminals:** click a button to focus its running terminal, or open a new

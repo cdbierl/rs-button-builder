@@ -5,7 +5,7 @@ use super::{CORNER_RADIUS, styled_button, text_button};
 use crate::app::ButtonBuilder;
 use crate::layout_config::{ButtonConfig, DEFAULT_LAYOUT_NAME, MAX_GRID_COLUMNS, MAX_GRID_ROWS};
 use egui::{PointerButton, RichText, Stroke, Vec2};
-use egui_material3::{MaterialCheckbox, get_global_color};
+use egui_material3::get_global_color;
 
 // The bundled Material Symbols font includes `new_window`; the crate's name map predates it.
 const EMPTY_BUTTON_ICON: char = '\u{f710}';
@@ -64,24 +64,41 @@ impl ButtonBuilder {
         }
     }
 
-    pub(in crate::app) fn buttons_panel(&mut self, ui: &mut egui::Ui) {
-        ui.add_space(10.0);
+    fn layout_controls(&mut self, ui: &mut egui::Ui) {
+        ui.horizontal(|ui| {
+            ui.label(
+                RichText::new("Editing layout")
+                    .small()
+                    .color(get_global_color("onSurfaceVariant")),
+            );
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if ui
+                    .add(text_button("Done").small())
+                    .on_hover_text("Finish editing. Use Save layout to save your changes.")
+                    .clicked()
+                {
+                    self.apply_layout_name();
+                    self.edit_mode = false;
+                    self.dragged_button = None;
+                }
+            });
+        });
         self.layout_heading(ui);
         ui.add_space(8.0);
         let (mut rows, mut columns) = (self.config.rows, self.config.columns);
-        ui.horizontal(|ui| {
-            ui.label("Rows");
-            ui.add(
-                egui::DragValue::new(&mut rows)
-                    .range(1..=MAX_GRID_ROWS)
-                    .speed(0.1),
-            );
-            ui.label("Columns");
-            ui.add(
-                egui::DragValue::new(&mut columns)
-                    .range(1..=MAX_GRID_COLUMNS)
-                    .speed(0.1),
-            );
+        ui.columns(2, |sections| {
+            for (ui, (label, value, maximum)) in sections.iter_mut().zip([
+                ("Rows", &mut rows, MAX_GRID_ROWS),
+                ("Columns", &mut columns, MAX_GRID_COLUMNS),
+            ]) {
+                ui.horizontal(|ui| {
+                    ui.label(label);
+                    ui.add_sized(
+                        [ui.available_width(), ui.spacing().interact_size.y],
+                        egui::DragValue::new(value).range(1..=maximum).speed(0.1),
+                    );
+                });
+            }
         });
         if (rows, columns) != (self.config.rows, self.config.columns) {
             self.dragged_button = None;
@@ -90,12 +107,18 @@ impl ButtonBuilder {
                 Err(error) => self.error = Some(error),
             }
         }
-        ui.add_space(12.0);
-        ui.add(MaterialCheckbox::new(&mut self.edit_mode, "Edit buttons"))
-            .on_hover_text(
-                "Click buttons to edit instead of running them. Right-click also edits.",
-            );
-        ui.add_space(12.0);
+    }
+
+    pub(in crate::app) fn buttons_panel(&mut self, ui: &mut egui::Ui) {
+        ui.add_space(10.0);
+        if self.edit_mode {
+            egui::Frame::new()
+                .fill(get_global_color("surfaceContainer"))
+                .corner_radius(CORNER_RADIUS)
+                .inner_margin(8)
+                .show(ui, |ui| self.layout_controls(ui));
+            ui.add_space(12.0);
+        }
         let columns = self.config.columns;
         let width =
             ((ui.available_width() - 8.0 * (columns - 1) as f32) / columns as f32).max(90.0);

@@ -2678,6 +2678,21 @@ fn layout_heading_edits_cancel_save_and_follow_the_loaded_config() {
     assert_title(&output, "Button Builder - Your buttons");
     let output = frame(&mut app, &ctx, vec![]);
     assert_no_title_change(&output);
+    for label in [
+        DEFAULT_LAYOUT_NAME,
+        "Rows",
+        "Columns",
+        "Editing layout",
+        "Done",
+    ] {
+        assert!(output.shapes.iter().all(|shape| !matches!(&shape.shape,
+            egui::Shape::Text(text) if text.galley.job.text == label)));
+    }
+    click_app_action(&mut app, &ctx, &output, "Edit layout");
+    assert!(app.edit_mode && !app.has_unsaved_changes());
+    let output = frame(&mut app, &ctx, vec![]);
+    label_center(&output, "Rows");
+    label_center(&output, "Columns");
     click(&mut app, &ctx, label_center(&output, DEFAULT_LAYOUT_NAME));
     assert!(app.layout_name_edit.is_some());
     frame(&mut app, &ctx, vec![]);
@@ -2763,16 +2778,18 @@ fn layout_heading_edits_cancel_save_and_follow_the_loaded_config() {
     frame(&mut app, &ctx, vec![]);
     replace_name(&mut app, "   ");
     let output = frame(&mut app, &ctx, vec![]);
-    click(&mut app, &ctx, label_center(&output, "Edit buttons"));
+    click(&mut app, &ctx, label_center(&output, "Done"));
     assert_eq!(app.config.display_name, DEFAULT_LAYOUT_NAME);
-    assert!(app.dirty && app.layout_name_edit.is_none());
+    assert!(app.dirty && app.layout_name_edit.is_none() && !app.edit_mode);
 
     app.load_config(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("examples/json-streams.yaml"))
         .unwrap();
     let output = frame(&mut app, &ctx, vec![]);
-    label_center(&output, "JSON Streams");
     assert_title(&output, "Button Builder - JSON Streams");
     assert!(!app.dirty && app.layout_name_edit.is_none());
+    click_app_action(&mut app, &ctx, &output, "Edit layout");
+    let output = frame(&mut app, &ctx, vec![]);
+    label_center(&output, "JSON Streams");
     click(&mut app, &ctx, label_center(&output, "JSON Streams"));
     assert!(app.layout_name_edit.is_some());
     app.load_config(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("examples/system-monitor.yaml"))
@@ -3133,8 +3150,11 @@ fn button_drag_cancellation_and_edit_mode_preserve_click_behavior() {
     assert_eq!(serde_yaml_ng::to_string(&app.config).unwrap(), original);
     assert!(!app.dirty && app.workspace.tabs().is_empty() && app.editor.is_none());
     let output = frame(&mut app, &ctx, vec![]);
-    click(&mut app, &ctx, label_center(&output, "Edit buttons"));
+    click_app_action(&mut app, &ctx, &output, "Edit layout");
     assert!(app.edit_mode);
+    let output = frame(&mut app, &ctx, vec![]);
+    let source = label_center(&output, "Alpha");
+    let target = empty_button_centers(&output)[0];
     start_button_drag(&mut app, &ctx, source, target);
     frame(&mut app, &ctx, vec![primary_pointer(target, false)]);
     assert!(app.dirty && app.editor.is_none() && app.workspace.tabs().is_empty());
@@ -3144,8 +3164,10 @@ fn button_drag_cancellation_and_edit_mode_preserve_click_behavior() {
     let output = frame(&mut app, &ctx, vec![]);
     click(&mut app, &ctx, label_center(&output, "Cancel"));
     let output = frame(&mut app, &ctx, vec![]);
-    click(&mut app, &ctx, label_center(&output, "Edit buttons"));
+    click(&mut app, &ctx, label_center(&output, "Done"));
     assert!(!app.edit_mode);
+    let output = frame(&mut app, &ctx, vec![]);
+    let target = label_center(&output, "Alpha");
     click(&mut app, &ctx, target);
     assert_eq!(app.workspace.tabs().len(), 1);
     assert_eq!(app.workspace.tabs()[0].button_index, Some(1));
@@ -3666,6 +3688,7 @@ fn footer_app_menu_clears_the_layout_and_preserves_running_terminals() {
         let labels = [
             "New layout",
             "Load config…",
+            "Edit layout",
             "Save layout",
             "Save layout as…",
             "Exit",
