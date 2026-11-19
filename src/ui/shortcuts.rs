@@ -8,6 +8,7 @@ use egui::{Key, KeyboardShortcut, Modifiers};
 pub(super) enum Action {
     NewLayout,
     LoadConfig,
+    EditLayout,
     SaveLayout,
     SaveLayoutAs,
     Exit,
@@ -21,6 +22,7 @@ impl Action {
         let (modifiers, key) = match self {
             Self::NewLayout => (Modifiers::COMMAND, Key::N),
             Self::LoadConfig => (Modifiers::COMMAND, Key::O),
+            Self::EditLayout => (Modifiers::COMMAND, Key::E),
             Self::SaveLayout => (Modifiers::COMMAND, Key::S),
             Self::SaveLayoutAs => (Modifiers::COMMAND | Modifiers::SHIFT, Key::S),
             Self::Exit => (Modifiers::COMMAND | Modifiers::SHIFT, Key::Q),
@@ -50,6 +52,7 @@ impl ButtonBuilder {
                 let action = [
                     Action::NewLayout,
                     Action::LoadConfig,
+                    Action::EditLayout,
                     Action::SaveLayout,
                     Action::SaveLayoutAs,
                     Action::Exit,
@@ -91,6 +94,13 @@ impl ButtonBuilder {
             Action::NewLayout => self.request_new_layout(),
             Action::LoadConfig => {
                 self.config_picker = Some(ConfigPicker::new(self.config_path.as_deref()));
+            }
+            Action::EditLayout => {
+                if self.edit_mode {
+                    self.apply_layout_name();
+                }
+                self.edit_mode = !self.edit_mode;
+                self.dragged_button = None;
             }
             Action::SaveLayout => self.save(),
             Action::SaveLayoutAs => {

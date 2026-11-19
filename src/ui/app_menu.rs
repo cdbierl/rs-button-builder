@@ -43,11 +43,15 @@ impl ButtonBuilder {
                     ui.close();
                 }
                 if ui
-                    .add_enabled(!self.edit_mode, egui::Button::new("Edit layout"))
+                    .add_enabled(
+                        !self.edit_mode,
+                        egui::Button::new("Edit layout").shortcut_text(
+                            ui.ctx().format_shortcut(&Action::EditLayout.shortcut()),
+                        ),
+                    )
                     .clicked()
                 {
-                    self.edit_mode = true;
-                    self.dragged_button = None;
+                    self.perform_action(ui.ctx(), Action::EditLayout);
                     ui.close();
                 }
                 let save_label = if self.config_path.is_none() {

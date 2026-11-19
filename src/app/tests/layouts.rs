@@ -101,6 +101,23 @@ fn layout_shortcuts_save_drafts_and_preserve_unsaved_changes_and_dialogs() {
     let path = directory.join("layout.yaml");
     let mut app = ButtonBuilder::new(&ctx, Some(path.clone()), Config::default())
         .with_settings(SettingsStore::open(directory.join("settings.yaml")));
+    app.dragged_button = Some(0);
+    hotkey(&mut app, &ctx, egui::Key::E, false, false);
+    assert!(app.edit_mode && app.dragged_button.is_none() && !app.dirty);
+    hotkey(&mut app, &ctx, egui::Key::E, false, true);
+    assert!(
+        app.edit_mode,
+        "Holding Ctrl+E must not repeatedly toggle editing"
+    );
+    app.layout_name_edit = Some("Edited with Ctrl+E".into());
+    app.dragged_button = Some(0);
+    hotkey(&mut app, &ctx, egui::Key::E, false, false);
+    assert!(!app.edit_mode && app.layout_name_edit.is_none() && app.dragged_button.is_none());
+    assert_eq!(app.config.display_name(), "Edited with Ctrl+E");
+    assert!(
+        app.dirty && !path.exists(),
+        "Leaving edit mode does not save"
+    );
     app.layout_name_edit = Some("Saved by shortcut".into());
     hotkey(&mut app, &ctx, egui::Key::S, false, false);
     assert_eq!(
@@ -140,6 +157,11 @@ fn layout_shortcuts_save_drafts_and_preserve_unsaved_changes_and_dialogs() {
     app.config_picker = None;
 
     app.edit(0);
+    hotkey(&mut app, &ctx, egui::Key::E, false, false);
+    assert!(
+        !app.edit_mode && app.editor.is_some(),
+        "Dialogs block Ctrl+E"
+    );
     hotkey(&mut app, &ctx, egui::Key::S, false, false);
     assert!(app.editor.is_some() && app.dirty);
     assert_eq!(

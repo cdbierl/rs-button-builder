@@ -146,6 +146,7 @@ select a YAML layout file. Dependency versions are recorded in [Cargo.lock](Carg
 | --- | --- |
 | Ctrl+N | New layout (asks about unsaved changes) |
 | Ctrl+O | Load config |
+| Ctrl+E | Toggle layout editing (does not save changes) |
 | Ctrl+S | Save layout |
 | Ctrl+Shift+S | Save layout as |
 | Ctrl+Page Up / Page Down | Previous / next terminal tab in the focused pane, wrapping at either end |

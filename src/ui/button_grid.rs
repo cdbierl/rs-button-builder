@@ -1,5 +1,6 @@
 //! Layout heading, grid sizing, and command buttons.
 
+use super::shortcuts::Action;
 use super::style::{contrasting_text, rgb};
 use super::{CORNER_RADIUS, styled_button, text_button};
 use crate::app::ButtonBuilder;
@@ -74,12 +75,10 @@ impl ButtonBuilder {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if ui
                     .add(text_button("Done").small())
-                    .on_hover_text("Finish editing; save changes with Save layout")
+                    .on_hover_text("Finish editing (Ctrl+E); save with Save layout")
                     .clicked()
                 {
-                    self.apply_layout_name();
-                    self.edit_mode = false;
-                    self.dragged_button = None;
+                    self.perform_action(ui.ctx(), Action::EditLayout);
                 }
             });
         });

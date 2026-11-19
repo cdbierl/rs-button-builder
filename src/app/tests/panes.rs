@@ -22,6 +22,26 @@ fn terminal_shortcuts_wrap_within_the_focused_pane_and_consume_repeats() {
     app.workspace.split_terminal(2, Split::Right);
     app.workspace.select_tab(0);
     frame(&mut app, &ctx, vec![]);
+    hotkey(&mut app, &ctx, egui::Key::E, false, false);
+    assert!(app.edit_mode);
+    assert_eq!(app.workspace.active_index(), Some(0));
+    assert!(
+        !ctx.input(|input| {
+            input.events.iter().any(|event| {
+                matches!(
+                    event,
+                    egui::Event::Key {
+                        key: egui::Key::E,
+                        pressed: true,
+                        ..
+                    }
+                )
+            })
+        }),
+        "Ctrl+E must not reach the focused terminal"
+    );
+    hotkey(&mut app, &ctx, egui::Key::E, false, false);
+    assert!(!app.edit_mode);
     hotkey(&mut app, &ctx, egui::Key::PageUp, false, false);
     assert_eq!(app.workspace.active_index(), Some(1));
     hotkey(&mut app, &ctx, egui::Key::PageDown, false, false);
