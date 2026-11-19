@@ -13,6 +13,7 @@ use std::sync::Arc;
 
 // Reserve the gutter even without history so the PTY width stays stable as output arrives.
 pub(in crate::app) const TERMINAL_SCROLLBAR_WIDTH: f32 = 20.0;
+const TERMINAL_PADDING: f32 = 12.0;
 
 // Retain only the last visible viewport for each tab. egui evicts layouts that were not
 // drawn in the previous frame, so its own cache cannot preserve hidden terminal text.
@@ -116,9 +117,9 @@ impl ButtonBuilder {
                 fonts.row_height(&font) * style.line_spacing,
             )
         });
-        let content_width = (size.x - 16.0 - TERMINAL_SCROLLBAR_WIDTH).max(0.0);
+        let content_width = (size.x - 2.0 * TERMINAL_PADDING - TERMINAL_SCROLLBAR_WIDTH).max(0.0);
         let cols = ((content_width / char_width) as usize).clamp(2, 500);
-        let rows = (((size.y - 16.0) / line_height) as usize).clamp(2, 200);
+        let rows = (((size.y - 2.0 * TERMINAL_PADDING) / line_height) as usize).clamp(2, 200);
         self.workspace.resize_target(pane, cols, rows);
         let rect = response.rect;
         painter.rect_filled(rect, CORNER_RADIUS, rgb(colors.background));
@@ -138,7 +139,7 @@ impl ButtonBuilder {
             });
             tab.resize(
                 ((content_width / width) as usize).clamp(2, 500),
-                (((size.y - 16.0) / height) as usize).clamp(2, 200),
+                (((size.y - 2.0 * TERMINAL_PADDING) / height) as usize).clamp(2, 200),
             );
         }
         let mut scrollbar_interacted = false;
@@ -164,12 +165,12 @@ impl ButtonBuilder {
                 tab.scroll_fraction = 0.0;
             }
         }
-        let origin = rect.min + Vec2::splat(8.0);
+        let origin = rect.min + Vec2::splat(TERMINAL_PADDING);
         let text_rect = egui::Rect::from_min_max(
             origin,
             egui::pos2(
-                (rect.right() - TERMINAL_SCROLLBAR_WIDTH - 8.0).max(origin.x),
-                (rect.bottom() - 8.0).max(origin.y),
+                (rect.right() - TERMINAL_SCROLLBAR_WIDTH - TERMINAL_PADDING).max(origin.x),
+                (rect.bottom() - TERMINAL_PADDING).max(origin.y),
             ),
         );
         let selection_response = ui.interact(
@@ -393,7 +394,7 @@ fn terminal_scrollbar(
     let id = pane.id.with("scrollbar");
     let grab_id = id.with("grab_offset");
     if history_len == 0
-        || pane.rect.height() <= 16.0
+        || pane.rect.height() <= 2.0 * TERMINAL_PADDING
         || pane.rect.width() <= TERMINAL_SCROLLBAR_WIDTH
     {
         ui.ctx().data_mut(|data| data.remove::<f32>(grab_id));
@@ -402,9 +403,9 @@ fn terminal_scrollbar(
     let gutter = egui::Rect::from_min_max(
         egui::pos2(
             pane.rect.right() - TERMINAL_SCROLLBAR_WIDTH,
-            pane.rect.top() + 8.0,
+            pane.rect.top() + TERMINAL_PADDING,
         ),
-        egui::pos2(pane.rect.right(), pane.rect.bottom() - 8.0),
+        egui::pos2(pane.rect.right(), pane.rect.bottom() - TERMINAL_PADDING),
     );
     let track = gutter.shrink2(Vec2::new(4.0, 0.0));
     let thumb_height = (track.height() * rows as f32 / (history_len + rows) as f32)

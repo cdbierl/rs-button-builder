@@ -4,7 +4,7 @@
 #[path = "ui/mod.rs"]
 pub(crate) mod ui;
 
-#[path = "workspace.rs"]
+#[path = "workspace/mod.rs"]
 mod workspace;
 
 use workspace::TerminalWorkspace;

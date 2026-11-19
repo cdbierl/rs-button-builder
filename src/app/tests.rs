@@ -364,6 +364,7 @@ fn terminal_output_position(output: &egui::FullOutput, prefix: &str) -> egui::Po
 }
 
 fn open_tab_menu(app: &mut ButtonBuilder, ctx: &egui::Context, title: &str) -> egui::FullOutput {
+    frame(app, ctx, vec![]);
     let output = frame(app, ctx, vec![]);
     let pos = label_center(&output, title);
     for pressed in [true, false] {
@@ -473,7 +474,16 @@ fn terminal_split_right_preserves_sessions_and_routes_focus_input_and_tabs() {
         "New tabs belong to the focused pane"
     );
     let menu = open_tab_menu(&mut app, &ctx, "3 · Gamma");
-    click(&mut app, &ctx, label_center(&menu, "Move to other pane"));
+    frame(
+        &mut app,
+        &ctx,
+        vec![egui::Event::PointerMoved(label_center(
+            &menu,
+            "Move to pane",
+        ))],
+    );
+    let destinations = frame(&mut app, &ctx, vec![]);
+    click(&mut app, &ctx, label_center(&destinations, "Pane 2 · Beta"));
     assert_eq!(app.workspace.tabs()[2].pane(), 1);
     assert_eq!(app.workspace.pane_tab(0), Some(0));
     assert_eq!(app.workspace.pane_tab(1), Some(2));
@@ -500,7 +510,7 @@ fn terminal_split_right_preserves_sessions_and_routes_focus_input_and_tabs() {
     assert!(copied.platform_output.commands.iter().any(|command| matches!(command,
         egui::OutputCommand::CopyText(text) if text.contains("Beta-ready") && !text.contains("Alpha-ready"))));
     let menu = open_tab_menu(&mut app, &ctx, "2 · Beta");
-    click(&mut app, &ctx, label_center(&menu, "Merge panes"));
+    click(&mut app, &ctx, label_center(&menu, "Merge all panes"));
     assert!(app.workspace.split().is_none());
     assert!(
         app.workspace
@@ -4259,4 +4269,202 @@ fn failed_load_keeps_layout_and_successful_load_keeps_running_process() {
     );
     assert!(app.workspace.active().unwrap().button_index.is_none() && app.editor.is_none());
     assert_eq!((app.config.rows, app.config.columns), (2, 2));
+}
+
+#[test]
+fn nested_terminal_splits_resize_route_input_and_collapse_only_empty_sections() {
+    use crate::ui::Split;
+    let ctx = egui::Context::default();
+    let mut config = Config::default();
+    for (index, label) in ["Alpha", "Beta", "Gamma", "Delta"].into_iter().enumerate() {
+        config.buttons[index] = interactive_button(label);
+    }
+    let mut app = ButtonBuilder::new(&ctx, None, config);
+    for index in 0..4 {
+        app.launch(index);
+    }
+    wait_for_tabs(&mut app, &ctx, |app| {
+        app.workspace
+            .tabs()
+            .iter()
+            .all(|tab| tab.terminal.screen.text().contains("-ready"))
+    });
+    let ids: Vec<_> = app.workspace.tabs().iter().map(|tab| tab.id()).collect();
+    let menu = open_tab_menu(&mut app, &ctx, "2 · Beta");
+    click(&mut app, &ctx, label_center(&menu, "Split right"));
+    assert!(
+        !app.workspace.can_split(1),
+        "Other panes' tabs cannot satisfy a split"
+    );
+    app.workspace.split_terminal(1, Split::Below);
+    assert_eq!(app.workspace.pane_ids().len(), 2);
+    let menu = open_tab_menu(&mut app, &ctx, "4 · Delta");
+    frame(
+        &mut app,
+        &ctx,
+        vec![egui::Event::PointerMoved(label_center(
+            &menu,
+            "Move to pane",
+        ))],
+    );
+    let menu = frame(&mut app, &ctx, vec![]);
+    click(&mut app, &ctx, label_center(&menu, "Pane 2 · Beta"));
+    let menu = open_tab_menu(&mut app, &ctx, "4 · Delta");
+    click(&mut app, &ctx, label_center(&menu, "Split below"));
+    let menu = open_tab_menu(&mut app, &ctx, "3 · Gamma");
+    click(&mut app, &ctx, label_center(&menu, "Split below"));
+    assert_eq!(app.workspace.pane_ids(), vec![0, 3, 1, 2]);
+    assert_eq!(
+        app.workspace
+            .tabs()
+            .iter()
+            .map(|tab| tab.id())
+            .collect::<Vec<_>>(),
+        ids
+    );
+    let output = frame(&mut app, &ctx, vec![]);
+    let positions: Vec<_> = ["Alpha", "Beta", "Gamma", "Delta"]
+        .iter()
+        .map(|label| terminal_output_position(&output, &format!("{label}-ready")))
+        .collect();
+    assert!(positions[0].x < positions[1].x && positions[0].y < positions[2].y);
+    assert_eq!(positions[0].x, positions[2].x);
+    assert_eq!(positions[1].x, positions[3].x);
+    assert!(positions[1].y < positions[3].y);
+    for size in [Vec2::new(850.0, 500.0), Vec2::new(1200.0, 760.0)] {
+        let output = frame_with(&mut app, &ctx, size, egui::Modifiers::NONE, vec![]);
+        for label in ["Alpha", "Beta", "Gamma", "Delta"] {
+            let prefix = format!("{label}-ready");
+            let position = terminal_output_position(&output, &prefix);
+            assert!(output.shapes.iter().any(|shape| shape.clip_rect.contains(position)
+                && matches!(&shape.shape, egui::Shape::Text(text) if text.galley.job.text.starts_with(&prefix))),
+                "Terminal text should stay within its pane at {size:?}");
+        }
+    }
+    let sizes: Vec<_> = app
+        .workspace
+        .tabs()
+        .iter()
+        .map(|tab| (tab.terminal.screen.cols, tab.terminal.screen.rows))
+        .collect();
+    let divider = output
+        .shapes
+        .iter()
+        .find_map(|shape| match &shape.shape {
+            egui::Shape::LineSegment { points, stroke }
+                if points[0].x > positions[1].x - 30.0
+                    && points[0].y == points[1].y
+                    && points[1].x - points[0].x > 200.0
+                    && stroke.width == 2.0 =>
+            {
+                Some(points[0].lerp(points[1], 0.5))
+            }
+            _ => None,
+        })
+        .unwrap();
+    frame(
+        &mut app,
+        &ctx,
+        vec![
+            egui::Event::PointerMoved(divider),
+            primary_pointer(divider, true),
+        ],
+    );
+    let destination = divider + Vec2::new(0.0, 35.0);
+    frame(&mut app, &ctx, vec![egui::Event::PointerMoved(destination)]);
+    frame(&mut app, &ctx, vec![primary_pointer(destination, false)]);
+    frame(&mut app, &ctx, vec![]);
+    assert_eq!(
+        sizes[0],
+        (
+            app.workspace.tabs()[0].terminal.screen.cols,
+            app.workspace.tabs()[0].terminal.screen.rows
+        )
+    );
+    assert_eq!(
+        sizes[2],
+        (
+            app.workspace.tabs()[2].terminal.screen.cols,
+            app.workspace.tabs()[2].terminal.screen.rows
+        )
+    );
+    assert!(app.workspace.tabs()[1].terminal.screen.rows > sizes[1].1);
+    assert!(app.workspace.tabs()[3].terminal.screen.rows < sizes[3].1);
+    let output = frame(&mut app, &ctx, vec![]);
+    let gamma = terminal_output_position(&output, "Gamma-ready");
+    click(&mut app, &ctx, gamma + Vec2::new(20.0, 20.0));
+    frame(
+        &mut app,
+        &ctx,
+        vec![
+            egui::Event::Text("nested-input".into()),
+            egui::Event::Key {
+                key: egui::Key::Enter,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: egui::Modifiers::NONE,
+            },
+        ],
+    );
+    wait_for_tabs(&mut app, &ctx, |app| {
+        app.workspace.tabs()[2]
+            .terminal
+            .screen
+            .text()
+            .contains("Gamma:nested-input")
+    });
+    assert!(
+        app.workspace
+            .tabs()
+            .iter()
+            .enumerate()
+            .all(|(index, tab)| index == 2 || !tab.terminal.screen.text().contains("nested-input"))
+    );
+    app.launch(2);
+    assert_eq!(app.workspace.tabs().len(), 4);
+    assert_eq!(app.workspace.focused_pane(), 3);
+    // Removing the top-left leaf must preserve the independently resized right split.
+    app.workspace.move_terminal(0, 2);
+    assert_eq!(app.workspace.pane_ids(), vec![3, 1, 2]);
+    app.workspace.close_tab(2); // Gamma, the only tab in the left subtree.
+    assert_eq!(app.workspace.pane_ids(), vec![1, 2]);
+    assert_eq!(app.workspace.active().unwrap().id(), ids[0]);
+    assert_eq!(app.workspace.split(), Some(Split::Below));
+    let before = app
+        .workspace
+        .tabs()
+        .iter()
+        .map(|tab| tab.id())
+        .collect::<Vec<_>>();
+    let button = ButtonConfig {
+        command: "/usr/bin/printf".into(),
+        arguments: "success".into(),
+        close_on_success: true,
+        ..Default::default()
+    };
+    app.workspace.tabs_mut()[1].terminal = Terminal::start(&button, 80, 24).unwrap();
+    wait_for_tabs(&mut app, &ctx, |app| app.workspace.tabs().len() == 2);
+    assert_eq!(
+        app.workspace.pane_ids(),
+        vec![2],
+        "Promoting a sibling preserves its pane ID"
+    );
+    assert_eq!(app.workspace.active().unwrap().id(), ids[0]);
+    assert!(
+        app.workspace
+            .tabs()
+            .iter()
+            .all(|tab| tab.terminal.is_running())
+    );
+    app.workspace.merge_terminals();
+    assert_eq!(app.workspace.pane_ids(), vec![0]);
+    assert_eq!(
+        app.workspace
+            .tabs()
+            .iter()
+            .map(|tab| tab.id())
+            .collect::<Vec<_>>(),
+        vec![before[0], before[2]]
+    );
 }

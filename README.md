@@ -102,12 +102,16 @@ select a YAML layout file. Dependency versions are recorded in [Cargo.lock](Carg
   button to also close successful runs that printed output. Failures, interrupted
   or stopped commands, and terminal or logging errors keep their tabs.
 - **Arrange terminals:** right-click a terminal tab and choose **Split right** or
-  **Split below** to move that session into a second pane. Each pane has its own
-  tabs, and the divider can be dragged to resize them. Click a pane to focus it;
-  new terminals open there, and clicking a running button focuses its existing
-  pane. **Move to other pane** moves a tab; **Merge panes** restores one tab strip.
-  Closing the last tab in either pane also merges the panes. The first revision
-  supports two panes and does not persist their arrangement across app restarts.
+  **Split below** to move it into a new pane. Any pane can be split again, mixing
+  horizontal and vertical arrangements. Splitting requires another tab in the
+  source pane and enough room for both panes. Each pane has its own tabs; drag
+  its adjoining divider to resize it. Click a pane to focus it; new terminals
+  open there, and clicking a running button focuses its existing pane.
+  **Move to pane** lists destinations by their selected terminal.
+  **Merge all panes** restores one tab strip. Closing or moving the last tab out
+  of a pane removes only that section and preserves the remaining splits.
+  Pane arrangements are not persisted across app restarts.
+  See the [nested pane preview](docs/images/terminal-panes.png) with generated output.
 - **Copy terminal text:** click and drag to highlight text; releasing the mouse
   automatically copies it to the clipboard. **Copy** or **Ctrl+Shift+C** copies the
   selection, or all output when nothing is selected. Click in the terminal to clear
@@ -249,7 +253,7 @@ two-second timeout if storage stalls. Log files and `.env` are excluded from Git
 | --- | --- |
 | `src/main.rs`, `src/cli.rs` | Startup, arguments, logging, and `.env` loading. |
 | `src/app.rs` | Application state, layout persistence, notices, and frame composition. |
-| `src/workspace.rs` | Terminal tabs, pane membership, selection, process lifecycle, and repaint scheduling. |
+| `src/workspace/mod.rs` | Terminal tabs, pane membership, selection, process lifecycle, and repaint scheduling. |
 | `src/ui/` | Footer menu, button grid/editor, layout dialogs, appearance, terminal rendering, and shared styling. |
 | `src/app/tests.rs` | UI interaction and application workflow tests. |
 | `src/layout_config.rs`, `src/config_picker.rs` | YAML persistence and layout selection. |

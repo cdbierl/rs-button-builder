@@ -1,8 +1,11 @@
 //! Terminal sessions, pane membership, selection, and process scheduling.
 
+mod panes;
+
 use super::ui;
 use crate::layout_config::{ButtonConfig, TerminalStyle};
 use crate::terminal::{Terminal, Wake};
+pub(super) use panes::PaneNode;
 use std::time::{Duration, Instant};
 
 pub(super) struct TerminalTab {
@@ -60,33 +63,25 @@ impl TerminalTab {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Split {
     Right,
     Below,
 }
 
-struct TerminalPanes {
-    split: Option<Split>,
-    fraction: f32,
-    selected: [Option<u64>; 2],
-    focused: usize,
-}
-
-impl Default for TerminalPanes {
-    fn default() -> Self {
-        Self {
-            split: None,
-            fraction: 0.5,
-            selected: [None; 2],
-            focused: 0,
-        }
-    }
+pub(super) enum PaneAction {
+    Split { tab: u64, direction: Split },
+    Move { tab: u64, pane: usize },
+    Merge,
 }
 
 pub(super) struct TerminalWorkspace {
     tabs: Vec<TerminalTab>,
-    panes: TerminalPanes,
+    layout: PaneNode,
+    focused_pane: usize,
+    next_pane_id: usize,
+    next_divider_id: usize,
+    pane_actions: Vec<PaneAction>,
     active_tab: Option<usize>,
     next_tab_id: u64,
     next_poll_tab: usize,
@@ -101,7 +96,11 @@ impl TerminalWorkspace {
         let ctx = ctx.clone();
         Self {
             tabs: Vec::new(),
-            panes: TerminalPanes::default(),
+            layout: PaneNode::leaf(0, None),
+            focused_pane: 0,
+            next_pane_id: 1,
+            next_divider_id: 1,
+            pane_actions: Vec::new(),
             active_tab: None,
             next_tab_id: 1,
             next_poll_tab: 0,
@@ -129,23 +128,60 @@ impl TerminalWorkspace {
     }
 
     pub(super) fn focused_pane(&self) -> usize {
-        self.panes.focused
+        self.focused_pane
+    }
+
+    pub(super) fn layout(&self) -> &PaneNode {
+        &self.layout
+    }
+
+    pub(super) fn has_pane(&self, pane: usize) -> bool {
+        self.layout.pane(pane).is_some()
+    }
+
+    pub(super) fn pane_ids(&self) -> Vec<usize> {
+        self.layout.ids()
     }
 
     pub(super) fn split(&self) -> Option<Split> {
-        self.panes.split
+        match self.layout {
+            PaneNode::Split { direction, .. } => Some(direction),
+            PaneNode::Leaf(_) => None,
+        }
     }
 
-    pub(super) fn split_fraction(&self) -> f32 {
-        self.panes.fraction
+    pub(super) fn set_split_fraction(&mut self, divider: usize, fraction: f32) {
+        self.layout.set_fraction(divider, fraction);
     }
 
-    pub(super) fn set_split_fraction(&mut self, fraction: f32) {
-        self.panes.fraction = fraction;
+    pub(super) fn queue_pane_action(&mut self, action: PaneAction) {
+        self.pane_actions.push(action);
+    }
+
+    // Apply structural changes after all panes have rendered from the same layout.
+    pub(super) fn apply_pane_actions(&mut self) -> bool {
+        let actions = std::mem::take(&mut self.pane_actions);
+        let changed = !actions.is_empty();
+        for action in actions {
+            match action {
+                PaneAction::Split { tab, direction } => {
+                    if let Some(index) = self.tabs.iter().position(|t| t.id == tab) {
+                        self.split_terminal(index, direction);
+                    }
+                }
+                PaneAction::Move { tab, pane } => {
+                    if let Some(index) = self.tabs.iter().position(|t| t.id == tab) {
+                        self.move_terminal(index, pane);
+                    }
+                }
+                PaneAction::Merge => self.merge_terminals(),
+            }
+        }
+        changed
     }
 
     pub(super) fn focus_requested(&self, pane: usize) -> bool {
-        self.focus_terminal && self.panes.focused == pane
+        self.focus_terminal && self.focused_pane == pane
     }
 
     pub(super) fn acknowledge_focus(&mut self) {
@@ -153,17 +189,17 @@ impl TerminalWorkspace {
     }
 
     pub(super) fn reveal_requested(&self, pane: usize) -> bool {
-        self.reveal_active_tab && self.panes.focused == pane
+        self.reveal_active_tab && self.focused_pane == pane
     }
 
     pub(super) fn acknowledge_tab_reveal(&mut self, pane: usize) {
-        if self.panes.focused == pane {
+        if self.focused_pane == pane {
             self.reveal_active_tab = false;
         }
     }
 
     pub(super) fn resize_target(&mut self, pane: usize, cols: usize, rows: usize) {
-        if self.panes.focused == pane {
+        if self.focused_pane == pane {
             self.terminal_size = (cols, rows);
         }
     }
@@ -189,8 +225,8 @@ impl TerminalWorkspace {
     pub(super) fn select_tab(&mut self, index: usize) {
         self.active_tab = Some(index);
         let tab = &self.tabs[index];
-        self.panes.focused = tab.pane;
-        self.panes.selected[tab.pane] = Some(tab.id);
+        self.focused_pane = tab.pane;
+        self.layout.pane_mut(tab.pane).unwrap().selected = Some(tab.id);
         self.reveal_active_tab = true;
         self.focus_terminal = true;
     }
@@ -198,6 +234,7 @@ impl TerminalWorkspace {
     pub(super) fn close_tab(&mut self, index: usize) {
         let active_closed = self.active_tab == Some(index);
         let pane = self.tabs[index].pane;
+        let pane_order = self.pane_ids();
         // Dropping a terminal requests termination; reaping happens off the UI thread.
         self.tabs.remove(index);
         self.active_tab = match self.active_tab {
@@ -207,22 +244,26 @@ impl TerminalWorkspace {
             active => active,
         };
         if active_closed {
-            if self.panes.split.is_some() {
-                self.active_tab = self
-                    .tabs
-                    .iter()
-                    .enumerate()
-                    .find(|(other, tab)| *other >= index && tab.pane == pane)
-                    .or_else(|| {
-                        self.tabs
-                            .iter()
-                            .enumerate()
-                            .rev()
-                            .find(|(_, tab)| tab.pane == pane)
-                    })
-                    .map(|(index, _)| index)
-                    .or(self.active_tab);
-            }
+            let position = pane_order.iter().position(|&id| id == pane).unwrap();
+            self.active_tab = self
+                .tabs
+                .iter()
+                .enumerate()
+                .find(|(other, tab)| *other >= index && tab.pane == pane)
+                .or_else(|| {
+                    self.tabs
+                        .iter()
+                        .enumerate()
+                        .rev()
+                        .find(|(_, tab)| tab.pane == pane)
+                })
+                .map(|(index, _)| index)
+                .or_else(|| {
+                    pane_order[position + 1..]
+                        .iter()
+                        .chain(pane_order[..position].iter().rev())
+                        .find_map(|&pane| self.pane_tab(pane))
+                });
             self.focus_terminal = true;
             self.reveal_active_tab = true;
         }
@@ -232,40 +273,59 @@ impl TerminalWorkspace {
     pub(super) fn pane_tab(&self, pane: usize) -> Option<usize> {
         self.tabs
             .iter()
-            .position(|tab| tab.pane == pane && Some(tab.id) == self.panes.selected[pane])
+            .position(|tab| {
+                tab.pane == pane && Some(tab.id) == self.layout.pane(pane).and_then(|p| p.selected)
+            })
             .or_else(|| self.tabs.iter().position(|tab| tab.pane == pane))
     }
 
     pub(super) fn focus_pane(&mut self, pane: usize) {
         if let Some(index) = self.pane_tab(pane) {
             self.select_tab(index);
-        } else {
-            self.panes.focused = pane;
+        } else if self.has_pane(pane) {
+            self.focused_pane = pane;
             self.active_tab = None;
         }
     }
 
+    pub(super) fn can_split(&self, index: usize) -> bool {
+        let pane = self.tabs[index].pane;
+        self.tabs.iter().filter(|tab| tab.pane == pane).count() >= 2
+    }
+
     pub(super) fn split_terminal(&mut self, index: usize, split: Split) {
-        if self.panes.split.is_some() || self.tabs.len() < 2 {
+        if !self.can_split(index) {
             return;
         }
+        let pane = self.tabs[index].pane;
         let remaining = self
-            .active_tab
-            .filter(|&active| active != index)
-            .or_else(|| (0..self.tabs.len()).find(|&other| other != index))
+            .pane_tab(pane)
+            .filter(|&other| other != index)
+            .or_else(|| {
+                self.tabs
+                    .iter()
+                    .position(|tab| tab.pane == pane && tab.id != self.tabs[index].id)
+            })
             .unwrap();
-        self.tabs[index].pane = 1;
-        self.panes.split = Some(split);
-        self.panes.fraction = 0.5;
-        self.panes.selected[0] = Some(self.tabs[remaining].id);
+        let new_pane = self.next_pane_id;
+        if !self
+            .layout
+            .split_pane(pane, new_pane, self.next_divider_id, split)
+        {
+            return;
+        }
+        self.next_pane_id += 1;
+        self.next_divider_id += 1;
+        self.tabs[index].pane = new_pane;
+        self.layout.pane_mut(pane).unwrap().selected = Some(self.tabs[remaining].id);
         self.select_tab(index);
     }
 
-    pub(super) fn move_terminal(&mut self, index: usize) {
-        if self.panes.split.is_none() {
+    pub(super) fn move_terminal(&mut self, index: usize, pane: usize) {
+        if self.layout.pane(pane).is_none() || self.tabs[index].pane == pane {
             return;
         }
-        self.tabs[index].pane = 1 - self.tabs[index].pane;
+        self.tabs[index].pane = pane;
         self.select_tab(index);
         self.normalize_panes();
     }
@@ -274,25 +334,26 @@ impl TerminalWorkspace {
         for tab in &mut self.tabs {
             tab.pane = 0;
         }
-        self.panes.split = None;
-        self.panes.focused = 0;
-        self.panes.selected = [self.active_tab.map(|index| self.tabs[index].id), None];
+        self.layout = PaneNode::leaf(0, self.active_tab.map(|index| self.tabs[index].id));
+        self.focused_pane = 0;
         self.focus_terminal = true;
         self.reveal_active_tab = true;
     }
 
     fn normalize_panes(&mut self) {
-        if self.panes.split.is_some()
-            && (0..2).any(|pane| !self.tabs.iter().any(|tab| tab.pane == pane))
-        {
-            self.merge_terminals();
-        }
-        for pane in 0..2 {
-            self.panes.selected[pane] = self.pane_tab(pane).map(|index| self.tabs[index].id);
+        let layout = std::mem::replace(&mut self.layout, PaneNode::leaf(0, None));
+        self.layout = layout
+            .retain(&|pane| self.tabs.iter().any(|tab| tab.pane == pane))
+            .unwrap_or_else(|| PaneNode::leaf(0, None));
+        for pane in self.pane_ids() {
+            let selected = self.pane_tab(pane).map(|index| self.tabs[index].id);
+            self.layout.pane_mut(pane).unwrap().selected = selected;
         }
         if let Some(index) = self.active_tab {
-            self.panes.focused = self.tabs[index].pane;
-            self.panes.selected[self.panes.focused] = Some(self.tabs[index].id);
+            self.focused_pane = self.tabs[index].pane;
+            self.layout.pane_mut(self.focused_pane).unwrap().selected = Some(self.tabs[index].id);
+        } else {
+            self.focused_pane = self.pane_ids()[0];
         }
     }
 
@@ -321,7 +382,7 @@ impl TerminalWorkspace {
             .map_err(|error| format!("Could not watch terminal: {error}"))?;
         self.tabs.push(TerminalTab {
             id: self.next_tab_id,
-            pane: self.panes.focused,
+            pane: self.focused_pane,
             label: button.label.clone(),
             command: button.command.clone(),
             button_index: Some(index),
@@ -370,7 +431,7 @@ impl TerminalWorkspace {
             .tabs
             .iter()
             .enumerate()
-            .filter_map(|(index, tab)| (tab.pane == self.panes.focused).then_some(index))
+            .filter_map(|(index, tab)| (tab.pane == self.focused_pane).then_some(index))
             .collect();
         if let Some(position) = indices
             .iter()
