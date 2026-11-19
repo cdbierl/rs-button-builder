@@ -18,12 +18,7 @@ pub(in crate::app) const TERMINAL_SCROLLBAR_WIDTH: f32 = 20.0;
 #[derive(Default)]
 pub(in crate::app) struct TerminalTextCache {
     font: Option<(FontId, f32)>,
-    rows: Vec<Vec<CachedText>>,
-}
-
-struct CachedText {
-    text: String,
-    galley: Arc<egui::Galley>,
+    rows: Vec<Vec<Arc<egui::Galley>>>,
 }
 
 impl TerminalTextCache {
@@ -464,7 +459,7 @@ fn paint_line(
     colors: &Palette,
     selected: std::ops::Range<usize>,
     selection_style: egui::style::Selection,
-    cache: &mut Vec<CachedText>,
+    cache: &mut Vec<Arc<egui::Galley>>,
 ) {
     let mut start = 0;
     let mut run = 0;
@@ -503,20 +498,15 @@ fn paint_line(
             .map(|cell| cell.text.as_str())
             .collect();
         let galley = if let Some(cached) = cache.get(run)
-            && cached.text == text
+            && cached.job.text == text
         {
-            cached.galley.clone()
+            cached.clone()
         } else {
-            let galley =
-                painter.layout_no_wrap(text.clone(), font.clone(), egui::Color32::PLACEHOLDER);
-            let cached = CachedText {
-                text,
-                galley: galley.clone(),
-            };
+            let galley = painter.layout_no_wrap(text, font.clone(), egui::Color32::PLACEHOLDER);
             if run < cache.len() {
-                cache[run] = cached;
+                cache[run] = galley.clone();
             } else {
-                cache.push(cached);
+                cache.push(galley.clone());
             }
             galley
         };

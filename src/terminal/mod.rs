@@ -191,8 +191,7 @@ impl Terminal {
         }
         if let Some(watcher) = &mut self.watcher {
             watcher.arm(
-                !self.eof
-                    && self.output.is_empty()
+                self.output.is_empty()
                     && self.log.as_ref().is_none_or(|log| !log.has_pending_write()),
                 !self.input.is_empty(),
             );
@@ -226,6 +225,9 @@ impl Terminal {
     }
 
     pub fn send(&mut self, bytes: &[u8]) {
+        if bytes.is_empty() {
+            return;
+        }
         if self.is_running() && self.input.len() + bytes.len() <= 65_536 {
             self.input.extend(bytes);
             if let Some(wake) = &self.wake {
