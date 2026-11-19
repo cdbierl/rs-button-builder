@@ -26,7 +26,7 @@ impl ButtonBuilder {
                         .sense(egui::Sense::click()),
                 )
                 .on_hover_cursor(egui::CursorIcon::PointingHand)
-                .on_hover_text("Click to rename this layout")
+                .on_hover_text("Rename layout")
                 .clicked()
             {
                 self.layout_name_edit = Some(self.config.display_name().to_owned());
@@ -74,7 +74,7 @@ impl ButtonBuilder {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if ui
                     .add(text_button("Done").small())
-                    .on_hover_text("Finish editing. Use Save layout to save your changes.")
+                    .on_hover_text("Finish editing; save changes with Save layout")
                     .clicked()
                 {
                     self.apply_layout_name();
@@ -206,7 +206,7 @@ impl ButtonBuilder {
                                 }
                                 if ui
                                     .add(text_button("Reset").small())
-                                    .on_hover_text("Clear this slot's label, command, and custom settings")
+                                    .on_hover_text("Clear this button and its settings")
                                     .clicked()
                                 {
                                     reset = Some(index);
@@ -214,10 +214,12 @@ impl ButtonBuilder {
                                 }
                             });
                             slots.push((index, response.clone(), ui.painter().clone()));
-                            response.on_hover_text(if configured {
-                                format!("{}\nClick to open a terminal or focus this button's running tab\nCtrl+click to start a new terminal\nDrag onto another button to swap positions", button.command)
+                            response.on_hover_text(if configured && !self.edit_mode {
+                                format!("{}\nClick to run or focus; Ctrl+click for a new terminal\nDrag to swap buttons", button.command)
+                            } else if configured {
+                                format!("{}\nClick to edit\nDrag to swap buttons", button.command)
                             } else {
-                                "Click to assign a label and command\nDrag onto another button to swap positions".into()
+                                "Click to configure\nDrag to swap buttons".into()
                             });
                             if (index + 1) % columns == 0 {
                                 ui.end_row();

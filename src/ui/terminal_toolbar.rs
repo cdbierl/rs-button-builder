@@ -28,7 +28,7 @@ impl ButtonBuilder {
                     if ui
                         .add(toolbar_button("Appearance"))
                         .on_hover_text(
-                            "Change this tab's font and colors; save as the default for new tabs\nCtrl+mouse wheel over the terminal changes its font size",
+                            "Change font and colors for this tab and new tabs\nCtrl+wheel to resize text",
                         )
                         .clicked()
                     {
@@ -39,19 +39,19 @@ impl ButtonBuilder {
                     }
                     copy = ui
                         .add_enabled(active.is_some(), toolbar_button("Copy"))
-                        .on_hover_text("Copy selected text, or all output (Ctrl+Shift+C)\nDrag over terminal text to select and copy automatically")
+                        .on_hover_text("Copy selection or all output (Ctrl+Shift+C)")
                         .clicked();
                     interrupt = ui
                         .add_enabled(running, toolbar_button("Ctrl+C"))
-                        .on_hover_text("Send SIGINT to the foreground job; programs can ignore it")
+                        .on_hover_text("Send SIGINT; the foreground job may ignore it")
                         .clicked();
                     stop = ui
                         .add_enabled(running, toolbar_button("Stop"))
-                        .on_hover_text("Force termination with SIGKILL; discard pending output")
+                        .on_hover_text("Force stop (SIGKILL); discard unread output")
                         .clicked();
                     close = ui
                         .add_enabled(active.is_some(), toolbar_button("Close tab"))
-                        .on_hover_text(format!("Close this tab and stop its process ({})", ui.ctx().format_shortcut(&Action::CloseTab.shortcut())))
+                        .on_hover_text(format!("Close tab and stop process ({})", ui.ctx().format_shortcut(&Action::CloseTab.shortcut())))
                         .clicked();
                     if active.is_some_and(|index| self.workspace.tabs()[index].scrollback > 0) {
                         live = ui.add(toolbar_button("Jump to live")).clicked();

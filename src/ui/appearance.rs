@@ -90,7 +90,7 @@ impl ButtonBuilder {
                         }
                         if ui
                             .add(text_button("Use theme colors").small())
-                            .on_hover_text("Follow the footer's Light, Dark, or System setting")
+                            .on_hover_text("Follow the app theme")
                             .clicked()
                         {
                             changed |= style.fg_color.is_some() || style.bg_color.is_some();

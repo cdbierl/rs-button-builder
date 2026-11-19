@@ -48,7 +48,7 @@ impl ButtonBuilder {
         let before = self.theme;
         let response = ui
             .add_sized([76.0, 28.0], text_button(symbol("palette")).small())
-            .on_hover_text(format!("Theme: {}", self.theme.accent.name()));
+            .on_hover_text(format!("Choose theme ({})", self.theme.accent.name()));
         response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, "Theme"));
         ui.painter().circle_filled(
             response.rect.left_center() + Vec2::new(12.0, 0.0),

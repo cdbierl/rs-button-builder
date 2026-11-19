@@ -306,7 +306,25 @@ impl ButtonBuilder {
                 origin + Vec2::new(x as f32 * char_width, y as f32 * line_height),
                 Vec2::new(char_width, line_height),
             );
-            if !focused || phase < 0.5 {
+            if focused && phase < 0.5 {
+                painter.rect_filled(cursor, 0.0, foreground);
+                // Keep the character under the block cursor readable.
+                let line = screen.line(y);
+                let column = if line.get(x).is_some_and(|cell| cell.continuation) {
+                    x.saturating_sub(1)
+                } else {
+                    x
+                };
+                if let Some(cell) = line.get(column) {
+                    painter.with_clip_rect(cursor.intersect(text_rect)).text(
+                        origin + Vec2::new(column as f32 * char_width, y as f32 * line_height),
+                        egui::Align2::LEFT_TOP,
+                        &cell.text,
+                        font.clone(),
+                        rgb(colors.background),
+                    );
+                }
+            } else if !focused {
                 painter.rect_stroke(
                     cursor,
                     0.0,

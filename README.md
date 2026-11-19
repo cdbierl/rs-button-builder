@@ -69,8 +69,9 @@ select a YAML layout file. Dependency versions are recorded in [Cargo.lock](Carg
 
 ## Usage
 
-- **Configure buttons:** right-click a button, click an unassigned button, or choose
-  **Edit layout** from the footer menu. Set its label, executable, arguments,
+- **Configure buttons:** right-click a button and choose **Edit button…**, click an
+  unassigned button, or choose **Edit layout** from the footer menu and click a
+  button. Set its label, executable, arguments,
   working directory, and colors.
   Empty slots show a muted **new window** icon. **Shell script (/bin/sh)** runs the complete
   command through `/bin/sh`.
@@ -93,10 +94,12 @@ select a YAML layout file. Dependency versions are recorded in [Cargo.lock](Carg
   empty 3×3 grid and asks how to handle unsaved changes. Existing terminal tabs
   stay open; the new layout's first save asks for a filename.
 - **Manage terminals:** click a button to focus its running terminal, or open a new
-  tab if it has no running terminal in the current layout. **Ctrl+click** always
-  starts a new terminal in the focused pane. With multiple running instances,
+  tab if it has no running terminal in the current layout. **Ctrl+click** on a
+  configured button starts a new terminal in the focused pane. In edit mode,
+  both clicks open the button editor. With multiple running instances,
   a normal click keeps the selected instance or focuses the newest one.
-  Finished tabs and their output are preserved. New tabs use the layout's
+  Finished tabs and their output are preserved unless they close automatically
+  as described below. New tabs use the layout's
   terminal appearance defaults.
   Running tabs keep collecting output. Click the terminal to
   type; use the tab bar and its arrows to switch sessions.
@@ -200,18 +203,7 @@ Existing layouts with explicit terminal colors keep them until cleared using
 **Appearance → Use theme colors**. Standard ANSI colors adapt to the terminal
 background; extended colors (indices 16–255) and explicit RGB output stay exact.
 
-### Terminal output logs
-
-Set `BUTTON_BUILDER_LOG_DIR` in your environment or in `.env` at the project root
-(see [.env.example](.env.example)):
-
-```dotenv
-BUTTON_BUILDER_LOG_DIR=./logs
-```
-
-Enable **Log output** in a button's edit dialog, or set `log_output: true` in that
-button's YAML definition. It is unchecked by default, including when loading
-older layouts without this field. Changes apply to newly launched processes.
+### Button run options
 
 Enable **Auto start** in a button's edit dialog, or set `auto_start: true` in its
 YAML definition, to open that button in a terminal tab whenever the layout file
@@ -221,9 +213,22 @@ unchecked by default and does not run when merely saving a layout.
 Enable **Close on success** in a button's edit dialog, or set `close_on_success: true`
 in its YAML definition, to close its terminal after exit status 0 regardless of
 output. It is unchecked by default; unchecked buttons still close on silent success.
-Changes apply to new runs, including Auto start. Closing waits for pending output
+Changes apply to new runs, including auto start. Closing waits for pending output
 and log writes to finish; enabled output logs are preserved. Without logging,
 closing discards the displayed output.
+
+### Terminal output logs
+
+Set `BUTTON_BUILDER_LOG_DIR` in your environment or in a `.env` file in the app's
+working directory or a parent directory (see [.env.example](.env.example)):
+
+```dotenv
+BUTTON_BUILDER_LOG_DIR=./logs
+```
+
+Enable **Log output** in a button's edit dialog, or set `log_output: true` in that
+button's YAML definition. It is unchecked by default, including when loading
+older layouts without this field. Changes apply to newly launched processes.
 
 Each opted-in process that produces output gets its own log, for example
 `logs/run_top/20261117_183100.log`. Button labels become lowercase directory names
@@ -257,10 +262,12 @@ two-second timeout if storage stalls. Log files and `.env` are excluded from Git
 | `src/main.rs`, `src/cli.rs` | Startup, arguments, logging, and `.env` loading. |
 | `src/app.rs` | Application state, layout persistence, notices, and frame composition. |
 | `src/workspace/mod.rs` | Terminal tabs, pane membership, selection, process lifecycle, and repaint scheduling. |
+| `src/workspace/panes.rs` | Nested pane layout, divider proportions, and collapsing empty sections. |
 | `src/ui/` | Footer menu, button grid/editor, layout dialogs, appearance, terminal rendering, and shared styling. |
 | `src/app/tests.rs` | UI interaction and application workflow tests. |
 | `src/layout_config.rs`, `src/config_picker.rs` | YAML persistence and layout selection. |
 | `src/settings.rs` | App preferences and startup layout restoration. |
+| `src/theme.rs` | UI appearance modes, accent colors, and terminal theme defaults. |
 | `src/terminal/` | Pseudo-terminal processes, input, and screen rendering. |
 | `src/fonts.rs` | Bundled icons and local font discovery. |
 

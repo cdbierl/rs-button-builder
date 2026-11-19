@@ -10,7 +10,7 @@ impl ButtonBuilder {
     pub(in crate::app) fn app_menu(&mut self, ui: &mut egui::Ui) {
         let response = ui
             .add_sized([164.0, 28.0], text_button("Button Builder").small())
-            .on_hover_text("Layout actions and application menu");
+            .on_hover_text("Layout and app actions");
         ui.painter().text(
             response.rect.right_center() - Vec2::new(12.0, 0.0),
             egui::Align2::CENTER_CENTER,
@@ -64,7 +64,7 @@ impl ButtonBuilder {
                         ),
                     )
                     .on_hover_text(self.config_path.as_ref().map_or_else(
-                        || "Choose a file to save this layout".into(),
+                        || "Choose a layout file".into(),
                         |path| format!("Save to {}", path.display()),
                     ))
                     .clicked()

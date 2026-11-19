@@ -45,7 +45,7 @@ impl ButtonBuilder {
                 if ui
                     .add_enabled(previous.is_some(), tab_arrow("‹"))
                     .on_hover_text(format!(
-                        "Previous terminal tab ({})",
+                        "Previous tab ({})",
                         ui.ctx().format_shortcut(&Action::PreviousTab.shortcut())
                     ))
                     .clicked()
@@ -179,7 +179,7 @@ impl ButtonBuilder {
                 if ui
                     .add_enabled(next.is_some(), tab_arrow("›"))
                     .on_hover_text(format!(
-                        "Next terminal tab ({})",
+                        "Next tab ({})",
                         ui.ctx().format_shortcut(&Action::NextTab.shortcut())
                     ))
                     .clicked()
@@ -214,9 +214,7 @@ impl ButtonBuilder {
                     self.workspace.can_split(index) && fits,
                     text_button(label).small(),
                 )
-                .on_disabled_hover_text(
-                    "Splitting requires another tab in this pane and enough space for both panes",
-                )
+                .on_disabled_hover_text("Requires another tab in this pane and room for both panes")
                 .clicked()
             {
                 action = Some(PaneAction::Split {
