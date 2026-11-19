@@ -19,16 +19,31 @@ pub(in crate::app) const TERMINAL_SCROLLBAR_WIDTH: f32 = 20.0;
 #[derive(Default)]
 pub(in crate::app) struct TerminalTextCache {
     font: Option<(FontId, f32)>,
+    atlas_reference: Option<Arc<egui::Galley>>,
     rows: Vec<Vec<Arc<egui::Galley>>>,
 }
 
 impl TerminalTextCache {
-    fn prepare(&mut self, font: &FontId, pixels_per_point: f32, rows: usize) {
-        let key = (font.clone(), pixels_per_point);
-        if self.font.as_ref() != Some(&key) {
+    fn prepare(&mut self, painter: &egui::Painter, font: &FontId, rows: usize) {
+        // Keep one shared layout alive in egui's cache each frame. Its identity changes
+        // when egui rebuilds the font atlas (including on light/dark theme changes),
+        // invalidating the texture coordinates in our retained terminal layouts.
+        let reference = painter.layout_no_wrap(
+            "M".into(),
+            FontId::monospace(12.0),
+            egui::Color32::PLACEHOLDER,
+        );
+        let key = (font.clone(), painter.ctx().pixels_per_point());
+        if self.font.as_ref() != Some(&key)
+            || self
+                .atlas_reference
+                .as_ref()
+                .is_none_or(|previous| !Arc::ptr_eq(previous, &reference))
+        {
             self.rows.clear();
             self.font = Some(key);
         }
+        self.atlas_reference = Some(reference);
         self.rows.resize_with(rows, Vec::new);
     }
 }
@@ -217,8 +232,7 @@ impl ButtonBuilder {
         };
         let focused_pane = self.workspace.focused_pane() == pane;
         let tab = &mut self.workspace.tabs_mut()[index];
-        tab.text_cache
-            .prepare(&font, ui.ctx().pixels_per_point(), rows);
+        tab.text_cache.prepare(&painter, &font, rows);
         let terminal = &mut tab.terminal;
         let screen = &terminal.screen;
         let history_len = if screen.is_alternate() {

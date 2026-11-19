@@ -1042,6 +1042,28 @@ fn switching_tabs_reuses_terminal_layouts_and_updates_text_colors_and_fonts() {
     let (recolored, color) = layout(&frame(&mut app, &ctx, vec![]), "cached-alpha");
     assert!(std::sync::Arc::ptr_eq(&first, &recolored));
     assert_eq!(color, rgb([20, 100, 200]));
+    for hidden in [false, true] {
+        if hidden {
+            app.workspace.select_tab(1);
+        }
+        for mode in [
+            crate::theme::Appearance::Light,
+            crate::theme::Appearance::Dark,
+        ] {
+            app.theme.mode = mode;
+            // Theme changes take effect in the font atlas at the start of the next pass.
+            frame(&mut app, &ctx, vec![]);
+            frame(&mut app, &ctx, vec![]);
+        }
+        app.workspace.select_tab(0);
+        let refreshed = layout(&frame(&mut app, &ctx, vec![]), "cached-alpha").0;
+        let fresh = ctx.fonts_mut(|fonts| fonts.layout_job(refreshed.job.as_ref().clone()));
+        assert_eq!(
+            refreshed.rows[0].visuals.mesh.vertices, fresh.rows[0].visuals.mesh.vertices,
+            "Terminal glyphs must use the current font atlas after a theme switch (hidden={hidden})"
+        );
+        assert!(!std::sync::Arc::ptr_eq(&recolored, &refreshed));
+    }
     app.workspace.tabs_mut()[0]
         .terminal
         .screen
