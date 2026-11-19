@@ -25,17 +25,19 @@ impl ButtonBuilder {
     pub(in crate::app) fn footer(&mut self, ui: &mut egui::Ui) {
         ui.with_layout(egui::Layout::right_to_left(Align::Center), |ui| {
             self.theme_picker(ui);
-            let (message, color) = if let Some(error) = &self.error {
-                (error.as_str(), get_global_color("error"))
-            } else {
-                (
-                    self.completion_notice
-                        .as_ref()
-                        .map_or(self.notice.as_str(), |(text, _)| text),
-                    get_global_color("onSurfaceVariant"),
-                )
-            };
             ui.with_layout(egui::Layout::left_to_right(Align::Center), |ui| {
+                self.app_menu(ui);
+                ui.separator();
+                let (message, color) = if let Some(error) = &self.error {
+                    (error.as_str(), get_global_color("error"))
+                } else {
+                    (
+                        self.completion_notice
+                            .as_ref()
+                            .map_or(self.notice.as_str(), |(text, _)| text),
+                        get_global_color("onSurfaceVariant"),
+                    )
+                };
                 ui.add(egui::Label::new(RichText::new(message).small().color(color)).truncate())
                     .on_hover_text(message);
             });

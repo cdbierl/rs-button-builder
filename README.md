@@ -78,6 +78,10 @@ select a YAML layout file. Dependency versions are recorded in [Cargo.lock](Carg
 - **Reposition buttons:** drag a button onto another slot to swap their positions.
   Dragging works with **Edit buttons** on or off. Drop outside the grid or press
   **Escape** to cancel. Use **Save layout** to keep the new positions.
+- **Layout actions:** click **Button Builder** in the bottom-left footer to open
+  the application menu. It opens upward with **New layout**, **Load config…**,
+  **Save layout**, **Save layout as…**, and **Exit**. Choose an action, click outside,
+  or press **Escape** to close it.
 - **Customize layouts:** change **Rows** and **Columns**, or click the heading above
   the grid to rename the layout. The window title shows
   **Button Builder - {display name}**. **New layout** creates an empty 3×3 grid and

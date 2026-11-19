@@ -457,9 +457,6 @@ impl ButtonBuilder {
     fn show(&mut self, ctx: &egui::Context) {
         self.sync_theme(ctx);
         self.poll_terminals(ctx);
-        egui::TopBottomPanel::top("header")
-            .frame(egui::Frame::NONE)
-            .show(ctx, |ui| self.header(ui));
         egui::TopBottomPanel::bottom("status").show(ctx, |ui| self.footer(ui));
         egui::SidePanel::left("buttons")
             .resizable(true)

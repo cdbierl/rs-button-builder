@@ -7,17 +7,6 @@ use egui_material3::{MaterialThemeContext, ThemeMode, get_global_color, update_g
 
 pub const CORNER_RADIUS: u8 = 6;
 
-pub fn material_icon(name: &str) -> egui::Label {
-    egui::Label::new(
-        egui::RichText::new(egui_material3::material_symbol::material_symbol_text(name))
-            .font(FontId::new(
-                24.0,
-                egui::FontFamily::Name(crate::fonts::MATERIAL_SYMBOLS.into()),
-            ))
-            .color(get_global_color("primary")),
-    )
-}
-
 pub fn filled_button(text: impl Into<egui::WidgetText>) -> egui_material3::MaterialButton<'static> {
     egui_material3::MaterialButton::filled(text).corner_radius(CORNER_RADIUS)
 }

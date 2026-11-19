@@ -142,6 +142,28 @@ fn label_center(output: &egui::FullOutput, label: &str) -> egui::Pos2 {
         .unwrap_or_else(|| panic!("Missing UI label: {label}"))
 }
 
+fn click_app_action(
+    app: &mut ButtonBuilder,
+    ctx: &egui::Context,
+    output: &egui::FullOutput,
+    label: &str,
+) {
+    click(app, ctx, label_center(output, "Button Builder"));
+    let menu = frame(app, ctx, vec![]);
+    let label = if matches!(label, "Save layout" | "Save layout *" | "Save layout…") {
+        if app.config_path.is_none() {
+            "Save layout…"
+        } else if app.dirty {
+            "Save layout *"
+        } else {
+            "Save layout"
+        }
+    } else {
+        label
+    };
+    click(app, ctx, label_center(&menu, label));
+}
+
 fn terminal_output_position(output: &egui::FullOutput, prefix: &str) -> egui::Pos2 {
     output
         .shapes
@@ -681,7 +703,7 @@ fn scrollbar_rects(output: &egui::FullOutput) -> Option<(egui::Rect, egui::Rect)
     })?;
     let thumb = output.shapes.iter().find_map(|shape| match &shape.shape {
         egui::Shape::Rect(rect)
-            if track.contains_rect(rect.rect)
+            if track.expand(0.1).contains_rect(rect.rect)
                 && (rect.fill == get_global_color("outline")
                     || rect.fill == get_global_color("primary")) =>
         {
@@ -2210,7 +2232,7 @@ fn layout_heading_edits_cancel_save_and_follow_the_loaded_config() {
     assert!(app.dirty && app.layout_name_edit.is_none());
     assert!(app.tabs.is_empty(), "Renaming must not launch a process");
     let output = frame(&mut app, &ctx, vec![]);
-    click(&mut app, &ctx, label_center(&output, "Save layout *"));
+    click_app_action(&mut app, &ctx, &output, "Save layout *");
     assert_eq!(
         Config::load_existing(&path).unwrap().display_name,
         "Workstation · Local"
@@ -2234,7 +2256,7 @@ fn layout_heading_edits_cancel_save_and_follow_the_loaded_config() {
     frame(&mut app, &ctx, vec![]);
     replace_name(&mut app, "Save while typing");
     let output = frame(&mut app, &ctx, vec![]);
-    click(&mut app, &ctx, label_center(&output, "Save layout"));
+    click_app_action(&mut app, &ctx, &output, "Save layout");
     assert_eq!(
         Config::load_existing(&path).unwrap().display_name,
         "Save while typing"
@@ -2455,7 +2477,7 @@ fn button_context_menu_resets_one_slot_and_preserves_running_terminals() {
     assert!(app.tabs[0].terminal.screen.text().contains("Alpha-ready"));
     let output = frame(&mut app, &ctx, vec![]);
     let empty = empty_button_centers(&output)[1];
-    click(&mut app, &ctx, label_center(&output, "Save layout *"));
+    click_app_action(&mut app, &ctx, &output, "Save layout *");
     assert!(!app.dirty);
     assert_eq!(
         serde_yaml_ng::to_string(&Config::load_existing(&path).unwrap()).unwrap(),
@@ -2522,7 +2544,7 @@ fn button_drag_swaps_positions_without_running_and_saves_full_definitions() {
     frame(&mut app, &ctx, vec![primary_pointer(empty, false)]);
     expected.buttons.swap(4, 1);
     let output = frame(&mut app, &ctx, vec![]);
-    click(&mut app, &ctx, label_center(&output, "Save layout *"));
+    click_app_action(&mut app, &ctx, &output, "Save layout *");
     assert!(!app.dirty && app.tabs.is_empty() && app.editor.is_none());
     assert_eq!(
         serde_yaml_ng::to_string(&Config::load_existing(&path).unwrap()).unwrap(),
@@ -3019,7 +3041,7 @@ fn resized_grid_renders_new_rows_and_columns_and_saves_them() {
     assert!(fourth.y < fifth.y);
     assert!(fifth.x < eighth.x);
     assert!((fifth.y - eighth.y).abs() < 1.0);
-    click(&mut app, &ctx, label_center(&output, "Save layout *"));
+    click_app_action(&mut app, &ctx, &output, "Save layout *");
     let loaded = Config::load_existing(&path).unwrap();
     assert_eq!((loaded.rows, loaded.columns), (2, 4));
     assert_eq!(
@@ -3030,7 +3052,53 @@ fn resized_grid_renders_new_rows_and_columns_and_saves_them() {
 }
 
 #[test]
-fn new_layout_toolbar_clears_the_layout_and_preserves_running_terminals() {
+fn footer_save_as_preserves_the_original_and_changes_destination_only_after_saving() {
+    let ctx = egui::Context::default();
+    let directory = std::env::temp_dir().join(format!(
+        "rs-button-builder-footer-save-as-{}",
+        std::process::id()
+    ));
+    std::fs::create_dir_all(&directory).unwrap();
+    let original = directory.join("original.yaml");
+    let copy = directory.join("copy.yaml");
+    let config = Config::default();
+    config.save(&original).unwrap();
+    let mut app = ButtonBuilder::new(&ctx, Some(original.clone()), config)
+        .with_settings(SettingsStore::open(directory.join("settings.yaml")));
+    app.config.display_name = "Changed layout".into();
+    app.dirty = true;
+    frame(&mut app, &ctx, vec![]);
+    let output = frame(&mut app, &ctx, vec![]);
+    click_app_action(&mut app, &ctx, &output, "Save layout as…");
+    assert!(app.save_as.is_some());
+    let output = frame(&mut app, &ctx, vec![]);
+    click(&mut app, &ctx, label_center(&output, "Cancel"));
+    assert!(app.save_as.is_none() && app.dirty);
+    assert_eq!(app.config_path.as_ref(), Some(&original));
+    assert_eq!(
+        Config::load_existing(&original).unwrap().display_name(),
+        DEFAULT_LAYOUT_NAME
+    );
+
+    let output = frame(&mut app, &ctx, vec![]);
+    click_app_action(&mut app, &ctx, &output, "Save layout as…");
+    app.save_as.as_mut().unwrap().picker.path = copy.display().to_string();
+    let output = frame(&mut app, &ctx, vec![]);
+    click(&mut app, &ctx, label_center(&output, "Save config"));
+    assert!(app.save_as.is_none() && !app.dirty);
+    assert_eq!(app.config_path.as_ref(), Some(&copy));
+    assert_eq!(
+        Config::load_existing(&copy).unwrap().display_name(),
+        "Changed layout"
+    );
+    assert_eq!(
+        Config::load_existing(&original).unwrap().display_name(),
+        DEFAULT_LAYOUT_NAME
+    );
+}
+
+#[test]
+fn footer_app_menu_clears_the_layout_and_preserves_running_terminals() {
     let ctx = egui::Context::default();
     let path = std::env::temp_dir().join(format!(
         "rs-button-builder-new-running-{}.yaml",
@@ -3057,25 +3125,64 @@ fn new_layout_toolbar_clears_the_layout_and_preserves_running_terminals() {
     for size in [Vec2::new(1200.0, 760.0), Vec2::new(850.0, 500.0)] {
         frame_with(&mut app, &ctx, size, egui::Modifiers::NONE, vec![]);
         let output = frame_with(&mut app, &ctx, size, egui::Modifiers::NONE, vec![]);
-        let positions: Vec<_> = ["New layout", "Load config…", "Save layout", "Exit"]
+        let trigger = label_center(&output, "Button Builder");
+        assert!(trigger.y > size.y - 40.0);
+        let terminal_sizes: Vec<_> = app
+            .tabs
+            .iter()
+            .map(|tab| (tab.terminal.screen.cols, tab.terminal.screen.rows))
+            .collect();
+        click(&mut app, &ctx, trigger);
+        let output = frame_with(&mut app, &ctx, size, egui::Modifiers::NONE, vec![]);
+        let labels = [
+            "New layout",
+            "Load config…",
+            "Save layout",
+            "Save layout as…",
+            "Exit",
+        ];
+        let positions: Vec<_> = labels
             .iter()
             .map(|label| label_center(&output, label))
             .collect();
-        assert!(positions.windows(2).all(|pair| pair[0].x < pair[1].x));
-        for (label, pos) in ["New layout", "Load config…", "Save layout", "Exit"]
-            .iter()
-            .zip(positions)
-        {
-            assert!(pos.x < size.x && pos.y < 64.0);
+        assert_eq!(
+            terminal_sizes,
+            app.tabs
+                .iter()
+                .map(|tab| (tab.terminal.screen.cols, tab.terminal.screen.rows))
+                .collect::<Vec<_>>()
+        );
+        assert!(positions.windows(2).all(|pair| pair[0].y < pair[1].y));
+        for (label, pos) in labels.iter().zip(positions) {
+            assert!(pos.x < size.x && pos.y < trigger.y);
             assert!(output.shapes.iter().any(|shape| shape.clip_rect.contains(pos)
                 && matches!(&shape.shape, egui::Shape::Text(text) if text.galley.job.text == *label)));
         }
+        frame_with(
+            &mut app,
+            &ctx,
+            size,
+            egui::Modifiers::NONE,
+            vec![egui::Event::Key {
+                key: egui::Key::Escape,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: egui::Modifiers::NONE,
+            }],
+        );
+        assert!(!egui::Popup::is_any_open(&ctx));
+        let output = frame_with(&mut app, &ctx, size, egui::Modifiers::NONE, vec![]);
+        click(&mut app, &ctx, label_center(&output, "Button Builder"));
+        assert!(egui::Popup::is_any_open(&ctx));
+        click(&mut app, &ctx, egui::pos2(size.x - 40.0, 200.0));
+        assert!(!egui::Popup::is_any_open(&ctx));
     }
     frame(&mut app, &ctx, vec![]);
     let output = frame(&mut app, &ctx, vec![]);
     let active_id = app.active().unwrap().id;
     let text = app.tabs[0].terminal.screen.text();
-    click(&mut app, &ctx, label_center(&output, "New layout"));
+    click_app_action(&mut app, &ctx, &output, "New layout");
     assert!(app.config_path.is_none() && !app.dirty && !app.new_layout_requested);
     assert_eq!(
         (
@@ -3135,7 +3242,7 @@ fn new_layout_confirmation_cancels_saves_or_discards_changes() {
     app.dirty = true;
     frame(&mut app, &ctx, vec![]);
     let output = frame(&mut app, &ctx, vec![]);
-    click(&mut app, &ctx, label_center(&output, "New layout"));
+    click_app_action(&mut app, &ctx, &output, "New layout");
     assert!(app.new_layout_requested && app.dirty);
     let output = frame(&mut app, &ctx, vec![]);
     click(&mut app, &ctx, label_center(&output, "Cancel"));
@@ -3148,7 +3255,7 @@ fn new_layout_confirmation_cancels_saves_or_discards_changes() {
     );
     app.layout_name_edit = Some("Save this title".into());
     let output = frame(&mut app, &ctx, vec![]);
-    click(&mut app, &ctx, label_center(&output, "New layout"));
+    click_app_action(&mut app, &ctx, &output, "New layout");
     let output = frame(&mut app, &ctx, vec![]);
     click(&mut app, &ctx, label_center(&output, "Save and create"));
     assert!(app.config_path.is_none() && !app.dirty && !app.new_layout_requested);
@@ -3161,7 +3268,7 @@ fn new_layout_confirmation_cancels_saves_or_discards_changes() {
     app.config.display_name = "Discard this title".into();
     app.dirty = true;
     let output = frame(&mut app, &ctx, vec![]);
-    click(&mut app, &ctx, label_center(&output, "New layout"));
+    click_app_action(&mut app, &ctx, &output, "New layout");
     let output = frame(&mut app, &ctx, vec![]);
     click(
         &mut app,
@@ -3267,7 +3374,7 @@ fn unsaved_layout_requires_a_filename_and_then_reuses_the_selected_file() {
     app.dirty = true;
     frame(&mut app, &ctx, vec![]);
     let output = frame(&mut app, &ctx, vec![]);
-    click(&mut app, &ctx, label_center(&output, "Save layout…"));
+    click_app_action(&mut app, &ctx, &output, "Save layout…");
     assert!(app.save_as.as_ref().unwrap().picker.path.is_empty());
     let output = frame(&mut app, &ctx, vec![]);
     click(&mut app, &ctx, label_center(&output, "Save config"));
@@ -3293,7 +3400,7 @@ fn unsaved_layout_requires_a_filename_and_then_reuses_the_selected_file() {
     assert!(!path.exists());
 
     let output = frame(&mut app, &ctx, vec![]);
-    click(&mut app, &ctx, label_center(&output, "Save layout…"));
+    click_app_action(&mut app, &ctx, &output, "Save layout…");
     let output = frame(&mut app, &ctx, vec![]);
     click(
         &mut app,
@@ -3318,7 +3425,7 @@ fn unsaved_layout_requires_a_filename_and_then_reuses_the_selected_file() {
     app.config.terminal.font_size = 20.0;
     app.dirty = true;
     let output = frame(&mut app, &ctx, vec![]);
-    click(&mut app, &ctx, label_center(&output, "Save layout *"));
+    click_app_action(&mut app, &ctx, &output, "Save layout *");
     assert!(app.save_as.is_none() && !app.dirty);
     assert_eq!(
         Config::load_existing(&path).unwrap().terminal.font_size,
@@ -3437,7 +3544,7 @@ fn loading_without_a_config_can_save_the_unsaved_layout_before_replacing_it() {
     let mut app = ButtonBuilder::new(&ctx, None, Config::default());
     frame(&mut app, &ctx, vec![]);
     let output = frame(&mut app, &ctx, vec![]);
-    click(&mut app, &ctx, label_center(&output, "Load config…"));
+    click_app_action(&mut app, &ctx, &output, "Load config…");
     assert!(app.config_picker.as_ref().unwrap().path.is_empty());
     let output = frame(&mut app, &ctx, vec![]);
     click(&mut app, &ctx, label_center(&output, "Cancel"));
@@ -3445,7 +3552,7 @@ fn loading_without_a_config_can_save_the_unsaved_layout_before_replacing_it() {
     app.config.resize_grid(1, 2).unwrap();
     app.dirty = true;
     let output = frame(&mut app, &ctx, vec![]);
-    click(&mut app, &ctx, label_center(&output, "Load config…"));
+    click_app_action(&mut app, &ctx, &output, "Load config…");
     app.config_picker.as_mut().unwrap().path = loaded.display().to_string();
     let output = frame(&mut app, &ctx, vec![]);
     click(
@@ -3498,7 +3605,7 @@ fn chooser_loads_an_example_only_after_unsaved_changes_are_replaced() {
     app.dirty = true;
     frame(&mut app, &ctx, vec![]);
     let output = frame(&mut app, &ctx, vec![]);
-    click(&mut app, &ctx, label_center(&output, "Load config…"));
+    click_app_action(&mut app, &ctx, &output, "Load config…");
     assert!(app.config_picker.is_some());
     frame(&mut app, &ctx, vec![]);
     let output = frame(&mut app, &ctx, vec![]);
