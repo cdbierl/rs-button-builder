@@ -1,5 +1,6 @@
 //! Cell-based terminal selection, anchored to retained output rows.
 
+use super::terminal_viewport::VisualRow;
 use crate::terminal::screen::{Cell, Screen};
 use egui::{PointerButton, Pos2, Rect};
 use std::ops::Range;
@@ -17,21 +18,25 @@ pub(in crate::app) struct TerminalSelection {
     scrolled_lines: usize,
 }
 
-pub(super) struct SelectionViewport {
+pub(super) struct SelectionViewport<'a> {
     pub rect: Rect,
     pub char_width: f32,
     pub line_height: f32,
-    pub first_row: usize,
+    pub rows: &'a [VisualRow<'a>],
+    pub horizontal_scroll: f32,
 }
 
-impl SelectionViewport {
-    fn position(&self, pointer: Pos2, screen: &Screen) -> Position {
+impl SelectionViewport<'_> {
+    fn position(&self, pointer: Pos2) -> Position {
+        let index = (((pointer.y - self.rect.top()) / self.line_height).floor() as usize)
+            .min(self.rows.len() - 1);
+        let row = &self.rows[index];
+        let col = row.first_col
+            + (((pointer.x - self.rect.left()).max(0.0) + self.horizontal_scroll) / self.char_width)
+                .round() as usize;
         Position {
-            row: self.first_row
-                + (((pointer.y - self.rect.top()) / self.line_height).floor() as usize)
-                    .min(screen.rows - 1),
-            col: (((pointer.x - self.rect.left()) / self.char_width).round() as usize)
-                .min(screen.cols),
+            row: row.logical_row,
+            col: col.min(row.end_col.max(row.first_col)),
         }
     }
 }
@@ -74,7 +79,7 @@ impl TerminalSelection {
         if response.drag_started_by(PointerButton::Primary)
             && let Some(origin) = ui.input(|input| input.pointer.press_origin())
         {
-            let anchor = viewport.position(origin, screen);
+            let anchor = viewport.position(origin);
             self.endpoints = Some((anchor, anchor));
         }
         if (response.dragged_by(PointerButton::Primary)
@@ -82,7 +87,7 @@ impl TerminalSelection {
             && let Some(pointer) = response.interact_pointer_pos()
             && let Some((_, head)) = &mut self.endpoints
         {
-            *head = viewport.position(pointer, screen);
+            *head = viewport.position(pointer);
         }
         if response.drag_stopped_by(PointerButton::Primary)
             && let Some(text) = self.text(screen)

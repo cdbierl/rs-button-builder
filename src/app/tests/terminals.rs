@@ -3,6 +3,107 @@
 use super::*;
 
 #[test]
+fn line_wrap_and_horizontal_scrolling_are_per_tab_and_do_not_change_configuration() {
+    let ctx = egui::Context::default();
+    let mut config = Config::default();
+    for (index, label) in ["Wide output", "Other tab"].into_iter().enumerate() {
+        config.buttons[index] = ButtonConfig {
+            label: label.into(),
+            command: "/bin/sleep".into(),
+            arguments: "60".into(),
+            ..Default::default()
+        };
+    }
+    let mut app = ButtonBuilder::new(&ctx, None, config);
+    app.launch(0);
+    frame(&mut app, &ctx, vec![]);
+    let original_config = serde_yaml_ng::to_string(&app.config).unwrap();
+    let text = format!("left-{}-right", "x".repeat(400));
+    app.workspace.tabs_mut()[0]
+        .terminal
+        .screen
+        .feed(format!("\x1b[2J\x1b[H{text}\r\n").as_bytes());
+    let output = frame(&mut app, &ctx, vec![]);
+    let cols = app.workspace.tabs()[0].terminal.screen.cols;
+    assert!(!app.workspace.tabs()[0].line_wrap);
+    assert!(
+        app.workspace.tabs()[0]
+            .terminal
+            .screen
+            .text()
+            .contains(&text)
+    );
+    let horizontal_track =
+        scrollbar_track(&output, true).expect("Wide output needs a horizontal scrollbar");
+    click(
+        &mut app,
+        &ctx,
+        horizontal_track.right_center() - Vec2::new(1.0, 0.0),
+    );
+    let output = frame(&mut app, &ctx, vec![]);
+    assert!(app.workspace.tabs()[0].horizontal_scroll > 0.0);
+    let font = egui::FontId::monospace(app.workspace.tabs()[0].style.font_size);
+    let width = ctx.fonts_mut(|fonts| fonts.glyph_width(&font, 'M'));
+    let anchor = output
+        .shapes
+        .iter()
+        .find_map(|shape| match &shape.shape {
+            egui::Shape::Text(text) if text.galley.job.text.contains("right") => Some(
+                text.pos
+                    + Vec2::new(
+                        text.galley.job.text.find("right").unwrap() as f32 * width,
+                        8.0,
+                    ),
+            ),
+            _ => None,
+        })
+        .expect("Scrolling reveals the end of the line");
+    let head = anchor + Vec2::new(5.0 * width, 0.0);
+    frame(
+        &mut app,
+        &ctx,
+        vec![
+            egui::Event::PointerMoved(anchor),
+            primary_pointer(anchor, true),
+        ],
+    );
+    frame(&mut app, &ctx, vec![egui::Event::PointerMoved(head)]);
+    let copied = frame(&mut app, &ctx, vec![primary_pointer(head, false)]);
+    assert!(
+        copied.platform_output.commands.iter().any(
+            |command| matches!(command, egui::OutputCommand::CopyText(text) if text == "right")
+        )
+    );
+
+    let output = frame(&mut app, &ctx, vec![]);
+    click(&mut app, &ctx, label_center(&output, "Line wrap"));
+    let output = frame(&mut app, &ctx, vec![]);
+    assert!(app.workspace.tabs()[0].line_wrap);
+    assert_eq!(app.workspace.tabs()[0].horizontal_scroll, 0.0);
+    assert_eq!(app.workspace.tabs()[0].terminal.screen.cols, cols);
+    assert!(output.shapes.iter().any(|shape| matches!(&shape.shape, egui::Shape::Text(text) if text.galley.job.text.contains("right"))));
+    assert!(scrollbar_track(&output, true).is_none());
+    app.launch(1);
+    assert!(!app.workspace.tabs()[1].line_wrap);
+    app.workspace.select_tab(0);
+    let output = frame(&mut app, &ctx, vec![]);
+    click(&mut app, &ctx, label_center(&output, "Line wrap"));
+    assert!(!app.workspace.tabs()[0].line_wrap);
+    assert!(
+        app.workspace.tabs()[0]
+            .terminal
+            .screen
+            .text()
+            .contains(&text)
+    );
+    assert!(!app.dirty);
+    assert_eq!(
+        serde_yaml_ng::to_string(&app.config).unwrap(),
+        original_config
+    );
+}
+
+#[test]
 fn idle_terminal_stops_fast_repaints_and_queued_input_wakes_the_ui() {
     let ctx = egui::Context::default();
     let mut config = Config::default();
@@ -640,7 +741,7 @@ fn terminal_selection_copies_scrollback_survives_tab_switches_and_releases_outsi
         .shapes
         .iter()
         .find_map(|shape| match &shape.shape {
-            egui::Shape::Text(text) if text.galley.job.text.starts_with("history-0 ") => {
+            egui::Shape::Text(text) if text.galley.job.text.starts_with("history-0") => {
                 Some(text.pos)
             }
             _ => None,

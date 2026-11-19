@@ -102,7 +102,9 @@ select a YAML layout file. Dependency versions are recorded in [Cargo.lock](Carg
   as described below. New tabs use the layout's
   terminal appearance defaults.
   Running tabs keep collecting output. Click the terminal to
-  type; use the tab bar and its arrows to switch sessions.
+  type; use the tab bar and its arrows to switch sessions. Long lines remain
+  unwrapped by default and can be viewed with the horizontal scrollbar. Enable
+  **Line wrap** in the toolbar to reflow the selected tab; this choice is not saved.
   Commands that finish successfully without printing meaningful text close their tabs
   automatically and show a brief success notice. Enable **Close on success** for a
   button to also close successful runs that printed output. Failures, interrupted

@@ -5,6 +5,8 @@ use std::time::Instant;
 use unicode_width::UnicodeWidthChar;
 
 pub const HISTORY_LIMIT: usize = 2000;
+// Safety-wrap very long output instead of allowing a single row to grow without bound.
+const MAX_LINE_COLS: usize = 4096;
 
 #[derive(Clone, Copy, Default, Debug, PartialEq)]
 pub struct Style {
@@ -55,13 +57,25 @@ impl Buffer {
         }
     }
 
-    fn resize(&mut self, cols: usize, rows: usize) {
-        for line in &mut self.lines {
-            line.resize(cols, Cell::blank(Style::default()));
+    fn resize(&mut self, cols: usize, rows: usize, preserve_lines: bool) {
+        for (row, line) in self.lines.iter_mut().enumerate() {
+            let cursor = if row == self.y { self.x + 1 } else { 0 };
+            line.resize(
+                if preserve_lines {
+                    cols.max(line_width(line)).max(cursor).min(MAX_LINE_COLS)
+                } else {
+                    cols
+                },
+                Cell::blank(Style::default()),
+            );
         }
         self.lines
             .resize(rows, vec![Cell::blank(Style::default()); cols]);
-        self.x = self.x.min(cols - 1);
+        self.x = self.x.min(if preserve_lines {
+            MAX_LINE_COLS - 1
+        } else {
+            cols - 1
+        });
         self.y = self.y.min(rows - 1);
         self.top = 0;
         self.bottom = rows - 1;
@@ -95,6 +109,7 @@ pub struct Screen {
     parser: Parser,
     utf8: Vec<u8>,
     auto_wrap: bool,
+    preserve_long_lines: bool,
     origin: bool,
     charsets: [bool; 2],
     charset: usize,
@@ -118,6 +133,7 @@ impl Screen {
             parser: Parser::Ground,
             utf8: Vec::new(),
             auto_wrap: true,
+            preserve_long_lines: false,
             origin: false,
             charsets: [false; 2],
             charset: 0,
@@ -136,10 +152,26 @@ impl Screen {
             }
         }
         self.buffer.y -= shift;
-        self.buffer.resize(self.cols, self.rows);
+        self.buffer.resize(
+            self.cols,
+            self.rows,
+            self.preserve_long_lines && self.alternate.is_none(),
+        );
         if let Some(saved) = &mut self.alternate {
-            saved.resize(self.cols, self.rows);
+            saved.resize(self.cols, self.rows, self.preserve_long_lines);
         }
+    }
+
+    fn column_limit(&self) -> usize {
+        if self.preserve_long_lines && self.alternate.is_none() && self.auto_wrap {
+            MAX_LINE_COLS
+        } else {
+            self.cols
+        }
+    }
+
+    pub(crate) fn preserve_long_lines(&mut self) {
+        self.preserve_long_lines = true;
     }
 
     pub fn line(&self, row: usize) -> &[Cell] {
@@ -245,8 +277,10 @@ impl Screen {
                 }
                 b'c' => {
                     let printed_text = self.printed_text;
+                    let preserve_long_lines = self.preserve_long_lines;
                     *self = Self::new(self.cols, self.rows);
                     self.printed_text = printed_text;
+                    self.preserve_long_lines = preserve_long_lines;
                 }
                 b'Z' => replies.extend_from_slice(b"\x1b[?1;2c"),
                 0x00..=0x1f | 0x7f => self.parser = Parser::Escape,
@@ -298,7 +332,7 @@ impl Screen {
                 }
                 b'\n' | 0x0b | 0x0c => self.line_feed(),
                 b'\t' => {
-                    self.buffer.x = ((self.buffer.x / 8 + 1) * 8).min(self.cols - 1);
+                    self.buffer.x = ((self.buffer.x / 8 + 1) * 8).min(self.column_limit() - 1);
                     self.buffer.wrap_pending = false;
                 }
                 8 => {
@@ -359,6 +393,10 @@ impl Screen {
             } else {
                 self.buffer.x.saturating_sub(1)
             };
+            if x >= self.buffer.lines[self.buffer.y].len() {
+                self.buffer.lines[self.buffer.y]
+                    .resize((x + 1).min(MAX_LINE_COLS), Cell::blank(self.style));
+            }
             let x = if self.buffer.lines[self.buffer.y][x].continuation {
                 x.saturating_sub(1)
             } else {
@@ -371,19 +409,22 @@ impl Screen {
             }
             return;
         }
-        if self.auto_wrap
-            && (self.buffer.wrap_pending || (width == 2 && self.buffer.x == self.cols - 1))
-        {
+        let limit = self.column_limit();
+        if self.auto_wrap && (self.buffer.wrap_pending || self.buffer.x + width > limit) {
             self.buffer.x = 0;
             self.line_feed();
         }
         self.buffer.wrap_pending = false;
+        self.buffer.x = self.buffer.x.min(limit - 1);
         let x = self.buffer.x;
         let line = &mut self.buffer.lines[self.buffer.y];
+        if x + width > line.len() {
+            line.resize((x + width).min(limit), Cell::blank(self.style));
+        }
         if line[x].continuation && x > 0 {
             line[x - 1] = Cell::blank(self.style);
         }
-        if x + 1 < self.cols && line[x + 1].continuation {
+        if x + 1 < line.len() && line[x + 1].continuation {
             line[x + 1] = Cell::blank(self.style);
         }
         line[x] = Cell {
@@ -391,15 +432,15 @@ impl Screen {
             style: self.style,
             continuation: false,
         };
-        if width == 2 && x + 1 < self.cols {
+        if width == 2 && x + 1 < line.len() {
             line[x + 1] = Cell {
                 text: String::new(),
                 style: self.style,
                 continuation: true,
             };
         }
-        if x + width >= self.cols {
-            self.buffer.x = self.cols - 1;
+        if x + width >= limit {
+            self.buffer.x = limit - 1;
             self.buffer.wrap_pending = true;
         } else {
             self.buffer.x += width;
@@ -430,7 +471,8 @@ impl Screen {
         }
     }
 
-    fn push_history(&mut self, line: Vec<Cell>) {
+    fn push_history(&mut self, mut line: Vec<Cell>) {
+        line.truncate(line_width(&line));
         self.scrolled_lines = self.scrolled_lines.saturating_add(1);
         self.history.push_back(line);
         if self.history.len() > HISTORY_LIMIT {
@@ -452,7 +494,7 @@ impl Screen {
     }
     fn restore_cursor(&mut self) {
         let (x, y, style) = self.buffer.saved;
-        self.buffer.x = x.min(self.cols - 1);
+        self.buffer.x = x.min(self.column_limit() - 1);
         self.buffer.y = y.min(self.rows - 1);
         self.style = style;
         self.buffer.wrap_pending = false;
@@ -477,6 +519,11 @@ impl Screen {
         let p = params[0];
         let count = p.max(1);
         let (x, y) = (self.buffer.x, self.buffer.y);
+        if x >= self.buffer.lines[y].len() {
+            self.buffer.lines[y].resize((x + 1).min(MAX_LINE_COLS), Cell::blank(self.style));
+        }
+        let line_end = self.buffer.lines[y].len();
+        let column_limit = self.column_limit();
         let y_min = if self.origin { self.buffer.top } else { 0 };
         let y_max = if self.origin {
             self.buffer.bottom
@@ -486,7 +533,7 @@ impl Screen {
         match command {
             b'A' => self.buffer.y = y.saturating_sub(count).max(y_min),
             b'B' | b'e' => self.buffer.y = (y + count).min(y_max),
-            b'C' | b'a' => self.buffer.x = (x + count).min(self.cols - 1),
+            b'C' | b'a' => self.buffer.x = (x + count).min(column_limit - 1),
             b'D' => self.buffer.x = x.saturating_sub(count),
             b'E' => {
                 self.buffer.y = (y + count).min(y_max);
@@ -496,7 +543,7 @@ impl Screen {
                 self.buffer.y = y.saturating_sub(count).max(y_min);
                 self.buffer.x = 0;
             }
-            b'G' | b'`' => self.buffer.x = (count - 1).min(self.cols - 1),
+            b'G' | b'`' => self.buffer.x = (count - 1).min(column_limit - 1),
             b'd' => self.buffer.y = (y_min + count - 1).min(y_max),
             b'H' | b'f' => {
                 self.buffer.y = (y_min + count - 1).min(y_max);
@@ -506,11 +553,11 @@ impl Screen {
                     .unwrap_or(1)
                     .max(1)
                     .saturating_sub(1)
-                    .min(self.cols - 1);
+                    .min(column_limit - 1);
             }
             b'J' => match p {
                 0 => {
-                    self.erase_line(x, self.cols);
+                    self.erase_line(x, line_end);
                     for row in y + 1..self.rows {
                         self.buffer.lines[row].fill(Cell::blank(self.style));
                     }
@@ -530,18 +577,18 @@ impl Screen {
                 _ => {}
             },
             b'K' => match p {
-                0 => self.erase_line(x, self.cols),
+                0 => self.erase_line(x, line_end),
                 1 => self.erase_line(0, x + 1),
-                2 => self.erase_line(0, self.cols),
+                2 => self.erase_line(0, line_end),
                 _ => {}
             },
-            b'X' => self.erase_line(x, (x + count).min(self.cols)),
+            b'X' => self.erase_line(x, (x + count).min(line_end)),
             b'P' | b'@' => {
-                let count = count.min(self.cols - x);
+                let count = count.min(line_end.saturating_sub(x));
                 let line = &mut self.buffer.lines[y];
                 if command == b'P' {
                     line[x..].rotate_left(count);
-                    line[self.cols - count..].fill(Cell::blank(self.style));
+                    line[line_end - count..].fill(Cell::blank(self.style));
                 } else {
                     line[x..].rotate_right(count);
                     line[x..x + count].fill(Cell::blank(self.style));
@@ -618,7 +665,10 @@ impl Screen {
     }
 
     fn erase_line(&mut self, start: usize, end: usize) {
-        self.buffer.lines[self.buffer.y][start..end].fill(Cell::blank(self.style));
+        let line = &mut self.buffer.lines[self.buffer.y];
+        let start = start.min(line.len());
+        let end = end.min(line.len()).max(start);
+        line[start..end].fill(Cell::blank(self.style));
     }
 
     fn sgr(&mut self, params: &[usize]) {
@@ -671,9 +721,63 @@ impl Screen {
     }
 }
 
+pub(crate) fn line_width(line: &[Cell]) -> usize {
+    line.iter()
+        .rposition(|cell| {
+            (!cell.text.is_empty() && cell.text != " ")
+                || cell.continuation
+                || cell.style.bg_color.is_some()
+                || cell.style.inverse
+                || cell.style.underline
+        })
+        .map_or(0, |last| last + 1)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unwrapped_lines_survive_resize_history_and_alternate_screen() {
+        let mut screen = Screen::new(4, 3);
+        screen.preserve_long_lines();
+        let text = "abc界e\u{301}-tail";
+        screen.feed(text.as_bytes());
+        assert_eq!(screen.cols, 4, "Long output must not widen the PTY");
+        assert!(screen.text().starts_with(text));
+        screen.resize(3, 3);
+        assert!(screen.text().starts_with(text));
+        let cursor = screen.cursor();
+        screen.feed(b"\x1b[?1049habcdef");
+        assert!(screen.text().starts_with("abc\ndef"));
+        screen.feed(b"\x1b[?1049l");
+        assert_eq!(screen.cursor(), cursor);
+        assert!(screen.text().starts_with(text));
+        screen.feed(b"\r\nnext\r\nlast\r\n");
+        assert!(
+            screen.text().starts_with(text),
+            "Scrollback retains the complete line"
+        );
+    }
+
+    #[test]
+    fn unwrapped_cursor_edits_reset_and_safety_wrap_preserve_output() {
+        let mut screen = Screen::new(4, 3);
+        screen.preserve_long_lines();
+        screen.feed(b"abcdefgh\x1b[2DXY\x1b[K");
+        assert!(screen.text().starts_with("abcdefXY"));
+        screen.feed(b"\r\x1b[2K0123456\tX");
+        assert!(screen.text().starts_with("0123456 X"));
+        screen.feed(b"\x1bcabcdef");
+        assert!(
+            screen.text().starts_with("abcdef"),
+            "Reset keeps the wrap choice"
+        );
+        screen.feed(b"\x1bc");
+        screen.feed(&vec![b'x'; MAX_LINE_COLS + 10]);
+        assert_eq!(screen.text().replace('\n', "").len(), MAX_LINE_COLS + 10);
+        assert!((0..screen.rows).all(|row| screen.line(row).len() <= MAX_LINE_COLS));
+    }
 
     #[test]
     fn color_indices_survive_scrollback_and_remain_distinct_from_truecolor() {

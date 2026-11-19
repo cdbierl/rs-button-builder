@@ -1,6 +1,8 @@
 //! Terminal viewport rendering, scrollback, resizing, and keyboard input.
 
-use super::terminal_selection::{SelectionViewport, live_row};
+use super::terminal_scrollbar::{Scrollbar, TERMINAL_SCROLLBAR_WIDTH};
+use super::terminal_selection::SelectionViewport;
+use super::terminal_viewport::TerminalViewport;
 use super::{CORNER_RADIUS, rgb};
 use crate::app::ButtonBuilder;
 use crate::app::workspace::TerminalTab;
@@ -11,8 +13,6 @@ use egui::{FontFamily, FontId, Stroke, Vec2};
 use egui_material3::get_global_color;
 use std::sync::Arc;
 
-// Reserve the gutter even without history so the PTY width stays stable as output arrives.
-pub(in crate::app) const TERMINAL_SCROLLBAR_WIDTH: f32 = 20.0;
 const TERMINAL_PADDING: f32 = 12.0;
 
 // Retain only the last visible viewport for each tab. egui evicts layouts that were not
@@ -119,11 +119,9 @@ impl ButtonBuilder {
         });
         let content_width = (size.x - 2.0 * TERMINAL_PADDING - TERMINAL_SCROLLBAR_WIDTH).max(0.0);
         let cols = ((content_width / char_width) as usize).clamp(2, 500);
-        let rows = (((size.y - 2.0 * TERMINAL_PADDING) / line_height) as usize).clamp(2, 200);
-        self.workspace.resize_target(pane, cols, rows);
         let rect = response.rect;
         painter.rect_filled(rect, CORNER_RADIUS, rgb(colors.background));
-        // Inactive processes also receive viewport changes, using their own font metrics.
+        // Keep PTY dimensions tied to the pane, including for full-screen applications.
         for tab in self
             .workspace
             .tabs_mut()
@@ -137,40 +135,40 @@ impl ButtonBuilder {
                     fonts.row_height(&tab_font) * tab.style.line_spacing,
                 )
             });
+            let tab_cols = ((content_width / width) as usize).clamp(2, 500);
+            let horizontal = !tab.line_wrap
+                && !tab.terminal.screen.is_alternate()
+                && TerminalViewport::content_width(&tab.terminal.screen) > tab_cols;
+            let gutter = if horizontal {
+                TERMINAL_SCROLLBAR_WIDTH
+            } else {
+                0.0
+            };
             tab.resize(
-                ((content_width / width) as usize).clamp(2, 500),
-                (((size.y - 2.0 * TERMINAL_PADDING) / height) as usize).clamp(2, 200),
+                tab_cols,
+                (((size.y - 2.0 * TERMINAL_PADDING - gutter) / height) as usize).clamp(2, 200),
             );
         }
-        let mut scrollbar_interacted = false;
-        if let Some(index) = active {
-            let tab = &mut self.workspace.tabs_mut()[index];
-            let screen = &tab.terminal.screen;
-            let history_len = if screen.is_alternate() {
-                0
-            } else {
-                screen.history.len()
-            };
-            if pane_hovered && !control_scroll {
-                let delta = ui.input(|input| input.smooth_scroll_delta.y);
-                tab.scroll_fraction += delta / line_height;
-                let lines = tab.scroll_fraction.trunc() as isize;
-                tab.scroll_fraction -= lines as f32;
-                tab.scrollback = tab.scrollback.saturating_add_signed(lines);
-            }
-            tab.scrollback = tab.scrollback.min(history_len);
-            scrollbar_interacted =
-                terminal_scrollbar(ui, &response, rows, history_len, &mut tab.scrollback);
-            if scrollbar_interacted {
-                tab.scroll_fraction = 0.0;
-            }
-        }
-        let origin = rect.min + Vec2::splat(TERMINAL_PADDING);
+        let horizontal = active.is_some_and(|index| {
+            let tab = &self.workspace.tabs()[index];
+            !tab.line_wrap
+                && !tab.terminal.screen.is_alternate()
+                && TerminalViewport::content_width(&tab.terminal.screen) > cols
+        });
+        let horizontal_gutter = if horizontal {
+            TERMINAL_SCROLLBAR_WIDTH
+        } else {
+            0.0
+        };
+        let rows = (((size.y - 2.0 * TERMINAL_PADDING - horizontal_gutter) / line_height) as usize)
+            .clamp(2, 200);
+        self.workspace.resize_target(pane, cols, rows);
+        let base_origin = rect.min + Vec2::splat(TERMINAL_PADDING);
         let text_rect = egui::Rect::from_min_max(
-            origin,
+            base_origin,
             egui::pos2(
-                (rect.right() - TERMINAL_SCROLLBAR_WIDTH - TERMINAL_PADDING).max(origin.x),
-                (rect.bottom() - TERMINAL_PADDING).max(origin.y),
+                (rect.right() - TERMINAL_SCROLLBAR_WIDTH - TERMINAL_PADDING).max(base_origin.x),
+                (rect.bottom() - TERMINAL_PADDING - horizontal_gutter).max(base_origin.y),
             ),
         );
         let selection_response = ui.interact(
@@ -178,13 +176,59 @@ impl ButtonBuilder {
             response.id.with("selection"),
             egui::Sense::click_and_drag(),
         );
+        let mut scrollbar_interacted = false;
         if let Some(index) = active {
             let tab = &mut self.workspace.tabs_mut()[index];
+            let view = TerminalViewport::new(&tab.terminal.screen, tab.line_wrap, cols, rows);
+            if pane_hovered && !control_scroll {
+                let delta = ui.input(|input| input.smooth_scroll_delta);
+                tab.scroll_fraction += delta.y / line_height;
+                let lines = tab.scroll_fraction.trunc() as isize;
+                tab.scroll_fraction -= lines as f32;
+                tab.scrollback = tab.scrollback.saturating_add_signed(lines);
+                tab.horizontal_scroll -= delta.x;
+            }
+            tab.scrollback = tab.scrollback.min(view.live_start);
+            let mut vertical = (view.live_start - tab.scrollback) as f32;
+            scrollbar_interacted |= Scrollbar {
+                id: response.id.with("scrollbar"),
+                rect: egui::Rect::from_min_max(
+                    egui::pos2(rect.right() - TERMINAL_SCROLLBAR_WIDTH, base_origin.y),
+                    egui::pos2(rect.right(), text_rect.bottom()),
+                ),
+                horizontal: false,
+                visible: rows as f32,
+                total: (view.live_start + rows) as f32,
+            }
+            .show(ui, &mut vertical);
+            tab.scrollback = view.live_start.saturating_sub(vertical.round() as usize);
+            if horizontal {
+                scrollbar_interacted |= Scrollbar {
+                    id: response.id.with("horizontal_scrollbar"),
+                    rect: egui::Rect::from_min_max(
+                        egui::pos2(
+                            base_origin.x,
+                            rect.bottom() - TERMINAL_PADDING - TERMINAL_SCROLLBAR_WIDTH,
+                        ),
+                        egui::pos2(text_rect.right(), rect.bottom() - TERMINAL_PADDING),
+                    ),
+                    horizontal: true,
+                    visible: text_rect.width(),
+                    total: view.width as f32 * char_width,
+                }
+                .show(ui, &mut tab.horizontal_scroll);
+            } else {
+                tab.horizontal_scroll = 0.0;
+            }
+            if scrollbar_interacted {
+                tab.scroll_fraction = 0.0;
+            }
             let viewport = SelectionViewport {
                 rect: text_rect,
                 char_width,
                 line_height,
-                first_row: live_row(&tab.terminal.screen).saturating_sub(tab.scrollback),
+                rows: view.visible(tab.scrollback, rows),
+                horizontal_scroll: tab.horizontal_scroll,
             };
             tab.selection
                 .interact(ui, &selection_response, &viewport, &tab.terminal.screen);
@@ -223,7 +267,7 @@ impl ButtonBuilder {
         let painter = painter.with_clip_rect(text_rect);
         let Some(index) = active else {
             painter.text(
-                origin,
+                base_origin,
                 egui::Align2::LEFT_TOP,
                 "No process output yet.",
                 font,
@@ -236,37 +280,42 @@ impl ButtonBuilder {
         tab.text_cache.prepare(&painter, &font, rows);
         let terminal = &mut tab.terminal;
         let screen = &terminal.screen;
-        let history_len = if screen.is_alternate() {
-            0
-        } else {
-            screen.history.len()
-        };
-        let start = history_len.saturating_sub(tab.scrollback);
-        for visible_row in 0..rows {
-            let index = start + visible_row;
-            let line = if index < history_len {
-                &screen.history[index]
-            } else {
-                screen.line(index - history_len)
-            };
+        let view = TerminalViewport::new(screen, tab.line_wrap, cols, rows);
+        for (visible_row, row) in view.visible(tab.scrollback, rows).iter().enumerate() {
+            if row.first_col >= row.line.len() {
+                continue;
+            }
+            let mut first =
+                (row.first_col + (tab.horizontal_scroll / char_width) as usize).min(row.end_col);
+            if first > 0 && row.line.get(first).is_some_and(|cell| cell.continuation) {
+                first -= 1;
+            }
+            let end = (first + cols + 2).min(row.end_col);
+            let selected = tab.selection.columns(row.logical_row, row.line);
             paint_line(
                 &painter,
-                origin + Vec2::new(0.0, visible_row as f32 * line_height),
-                line,
+                base_origin
+                    + Vec2::new(
+                        (first - row.first_col) as f32 * char_width - tab.horizontal_scroll,
+                        visible_row as f32 * line_height,
+                    ),
+                &row.line[first..end],
                 &font,
                 char_width,
                 line_height,
-                cols,
+                end - first,
                 &colors,
-                tab.selection.columns(
-                    live_row(screen).saturating_sub(tab.scrollback) + visible_row,
-                    line,
-                ),
+                selected.start.saturating_sub(first)..selected.end.saturating_sub(first),
                 ui.visuals().selection,
                 &mut tab.text_cache.rows[visible_row],
             );
         }
-        if tab.scrollback == 0 && screen.cursor_visible && terminal.is_running() {
+        if tab.scrollback == 0
+            && screen.cursor_visible
+            && terminal.is_running()
+            && view.cursor.0 >= view.live_start
+            && view.cursor.0 < view.live_start + rows
+        {
             let focused = response.has_focus() && focused_pane;
             let (now, typing) = ui.input(|input| {
                 (
@@ -302,10 +351,13 @@ impl ButtonBuilder {
                     }));
             }
             let (x, y) = screen.cursor();
-            let cursor = egui::Rect::from_min_size(
-                origin + Vec2::new(x as f32 * char_width, y as f32 * line_height),
-                Vec2::new(char_width, line_height),
-            );
+            let cursor_origin = base_origin
+                + Vec2::new(
+                    view.cursor.1 as f32 * char_width - tab.horizontal_scroll,
+                    (view.cursor.0 - view.live_start) as f32 * line_height,
+                );
+            let cursor =
+                egui::Rect::from_min_size(cursor_origin, Vec2::new(char_width, line_height));
             if focused && phase < 0.5 {
                 painter.rect_filled(cursor, 0.0, foreground);
                 // Keep the character under the block cursor readable.
@@ -317,7 +369,7 @@ impl ButtonBuilder {
                 };
                 if let Some(cell) = line.get(column) {
                     painter.with_clip_rect(cursor.intersect(text_rect)).text(
-                        origin + Vec2::new(column as f32 * char_width, y as f32 * line_height),
+                        cursor_origin - Vec2::new((x - column) as f32 * char_width, 0.0),
                         egui::Align2::LEFT_TOP,
                         &cell.text,
                         font.clone(),
@@ -399,90 +451,6 @@ fn terminal_font(style: &TerminalStyle, fonts: &[String]) -> FontId {
         FontFamily::Name(style.font.clone().into())
     };
     FontId::new(style.font_size, family)
-}
-
-/// Map the full scrollback range onto a proportional thumb, keeping zero at live output.
-fn terminal_scrollbar(
-    ui: &mut egui::Ui,
-    pane: &egui::Response,
-    rows: usize,
-    history_len: usize,
-    scrollback: &mut usize,
-) -> bool {
-    let id = pane.id.with("scrollbar");
-    let grab_id = id.with("grab_offset");
-    if history_len == 0
-        || pane.rect.height() <= 2.0 * TERMINAL_PADDING
-        || pane.rect.width() <= TERMINAL_SCROLLBAR_WIDTH
-    {
-        ui.ctx().data_mut(|data| data.remove::<f32>(grab_id));
-        return false;
-    }
-    let gutter = egui::Rect::from_min_max(
-        egui::pos2(
-            pane.rect.right() - TERMINAL_SCROLLBAR_WIDTH,
-            pane.rect.top() + TERMINAL_PADDING,
-        ),
-        egui::pos2(pane.rect.right(), pane.rect.bottom() - TERMINAL_PADDING),
-    );
-    let track = gutter.shrink2(Vec2::new(4.0, 0.0));
-    let thumb_height = (track.height() * rows as f32 / (history_len + rows) as f32)
-        .max(24.0)
-        .min(track.height());
-    let travel = track.height() - thumb_height;
-    let thumb_rect = |scrollback: usize| {
-        egui::Rect::from_min_size(
-            track.min
-                + Vec2::new(
-                    0.0,
-                    travel * (history_len - scrollback) as f32 / history_len as f32,
-                ),
-            Vec2::new(track.width(), thumb_height),
-        )
-    };
-    let response = ui.interact(gutter, id, egui::Sense::click_and_drag());
-    let interacting =
-        response.is_pointer_button_down_on() || response.dragged() || response.clicked();
-    if interacting && let Some(pointer) = response.interact_pointer_pos() {
-        let thumb = thumb_rect(*scrollback);
-        // Preserve where the thumb was grabbed; clicking the track centers it at the pointer.
-        let grab_offset = ui.ctx().data_mut(|data| {
-            *data.get_temp_mut_or_insert_with(grab_id, || {
-                if thumb.contains(pointer) {
-                    pointer.y - thumb.top()
-                } else {
-                    thumb_height / 2.0
-                }
-            })
-        });
-        if travel > 0.0 {
-            let fraction = ((pointer.y - grab_offset - track.top()) / travel).clamp(0.0, 1.0);
-            *scrollback = history_len - (fraction * history_len as f32).round() as usize;
-        }
-    }
-    if !ui.input(|input| input.pointer.any_down()) {
-        ui.ctx().data_mut(|data| data.remove::<f32>(grab_id));
-    }
-    let color = if response.hovered() || interacting {
-        get_global_color("primary")
-    } else {
-        get_global_color("outline")
-    };
-    if response.hovered() || interacting {
-        ui.ctx().set_cursor_icon(if interacting {
-            egui::CursorIcon::Grabbing
-        } else {
-            egui::CursorIcon::Grab
-        });
-    }
-    ui.painter().rect_filled(
-        track,
-        CORNER_RADIUS,
-        get_global_color("surfaceContainerHighest"),
-    );
-    ui.painter()
-        .rect_filled(thumb_rect(*scrollback), CORNER_RADIUS, color);
-    interacting
 }
 
 #[allow(clippy::too_many_arguments)]

@@ -1,5 +1,5 @@
-use crate::ui::{filled_button, outlined_button, text_button};
-use egui_material3::{MaterialCheckbox, get_global_color};
+use crate::ui::{Checkbox, filled_button, outlined_button, text_button};
+use egui_material3::get_global_color;
 use std::path::{Path, PathBuf};
 
 struct Entry {
@@ -231,14 +231,14 @@ impl ConfigPicker {
                         });
                     ui.add_space(8.0);
                     if saving && self.selected_path().is_some_and(|path| path.is_file()) {
-                        ui.add(MaterialCheckbox::new(
+                        ui.add(Checkbox::new(
                             &mut self.overwrite_existing,
                             "Overwrite existing file",
                         ));
                     }
                     if !saving && unsaved {
                         ui.label("There are unsaved layout changes or an open button edit.");
-                        ui.add(MaterialCheckbox::new(
+                        ui.add(Checkbox::new(
                             &mut self.replace_unsaved,
                             "Replace unsaved changes",
                         ));

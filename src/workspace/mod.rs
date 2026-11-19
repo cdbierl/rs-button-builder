@@ -18,6 +18,8 @@ pub(super) struct TerminalTab {
     pub(super) style: TerminalStyle,
     pub(super) scrollback: usize,
     pub(super) scroll_fraction: f32,
+    pub(super) line_wrap: bool,
+    pub(super) horizontal_scroll: f32,
     pub(super) selection: ui::TerminalSelection,
     pub(super) text_cache: ui::TerminalTextCache,
 }
@@ -41,6 +43,13 @@ impl TerminalTab {
         let previous = self.terminal.screen.scrolled_lines;
         self.terminal.resize(cols, rows);
         self.update_view(previous);
+    }
+
+    pub(super) fn set_line_wrap(&mut self, enabled: bool) {
+        self.line_wrap = enabled;
+        self.horizontal_scroll = 0.0;
+        self.scrollback = 0;
+        self.selection.clear();
     }
 
     fn update_view(&mut self, previous_scrolled_lines: usize) {
@@ -379,6 +388,7 @@ impl TerminalWorkspace {
         style: &TerminalStyle,
     ) -> Result<(), String> {
         let mut terminal = Terminal::start(button, self.terminal_size.0, self.terminal_size.1)?;
+        terminal.screen.preserve_long_lines();
         terminal
             .watch(self.terminal_wake.clone())
             .map_err(|error| format!("Could not watch terminal: {error}"))?;
@@ -392,6 +402,8 @@ impl TerminalWorkspace {
             style: style.clone(),
             scrollback: 0,
             scroll_fraction: 0.0,
+            line_wrap: false,
+            horizontal_scroll: 0.0,
             selection: ui::TerminalSelection::default(),
             text_cache: ui::TerminalTextCache::default(),
         });

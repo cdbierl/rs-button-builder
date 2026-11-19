@@ -233,15 +233,7 @@ fn interactive_button(label: &str) -> ButtonConfig {
 }
 
 fn scrollbar_rects(output: &egui::FullOutput) -> Option<(egui::Rect, egui::Rect)> {
-    let track = output.shapes.iter().find_map(|shape| match &shape.shape {
-        egui::Shape::Rect(rect)
-            if rect.fill == get_global_color("surfaceContainerHighest")
-                && (rect.rect.width() - (TERMINAL_SCROLLBAR_WIDTH - 8.0)).abs() < 0.1 =>
-        {
-            Some(rect.rect)
-        }
-        _ => None,
-    })?;
+    let track = scrollbar_track(output, false)?;
     let thumb = output.shapes.iter().find_map(|shape| match &shape.shape {
         egui::Shape::Rect(rect)
             if track.expand(0.1).contains_rect(rect.rect)
@@ -253,6 +245,24 @@ fn scrollbar_rects(output: &egui::FullOutput) -> Option<(egui::Rect, egui::Rect)
         _ => None,
     })?;
     Some((track, thumb))
+}
+
+fn scrollbar_track(output: &egui::FullOutput, horizontal: bool) -> Option<egui::Rect> {
+    output.shapes.iter().find_map(|shape| match &shape.shape {
+        egui::Shape::Rect(rect)
+            if rect.fill == get_global_color("surfaceContainerHighest")
+                && ((if horizontal {
+                    rect.rect.height()
+                } else {
+                    rect.rect.width()
+                }) - (TERMINAL_SCROLLBAR_WIDTH - 8.0))
+                    .abs()
+                    < 0.1 =>
+        {
+            Some(rect.rect)
+        }
+        _ => None,
+    })
 }
 
 fn wait_for_tabs(

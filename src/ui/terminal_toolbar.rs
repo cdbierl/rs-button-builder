@@ -1,7 +1,7 @@
 //! Terminal actions and process/log status.
 
 use super::shortcuts::Action;
-use super::{Button, CORNER_RADIUS, text_button};
+use super::{Button, CORNER_RADIUS, Checkbox, text_button};
 use crate::app::ButtonBuilder;
 use egui::{Color32, RichText, Vec2};
 use egui_material3::get_global_color;
@@ -16,6 +16,8 @@ impl ButtonBuilder {
         let mut stop = false;
         let mut close = false;
         let mut live = false;
+        let mut line_wrap = active.is_some_and(|index| self.workspace.tabs()[index].line_wrap);
+        let mut wrap_changed = false;
         egui::Frame::new()
             .fill(get_global_color("surfaceContainerLow"))
             .corner_radius(CORNER_RADIUS)
@@ -24,6 +26,11 @@ impl ButtonBuilder {
                 ui.set_min_width(ui.available_width());
                 ui.spacing_mut().item_spacing = Vec2::new(6.0, 4.0);
                 ui.spacing_mut().interact_size.y = 32.0;
+                if let Some(font) = ui.style_mut().text_styles.get_mut(&egui::TextStyle::Body) {
+                    font.size = 14.0;
+                }
+                let toolbar_width = ui.available_width();
+                let checkbox_width = Checkbox::width(ui, "Line wrap");
                 ui.horizontal_wrapped(|ui| {
                     if ui
                         .add(toolbar_button("Appearance"))
@@ -51,18 +58,38 @@ impl ButtonBuilder {
                         .clicked();
                     close = ui
                         .add_enabled(active.is_some(), toolbar_button("Close tab"))
-                        .on_hover_text(format!("Close tab and stop process ({})", ui.ctx().format_shortcut(&Action::CloseTab.shortcut())))
+                        .on_hover_text(format!(
+                            "Close tab and stop process ({})",
+                            ui.ctx().format_shortcut(&Action::CloseTab.shortcut())
+                        ))
                         .clicked();
                     if active.is_some_and(|index| self.workspace.tabs()[index].scrollback > 0) {
                         live = ui.add(toolbar_button("Jump to live")).clicked();
                     }
+                    let remaining = ui.max_rect().right() - ui.next_widget_position().x;
+                    let trailing_space = if remaining >= checkbox_width {
+                        remaining - checkbox_width
+                    } else {
+                        toolbar_width - checkbox_width
+                    };
+                    ui.add_space(trailing_space.max(0.0));
+                    wrap_changed = ui
+                        .add_enabled(
+                            active.is_some(),
+                            Checkbox::new(&mut line_wrap, "Line wrap"),
+                        )
+                        .on_hover_text("Wrap lines to the pane width; applies to this tab")
+                        .changed();
                 });
             });
         if let Some(index) = active {
-            if copy || interrupt || stop || live || close {
+            if copy || interrupt || stop || live || close || wrap_changed {
                 self.workspace.select_tab(index);
             }
             let tab = &mut self.workspace.tabs_mut()[index];
+            if wrap_changed {
+                tab.set_line_wrap(line_wrap);
+            }
             if copy {
                 ui.ctx().copy_text(tab.copy_text());
             }

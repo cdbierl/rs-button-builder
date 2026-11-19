@@ -1,12 +1,11 @@
 //! Button configuration dialog and preview.
 
 use super::{
-    button_colors, dialog, dialog_footer, filled_button, form, styled_button, text_button,
-    text_input,
+    Checkbox, button_colors, dialog, dialog_footer, filled_button, form, styled_button,
+    text_button, text_input,
 };
 use crate::app::{ButtonBuilder, validate_button};
 use egui::Color32;
-use egui_material3::MaterialCheckbox;
 
 impl ButtonBuilder {
     pub(in crate::app) fn editor_window(&mut self, ctx: &egui::Context) {
@@ -26,15 +25,15 @@ impl ButtonBuilder {
                     ui.add(text_input(&mut editor.button.label));
                     ui.add_space(8.0);
                     ui.horizontal_wrapped(|ui| {
-                        ui.add(MaterialCheckbox::new(
+                        ui.add(Checkbox::new(
                             &mut editor.button.shell,
                             "Shell script (/bin/sh)",
                         ));
-                        ui.add(MaterialCheckbox::new(&mut editor.button.log_output, "Log output"))
+                        ui.add(Checkbox::new(&mut editor.button.log_output, "Log output"))
                             .on_hover_text("Log new runs. Set BUTTON_BUILDER_LOG_DIR in the environment or .env.");
-                        ui.add(MaterialCheckbox::new(&mut editor.button.auto_start, "Auto start"))
+                        ui.add(Checkbox::new(&mut editor.button.auto_start, "Auto start"))
                             .on_hover_text("Run when the layout is loaded");
-                        ui.add(MaterialCheckbox::new(&mut editor.button.close_on_success, "Close on success"))
+                        ui.add(Checkbox::new(&mut editor.button.close_on_success, "Close on success"))
                             .on_hover_text("Close successful runs, even with output. Errors stay open; applies to new runs.");
                     });
                     if editor.button.shell {
