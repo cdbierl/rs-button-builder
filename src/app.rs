@@ -183,6 +183,14 @@ impl ButtonBuilder {
         Ok(())
     }
 
+    fn request_load_config(&mut self, path: PathBuf) {
+        if self.has_unsaved_changes() {
+            self.config_picker = Some(ConfigPicker::new(Some(&path)));
+        } else if let Err(error) = self.load_config(path) {
+            self.error = Some(error);
+        }
+    }
+
     fn replace_layout(&mut self, config: Config, path: Option<PathBuf>) {
         self.config = config;
         self.completion_notice = None;

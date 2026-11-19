@@ -82,8 +82,10 @@ select a YAML layout file. Dependency versions are recorded in [Cargo.lock](Carg
   **Escape** to cancel. Use **Save layout** to keep the new positions.
 - **Layout actions:** click **Button Builder** in the bottom-left footer to open
   the application menu. It opens upward with **New layout**, **Load config…**,
-  **Edit layout**, **Save layout**, **Save layout as…**, and **Exit**. Choose an action, click outside,
-  or press **Escape** to close it.
+  **Recent layouts**, **Edit layout**, **Save layout**, **Save layout as…**, and
+  **Exit**. The recent-layout submenu keeps up to eight previously selected YAML
+  files and includes **Clear recent layouts**. Choose an action, click outside, or
+  press **Escape** to close it.
 - **Customize layouts:** choose **Edit layout** to show the layout name and grid
   controls above the buttons. Change **Rows** and **Columns**, or click the name
   to rename the layout. Clicking a button opens its editor while this mode is active.
@@ -167,8 +169,8 @@ repeat its action. Ctrl+W and Ctrl+Q remain available to terminal programs.
 Without `--file`, the app reopens the last successfully loaded or saved layout.
 App settings live in `~/.config/rs_button_builder/settings.yaml`, or
 `$XDG_CONFIG_HOME/rs_button_builder/settings.yaml` when that variable contains an
-absolute path. Settings store the UI theme and last layout separately from button
-layouts. The remembered layout path is absolute, so startup works from another
+absolute path. Settings store the UI theme, last layout, and recent-layout list
+separately from button layouts. Remembered layout paths are absolute, so startup works from another
 working directory.
 
 On first launch, the app starts with an

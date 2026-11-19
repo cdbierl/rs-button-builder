@@ -55,6 +55,90 @@ fn selected_and_saved_layouts_are_remembered_and_failed_loads_preserve_settings(
 }
 
 #[test]
+fn footer_recent_layouts_load_guard_unsaved_changes_and_can_be_cleared() {
+    let ctx = egui::Context::default();
+    let directory = std::env::temp_dir().join(format!(
+        "rs-button-builder-recent-layouts-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&directory).unwrap();
+    let save_layout = |name: &str| {
+        let path = directory.join(format!("{name}.yaml"));
+        Config {
+            display_name: name.into(),
+            ..Default::default()
+        }
+        .save(&path)
+        .unwrap();
+        path
+    };
+    let first = save_layout("First");
+    let second = save_layout("Second");
+    let current = save_layout("Current");
+    let settings_path = directory.join("settings.yaml");
+    let mut settings = SettingsStore::open(settings_path.clone());
+    settings.remember_layout(&first).unwrap();
+    settings.remember_layout(&second).unwrap();
+    settings.remember_layout(&current).unwrap();
+    let mut app = ButtonBuilder::new(
+        &ctx,
+        Some(current.clone()),
+        Config::load_existing(&current).unwrap(),
+    )
+    .with_settings(settings);
+
+    let open_recent_menu = |app: &mut ButtonBuilder, ctx: &egui::Context| {
+        let output = frame(app, ctx, vec![]);
+        click(app, ctx, label_center(&output, "Button Builder"));
+        let menu = frame(app, ctx, vec![]);
+        let recent = label_center(&menu, "Recent layouts");
+        frame(app, ctx, vec![egui::Event::PointerMoved(recent)]);
+        frame(app, ctx, vec![])
+    };
+
+    let recent = open_recent_menu(&mut app, &ctx);
+    assert!(recent.shapes.iter().all(|shape| !matches!(
+        &shape.shape,
+        egui::Shape::Text(text) if text.galley.job.text == "Current.yaml"
+    )));
+    click(&mut app, &ctx, label_center(&recent, "Second.yaml"));
+    assert_eq!(app.config_path.as_ref(), Some(&second));
+    assert_eq!(app.config.display_name(), "Second");
+
+    app.config.display_name = "Unsaved".into();
+    app.dirty = true;
+    let recent = open_recent_menu(&mut app, &ctx);
+    click(&mut app, &ctx, label_center(&recent, "First.yaml"));
+    assert_eq!(app.config_path.as_ref(), Some(&second));
+    assert_eq!(
+        app.config_picker
+            .as_ref()
+            .map(|picker| picker.path.as_str()),
+        Some(first.to_string_lossy().as_ref())
+    );
+    app.config_picker = None;
+    app.dirty = false;
+
+    let recent = open_recent_menu(&mut app, &ctx);
+    click(
+        &mut app,
+        &ctx,
+        label_center(&recent, "Clear recent layouts"),
+    );
+    assert!(app.settings.recent_layouts().is_empty());
+    assert!(
+        SettingsStore::open(settings_path)
+            .recent_layouts()
+            .is_empty()
+    );
+    assert_eq!(app.config_path.as_ref(), Some(&second));
+}
+
+#[test]
 fn settings_write_failures_do_not_prevent_loading_or_saving_a_layout() {
     let ctx = egui::Context::default();
     let directory = std::env::temp_dir().join(format!(

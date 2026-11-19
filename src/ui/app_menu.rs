@@ -8,6 +8,20 @@ use egui_material3::get_global_color;
 
 impl ButtonBuilder {
     pub(in crate::app) fn app_menu(&mut self, ui: &mut egui::Ui) {
+        let active_layout = self
+            .config_path
+            .as_deref()
+            .and_then(|path| std::path::absolute(path).ok());
+        let recent_layouts: Vec<_> = self
+            .settings
+            .recent_layouts()
+            .iter()
+            .filter(|path| Some(*path) != active_layout.as_ref() && path.is_file())
+            .cloned()
+            .collect();
+        let has_recent_layouts = !self.settings.recent_layouts().is_empty();
+        let mut recent_selection = None;
+        let mut clear_recent_layouts = false;
         let response = ui
             .add_sized([164.0, 28.0], text_button("Button Builder").small())
             .on_hover_text("Layout and app actions");
@@ -41,6 +55,32 @@ impl ButtonBuilder {
                 if menu_action(ui, "Load config…", Action::LoadConfig) {
                     self.perform_action(ui.ctx(), Action::LoadConfig);
                     ui.close();
+                }
+                if has_recent_layouts {
+                    ui.menu_button("Recent layouts", |ui| {
+                        if recent_layouts.is_empty() {
+                            ui.add_enabled(false, egui::Button::new("No recent layouts"));
+                        }
+                        for path in &recent_layouts {
+                            let label = path.file_name().map_or_else(
+                                || path.display().to_string(),
+                                |name| name.to_string_lossy().into_owned(),
+                            );
+                            if ui
+                                .add(egui::Button::new(label).truncate())
+                                .on_hover_text(path.display().to_string())
+                                .clicked()
+                            {
+                                recent_selection = Some(path.clone());
+                                ui.close();
+                            }
+                        }
+                        ui.separator();
+                        if ui.button("Clear recent layouts").clicked() {
+                            clear_recent_layouts = true;
+                            ui.close();
+                        }
+                    });
                 }
                 if ui
                     .add_enabled(
@@ -86,6 +126,14 @@ impl ButtonBuilder {
                     ui.close();
                 }
             });
+        if clear_recent_layouts {
+            if let Err(error) = self.settings.clear_recent_layouts() {
+                log::warn!("{error}");
+                self.error = Some(error);
+            }
+        } else if let Some(path) = recent_selection {
+            self.request_load_config(path);
+        }
     }
 }
 

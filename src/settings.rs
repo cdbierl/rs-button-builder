@@ -8,10 +8,13 @@ use std::fs;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 
+const RECENT_LAYOUT_LIMIT: usize = 8;
+
 #[derive(Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 struct Settings {
     last_layout: Option<PathBuf>,
+    recent_layouts: Vec<PathBuf>,
     theme: ThemeSettings,
 }
 
@@ -94,11 +97,27 @@ impl SettingsStore {
                 layout.display()
             )
         })?;
-        if self.settings.last_layout.as_ref() == Some(&layout) && path.is_file() {
+        if self.settings.last_layout.as_ref() == Some(&layout)
+            && self.settings.recent_layouts.first() == Some(&layout)
+            && path.is_file()
+        {
             return Ok(());
         }
         let mut settings = self.settings.clone();
-        settings.last_layout = Some(layout);
+        settings.last_layout = Some(layout.clone());
+        settings.recent_layouts.retain(|path| path != &layout);
+        settings.recent_layouts.insert(0, layout);
+        settings.recent_layouts.truncate(RECENT_LAYOUT_LIMIT);
+        self.save(settings)
+    }
+
+    pub fn recent_layouts(&self) -> &[PathBuf] {
+        &self.settings.recent_layouts
+    }
+
+    pub fn clear_recent_layouts(&mut self) -> Result<(), String> {
+        let mut settings = self.settings.clone();
+        settings.recent_layouts.clear();
         self.save(settings)
     }
 
@@ -336,5 +355,50 @@ mod tests {
         restored.path = Some(blocked);
         assert!(restored.remember_theme(theme).is_err());
         assert_eq!(restored.theme(), ThemeSettings::default());
+    }
+
+    #[test]
+    fn recent_layouts_are_absolute_deduplicated_and_bounded() {
+        let directory = directory();
+        let settings = directory.join("settings.yaml");
+        let layouts: Vec<_> = (0..RECENT_LAYOUT_LIMIT + 2)
+            .map(|index| layout(&directory, &format!("Layout {index}")))
+            .collect();
+        let mut store = SettingsStore::open(settings.clone());
+        for path in &layouts {
+            store.remember_layout(path).unwrap();
+        }
+        assert_eq!(
+            store.recent_layouts(),
+            layouts
+                .iter()
+                .rev()
+                .take(RECENT_LAYOUT_LIMIT)
+                .cloned()
+                .collect::<Vec<_>>()
+        );
+
+        let reused = layouts[3].clone();
+        store.remember_layout(&reused).unwrap();
+        assert_eq!(store.recent_layouts().first(), Some(&reused));
+        assert_eq!(
+            store
+                .recent_layouts()
+                .iter()
+                .filter(|path| *path == &reused)
+                .count(),
+            1
+        );
+        assert_eq!(
+            SettingsStore::open(settings.clone()).recent_layouts(),
+            store.recent_layouts()
+        );
+        assert!(store.recent_layouts().iter().all(|path| path.is_absolute()));
+
+        store.clear_recent_layouts().unwrap();
+        assert!(store.recent_layouts().is_empty());
+        let mut restored = SettingsStore::open(settings);
+        assert!(restored.recent_layouts().is_empty());
+        assert_eq!(restored.startup_layout(None).unwrap().0, Some(reused));
     }
 }
