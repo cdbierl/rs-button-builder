@@ -8,9 +8,34 @@ use crate::terminal::colors::Palette;
 use crate::terminal::screen::Cell;
 use egui::{FontFamily, FontId, Stroke, Vec2};
 use egui_material3::get_global_color;
+use std::sync::Arc;
 
 // Reserve the gutter even without history so the PTY width stays stable as output arrives.
 pub(in crate::app) const TERMINAL_SCROLLBAR_WIDTH: f32 = 20.0;
+
+// Retain only the last visible viewport for each tab. egui evicts layouts that were not
+// drawn in the previous frame, so its own cache cannot preserve hidden terminal text.
+#[derive(Default)]
+pub(in crate::app) struct TerminalTextCache {
+    font: Option<(FontId, f32)>,
+    rows: Vec<Vec<CachedText>>,
+}
+
+struct CachedText {
+    text: String,
+    galley: Arc<egui::Galley>,
+}
+
+impl TerminalTextCache {
+    fn prepare(&mut self, font: &FontId, pixels_per_point: f32, rows: usize) {
+        let key = (font.clone(), pixels_per_point);
+        if self.font.as_ref() != Some(&key) {
+            self.rows.clear();
+            self.font = Some(key);
+        }
+        self.rows.resize_with(rows, Vec::new);
+    }
+}
 
 impl ButtonBuilder {
     pub(in crate::app) fn terminal_panel(&mut self, ui: &mut egui::Ui, pane: usize) {
@@ -192,6 +217,8 @@ impl ButtonBuilder {
             return;
         };
         let tab = &mut self.tabs[index];
+        tab.text_cache
+            .prepare(&font, ui.ctx().pixels_per_point(), rows);
         let terminal = &mut tab.terminal;
         let screen = &terminal.screen;
         let history_len = if screen.is_alternate() {
@@ -221,6 +248,7 @@ impl ButtonBuilder {
                     line,
                 ),
                 ui.visuals().selection,
+                &mut tab.text_cache.rows[visible_row],
             );
         }
         if tab.scrollback == 0 && screen.cursor_visible && terminal.is_running() {
@@ -436,8 +464,10 @@ fn paint_line(
     colors: &Palette,
     selected: std::ops::Range<usize>,
     selection_style: egui::style::Selection,
+    cache: &mut Vec<CachedText>,
 ) {
     let mut start = 0;
+    let mut run = 0;
     while start < line.len().min(cols) {
         let style = line[start].style;
         let mut end = start + 1;
@@ -472,21 +502,27 @@ fn paint_line(
             .filter(|cell| !cell.continuation)
             .map(|cell| cell.text.as_str())
             .collect();
-        painter.text(
-            position,
-            egui::Align2::LEFT_TOP,
-            &text,
-            font.clone(),
-            foreground,
-        );
+        let galley = if let Some(cached) = cache.get(run)
+            && cached.text == text
+        {
+            cached.galley.clone()
+        } else {
+            let galley =
+                painter.layout_no_wrap(text.clone(), font.clone(), egui::Color32::PLACEHOLDER);
+            let cached = CachedText {
+                text,
+                galley: galley.clone(),
+            };
+            if run < cache.len() {
+                cache[run] = cached;
+            } else {
+                cache.push(cached);
+            }
+            galley
+        };
+        painter.galley(position, galley.clone(), foreground);
         if style.bold {
-            painter.text(
-                position + Vec2::new(0.5, 0.0),
-                egui::Align2::LEFT_TOP,
-                &text,
-                font.clone(),
-                foreground,
-            );
+            painter.galley(position + Vec2::new(0.5, 0.0), galley, foreground);
         }
         if style.underline {
             painter.line_segment(
@@ -495,7 +531,9 @@ fn paint_line(
             );
         }
         start = end;
+        run += 1;
     }
+    cache.truncate(run);
 }
 
 pub(in crate::app) fn key_bytes(

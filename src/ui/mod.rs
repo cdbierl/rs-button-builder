@@ -22,6 +22,7 @@ pub(crate) use style::{
 
 use style::styled_button;
 pub(super) use style::{button_colors, rgb};
+pub(super) use terminal_panel::TerminalTextCache;
 pub(super) use terminal_selection::TerminalSelection;
 pub(super) use terminal_workspace::TerminalPanes;
 

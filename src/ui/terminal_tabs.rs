@@ -44,6 +44,7 @@ impl ButtonBuilder {
                     |ui| {
                         let tabs_rect = ui.max_rect();
                         egui::ScrollArea::horizontal()
+                            .animated(false)
                             .id_salt("terminal_tabs")
                             .scroll_bar_visibility(
                                 egui::scroll_area::ScrollBarVisibility::AlwaysHidden,

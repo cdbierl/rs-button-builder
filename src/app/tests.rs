@@ -555,7 +555,7 @@ fn terminal_theme_recolors_scrollback_and_can_restore_automatic_colors() {
                 .iter()
                 .find_map(|shape| match &shape.shape {
                     egui::Shape::Text(text) if text.galley.job.text.starts_with(label) => {
-                        Some(text.galley.job.sections[0].format.color)
+                        Some(text.fallback_color)
                     }
                     _ => None,
                 })
@@ -731,6 +731,103 @@ fn wait_for_tabs(
         );
         std::thread::sleep(Duration::from_millis(10));
     }
+}
+
+#[test]
+fn idle_terminal_stops_fast_repaints_and_queued_input_wakes_the_ui() {
+    let ctx = egui::Context::default();
+    let mut config = Config::default();
+    config.buttons[0] = interactive_button("Idle");
+    let mut app = ButtonBuilder::new(&ctx, None, config);
+    app.launch(0);
+    wait_for_tabs(&mut app, &ctx, |app| {
+        app.tabs[0].terminal.screen.text().contains("Idle-ready")
+    });
+    let deadline = Instant::now() + Duration::from_secs(2);
+    loop {
+        let output = frame(&mut app, &ctx, vec![]);
+        if output.viewport_output[&egui::ViewportId::ROOT].repaint_delay
+            >= Duration::from_millis(100)
+        {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "An idle terminal should stop fast repaints"
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let (send, receive) = std::sync::mpsc::channel();
+    ctx.set_request_repaint_callback(move |_| {
+        let _ = send.send(());
+    });
+    app.tabs[0].terminal.send(b"hello\n");
+    receive.recv_timeout(Duration::from_secs(1)).unwrap();
+    // Service only notified frames; idle fallback polling is not needed to deliver input/output.
+    let deadline = Instant::now() + Duration::from_secs(2);
+    loop {
+        frame(&mut app, &ctx, vec![]);
+        if app.tabs[0].terminal.screen.text().contains("Idle:hello") {
+            break;
+        }
+        receive
+            .recv_timeout(deadline.saturating_duration_since(Instant::now()))
+            .unwrap();
+    }
+}
+
+#[test]
+fn switching_tabs_reuses_terminal_layouts_and_updates_text_colors_and_fonts() {
+    let ctx = egui::Context::default();
+    let mut config = Config::default();
+    config.buttons[0] = interactive_button("Alpha");
+    config.buttons[1] = interactive_button("Beta");
+    let mut app = ButtonBuilder::new(&ctx, None, config);
+    app.launch(0);
+    app.launch(1);
+    wait_for_tabs(&mut app, &ctx, |app| {
+        app.tabs
+            .iter()
+            .all(|tab| tab.terminal.screen.text().contains("-ready"))
+    });
+    app.tabs[0]
+        .terminal
+        .screen
+        .feed(b"\x1b[2J\x1b[Hcached-alpha");
+    let layout = |output: &egui::FullOutput, prefix: &str| {
+        output
+            .shapes
+            .iter()
+            .find_map(|shape| match &shape.shape {
+                egui::Shape::Text(text) if text.galley.job.text.starts_with(prefix) => {
+                    Some((text.galley.clone(), text.fallback_color))
+                }
+                _ => None,
+            })
+            .unwrap()
+    };
+    app.select_tab(0);
+    let first = layout(&frame(&mut app, &ctx, vec![]), "cached-alpha").0;
+    app.select_tab(1);
+    for _ in 0..3 {
+        frame(&mut app, &ctx, vec![]);
+    }
+    app.select_tab(0);
+    let returned = layout(&frame(&mut app, &ctx, vec![]), "cached-alpha").0;
+    assert!(
+        std::sync::Arc::ptr_eq(&first, &returned),
+        "Returning to a hidden tab should reuse its text layout"
+    );
+    app.tabs[0].style.fg_color = Some([20, 100, 200]);
+    let (recolored, color) = layout(&frame(&mut app, &ctx, vec![]), "cached-alpha");
+    assert!(std::sync::Arc::ptr_eq(&first, &recolored));
+    assert_eq!(color, rgb([20, 100, 200]));
+    app.tabs[0].terminal.screen.feed(b"\x1b[Hchanged-alpha");
+    let changed = layout(&frame(&mut app, &ctx, vec![]), "changed-alpha").0;
+    assert!(!std::sync::Arc::ptr_eq(&first, &changed));
+    app.tabs[0].style.font_size += 1.0;
+    let resized = layout(&frame(&mut app, &ctx, vec![]), "changed-alpha").0;
+    assert!(!std::sync::Arc::ptr_eq(&changed, &resized));
 }
 
 #[test]
@@ -2072,7 +2169,7 @@ fn many_tabs_scroll_and_keep_toolbar_controls_visible_at_minimum_size() {
     }
     let size = Vec2::new(850.0, 500.0);
     let mut output = egui::FullOutput::default();
-    for _ in 0..40 {
+    for _ in 0..4 {
         output = frame_with(&mut app, &ctx, size, egui::Modifiers::NONE, vec![]);
     }
     let title = "8 · A long running command label";
@@ -2145,7 +2242,7 @@ fn many_tabs_scroll_and_keep_toolbar_controls_visible_at_minimum_size() {
         Some(0),
         "The previous arrow stops at the first tab"
     );
-    for _ in 0..40 {
+    for _ in 0..4 {
         output = frame_with(&mut app, &ctx, size, egui::Modifiers::NONE, vec![]);
     }
     let first = label_center(&output, "1 · A long running command label");
@@ -3055,8 +3152,12 @@ fn resized_grid_renders_new_rows_and_columns_and_saves_them() {
 fn footer_save_as_preserves_the_original_and_changes_destination_only_after_saving() {
     let ctx = egui::Context::default();
     let directory = std::env::temp_dir().join(format!(
-        "rs-button-builder-footer-save-as-{}",
-        std::process::id()
+        "rs-button-builder-footer-save-as-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
     ));
     std::fs::create_dir_all(&directory).unwrap();
     let original = directory.join("original.yaml");

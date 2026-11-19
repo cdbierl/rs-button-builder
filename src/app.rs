@@ -38,6 +38,7 @@ struct TerminalTab {
     scrollback: usize,
     scroll_fraction: f32,
     selection: ui::TerminalSelection,
+    text_cache: ui::TerminalTextCache,
 }
 
 impl TerminalTab {
@@ -91,6 +92,7 @@ pub struct ButtonBuilder {
     active_tab: Option<usize>,
     next_tab_id: u64,
     next_poll_tab: usize,
+    terminal_wake: crate::terminal::Wake,
     reveal_active_tab: bool,
     editor: Option<Editor>,
     edit_mode: bool,
@@ -110,6 +112,7 @@ impl ButtonBuilder {
         crate::ui::setup(ctx);
         let fonts = crate::fonts::load(ctx);
         let loaded_layout = config_path.is_some();
+        let terminal_ctx = ctx.clone();
         let notice = match &config_path {
             Some(path) => format!("Loaded {}", path.display()),
             None => UNSAVED_LAYOUT_NOTICE.into(),
@@ -132,6 +135,9 @@ impl ButtonBuilder {
             active_tab: None,
             next_tab_id: 1,
             next_poll_tab: 0,
+            terminal_wake: std::sync::Arc::new(move || {
+                terminal_ctx.request_repaint_after(Duration::from_millis(33));
+            }),
             reveal_active_tab: false,
             editor: None,
             edit_mode: false,
@@ -375,7 +381,13 @@ impl ButtonBuilder {
             &self.config.buttons[index],
             self.terminal_size.0,
             self.terminal_size.1,
-        ) {
+        )
+        .and_then(|mut terminal| {
+            terminal
+                .watch(self.terminal_wake.clone())
+                .map_err(|error| format!("Could not watch terminal: {error}"))?;
+            Ok(terminal)
+        }) {
             Ok(terminal) => {
                 self.completion_notice = None;
                 let tab = TerminalTab {
@@ -389,6 +401,7 @@ impl ButtonBuilder {
                     scrollback: 0,
                     scroll_fraction: 0.0,
                     selection: ui::TerminalSelection::default(),
+                    text_cache: ui::TerminalTextCache::default(),
                 };
                 self.next_tab_id += 1;
                 self.tabs.push(tab);
@@ -435,6 +448,7 @@ impl ButtonBuilder {
         let count = self.tabs.len();
         for _ in 0..count {
             if Instant::now() >= deadline {
+                ctx.request_repaint_after(Duration::from_millis(33));
                 break;
             }
             let index = self.next_poll_tab % count;
@@ -486,8 +500,12 @@ impl ButtonBuilder {
             )));
             self.title_display_name = Some(display_name.to_owned());
         }
-        if self.tabs.iter().any(|tab| tab.terminal.needs_poll()) {
+        if self.tabs.iter().any(|tab| tab.terminal.has_pending_work()) {
             ctx.request_repaint_after(Duration::from_millis(33));
+        }
+        if self.tabs.iter().any(|tab| tab.terminal.needs_poll()) {
+            // Check exits even when descendants retain the PTY; also recover missed wakeups.
+            ctx.request_repaint_after(Duration::from_secs(1));
         }
         if let Some((_, until)) = self.completion_notice {
             ctx.request_repaint_after(until.saturating_duration_since(Instant::now()));

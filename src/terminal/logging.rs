@@ -4,7 +4,7 @@ use std::fs::{File, OpenOptions};
 use std::io::{self, Write};
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, mpsc};
+use std::sync::{Arc, Mutex, mpsc};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -30,6 +30,7 @@ pub(super) struct OutputLog {
     updates: mpsc::Receiver<Update>,
     pending: Option<LogChunk>,
     worker: Option<JoinHandle<()>>,
+    wake: Arc<Mutex<Option<super::Wake>>>,
 }
 
 impl OutputLog {
@@ -40,6 +41,8 @@ impl OutputLog {
         let (sender, receiver) = mpsc::sync_channel::<LogChunk>(32);
         let (tail, remaining) = mpsc::channel::<LogChunk>();
         let (update, updates) = mpsc::channel();
+        let wake = Arc::new(Mutex::new(None::<super::Wake>));
+        let notify = wake.clone();
         let worker = std::thread::Builder::new()
             .name("terminal-log".into())
             .spawn(move || {
@@ -58,6 +61,7 @@ impl OutputLog {
                             std::fs::create_dir_all(&directory)?;
                             let (path, mut opened) = create_log(&directory, &stamp)?;
                             let _ = update.send(Update::Opened(path));
+                            notify_ui(&notify);
                             opened.write_all(prefix.make_contiguous())?;
                             prefix.clear();
                             file = Some(opened);
@@ -74,6 +78,7 @@ impl OutputLog {
                     let _ = update.send(Update::Error(error.to_string()));
                 }
                 let _ = update.send(Update::Finished);
+                notify_ui(&notify);
             })?;
         Ok(Self {
             path: None,
@@ -84,7 +89,18 @@ impl OutputLog {
             updates,
             pending: None,
             worker: Some(worker),
+            wake,
         })
+    }
+
+    pub fn set_waker(&mut self, wake: super::Wake) {
+        *self.wake.lock().unwrap() = Some(wake.clone());
+        // The worker may already have completed before the callback was attached.
+        wake();
+    }
+
+    pub fn has_pending_write(&self) -> bool {
+        self.pending.is_some()
     }
 
     pub fn poll(&mut self) {
@@ -142,6 +158,13 @@ impl OutputLog {
             closing.retain(|worker| !worker.is_finished());
             closing.push(worker);
         }
+    }
+}
+
+fn notify_ui(notifier: &Mutex<Option<super::Wake>>) {
+    let wake = notifier.lock().unwrap().clone();
+    if let Some(wake) = wake {
+        wake();
     }
 }
 
@@ -242,6 +265,36 @@ mod tests {
     use std::os::unix::fs::PermissionsExt;
 
     #[test]
+    fn opening_and_finishing_a_log_wake_the_ui() {
+        let directory = std::env::temp_dir().join(format!(
+            "button-builder-log-wake-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos(),
+        ));
+        let mut log = OutputLog::start(&directory, "Wake").unwrap();
+        let (send, receive) = mpsc::channel();
+        log.set_waker(Arc::new(move || {
+            let _ = send.send(());
+        }));
+        receive.recv_timeout(Duration::from_secs(1)).unwrap();
+        log.record(b"logged output", true);
+        receive.recv_timeout(Duration::from_secs(1)).unwrap();
+        log.poll();
+        assert!(log.path.is_some());
+        log.close();
+        receive.recv_timeout(Duration::from_secs(1)).unwrap();
+        log.poll();
+        assert!(log.finished);
+        assert_eq!(
+            std::fs::read(log.path.as_ref().unwrap()).unwrap(),
+            b"logged output"
+        );
+    }
+
+    #[test]
     fn a_long_control_prefix_is_bounded_and_keeps_the_first_printable_chunk() {
         let directory = std::env::temp_dir().join(format!(
             "button-builder-control-prefix-{}-{}",
@@ -330,6 +383,7 @@ mod tests {
         let (tail, remaining) = mpsc::channel();
         let (_update, updates) = mpsc::channel();
         let mut log = OutputLog {
+            wake: Arc::new(Mutex::new(None)),
             path: None,
             error: None,
             finished: false,

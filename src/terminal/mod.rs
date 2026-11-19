@@ -2,6 +2,7 @@
 pub mod colors;
 mod logging;
 pub mod screen;
+mod watcher;
 
 use crate::layout_config::ButtonConfig;
 use screen::Screen;
@@ -12,7 +13,7 @@ use std::os::fd::{AsRawFd, FromRawFd};
 use std::os::unix::process::{CommandExt, ExitStatusExt};
 use std::path::Path;
 use std::process::{Child, Command, ExitStatus, Stdio};
-use std::sync::{OnceLock, mpsc};
+use std::sync::{Arc, OnceLock, mpsc};
 use std::time::{Duration, Instant};
 
 enum Cleanup {
@@ -21,6 +22,8 @@ enum Cleanup {
 }
 
 static REAPER: OnceLock<mpsc::Sender<Cleanup>> = OnceLock::new();
+
+pub(crate) type Wake = Arc<dyn Fn() + Send + Sync>;
 
 pub struct Terminal {
     pub screen: Screen,
@@ -34,6 +37,8 @@ pub struct Terminal {
     keep_open: bool,
     close_on_success: bool,
     log: Option<logging::OutputLog>,
+    watcher: Option<watcher::Watcher>,
+    wake: Option<Wake>,
 }
 
 fn winsize(cols: usize, rows: usize) -> libc::winsize {
@@ -151,11 +156,47 @@ impl Terminal {
             keep_open: false,
             close_on_success: button.close_on_success,
             log: None,
+            watcher: None,
+            wake: None,
         })
     }
 
     pub fn is_running(&self) -> bool {
         self.child.is_some()
+    }
+
+    pub(crate) fn watch(&mut self, wake: Wake) -> io::Result<()> {
+        if let Some(master) = &self.master {
+            self.watcher = Some(watcher::Watcher::new(master, wake.clone())?);
+        }
+        if let Some(log) = &mut self.log {
+            log.set_waker(wake.clone());
+        }
+        self.wake = Some(wake);
+        self.arm_watcher();
+        Ok(())
+    }
+
+    /// Buffered work needs another frame even when the PTY is no longer readable.
+    pub(crate) fn has_pending_work(&self) -> bool {
+        (!self.input.is_empty() && self.watcher.is_none())
+            || !self.output.is_empty()
+            || self.log.as_ref().is_some_and(|log| log.has_pending_write())
+    }
+
+    fn arm_watcher(&mut self) {
+        if self.eof {
+            self.watcher = None;
+            return;
+        }
+        if let Some(watcher) = &mut self.watcher {
+            watcher.arm(
+                !self.eof
+                    && self.output.is_empty()
+                    && self.log.as_ref().is_none_or(|log| !log.has_pending_write()),
+                !self.input.is_empty(),
+            );
+        }
     }
 
     /// Keep polling until final process output and queued log writes have finished.
@@ -187,6 +228,9 @@ impl Terminal {
     pub fn send(&mut self, bytes: &[u8]) {
         if self.is_running() && self.input.len() + bytes.len() <= 65_536 {
             self.input.extend(bytes);
+            if let Some(wake) = &self.wake {
+                wake();
+            }
         }
     }
 
@@ -197,6 +241,7 @@ impl Terminal {
         if let Some(log) = &mut self.log
             && !log.ready()
         {
+            self.arm_watcher();
             return;
         }
         let mut processed = 0;
@@ -272,6 +317,7 @@ impl Terminal {
                 log.poll();
             }
         }
+        self.arm_watcher();
     }
 
     fn check_exit(&mut self) {
@@ -364,6 +410,7 @@ impl Terminal {
         }
         // Stop reading immediately, rather than draining an endlessly noisy process.
         self.master = None;
+        self.watcher = None;
         self.eof = true;
         self.input.clear();
         self.output.clear();
