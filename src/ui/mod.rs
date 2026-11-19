@@ -27,6 +27,4 @@ pub(super) use terminal_panel::TerminalTextCache;
 pub(super) use terminal_selection::TerminalSelection;
 
 #[cfg(test)]
-pub(super) use super::workspace::Split;
-#[cfg(test)]
 pub(super) use terminal_panel::{TERMINAL_SCROLLBAR_WIDTH, key_bytes};
