@@ -12,6 +12,7 @@ mod terminal_panel;
 mod terminal_selection;
 mod terminal_tabs;
 mod terminal_toolbar;
+mod terminal_workspace;
 
 pub(crate) use button::Button;
 pub(crate) use style::{
@@ -22,6 +23,9 @@ pub(crate) use style::{
 use style::styled_button;
 pub(super) use style::{button_colors, rgb};
 pub(super) use terminal_selection::TerminalSelection;
+pub(super) use terminal_workspace::TerminalPanes;
 
 #[cfg(test)]
 pub(super) use terminal_panel::{TERMINAL_SCROLLBAR_WIDTH, key_bytes};
+#[cfg(test)]
+pub(super) use terminal_workspace::Split;

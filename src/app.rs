@@ -29,6 +29,7 @@ struct SaveAs {
 
 struct TerminalTab {
     id: u64,
+    pane: usize,
     label: String,
     command: String,
     button_index: Option<usize>,
@@ -86,6 +87,7 @@ pub struct ButtonBuilder {
     layout_name_edit: Option<String>,
     focus_layout_name: bool,
     tabs: Vec<TerminalTab>,
+    panes: ui::TerminalPanes,
     active_tab: Option<usize>,
     next_tab_id: u64,
     next_poll_tab: usize,
@@ -126,6 +128,7 @@ impl ButtonBuilder {
             layout_name_edit: None,
             focus_layout_name: false,
             tabs: Vec::new(),
+            panes: ui::TerminalPanes::default(),
             active_tab: None,
             next_tab_id: 1,
             next_poll_tab: 0,
@@ -175,18 +178,18 @@ impl ButtonBuilder {
         self.active_tab.and_then(|index| self.tabs.get(index))
     }
 
-    fn active_running(&self) -> bool {
-        self.active().is_some_and(|tab| tab.terminal.is_running())
-    }
-
     fn select_tab(&mut self, index: usize) {
         self.active_tab = Some(index);
+        let tab = &self.tabs[index];
+        self.panes.focused = tab.pane;
+        self.panes.selected[tab.pane] = Some(tab.id);
         self.reveal_active_tab = true;
         self.focus_terminal = true;
     }
 
     fn close_tab(&mut self, index: usize) {
         let active_closed = self.active_tab == Some(index);
+        let pane = self.tabs[index].pane;
         // Dropping a terminal requests termination; reaping happens off the UI thread.
         self.tabs.remove(index);
         self.active_tab = match self.active_tab {
@@ -196,9 +199,26 @@ impl ButtonBuilder {
             active => active,
         };
         if active_closed {
+            if self.panes.split.is_some() {
+                self.active_tab = self
+                    .tabs
+                    .iter()
+                    .enumerate()
+                    .find(|(other, tab)| *other >= index && tab.pane == pane)
+                    .or_else(|| {
+                        self.tabs
+                            .iter()
+                            .enumerate()
+                            .rev()
+                            .find(|(_, tab)| tab.pane == pane)
+                    })
+                    .map(|(index, _)| index)
+                    .or(self.active_tab);
+            }
             self.focus_terminal = true;
             self.reveal_active_tab = true;
         }
+        self.normalize_panes();
     }
 
     fn save(&mut self) {
@@ -360,6 +380,7 @@ impl ButtonBuilder {
                 self.completion_notice = None;
                 let tab = TerminalTab {
                     id: self.next_tab_id,
+                    pane: self.panes.focused,
                     label: self.config.buttons[index].label.clone(),
                     command: self.config.buttons[index].command.clone(),
                     button_index: Some(index),
@@ -447,7 +468,7 @@ impl ButtonBuilder {
             .show(ctx, |ui| {
                 self.buttons_panel(ui);
             });
-        egui::CentralPanel::default().show(ctx, |ui| self.terminal_panel(ui));
+        egui::CentralPanel::default().show(ctx, |ui| self.terminal_workspace(ui));
         if self.save_as.is_none() && !self.new_layout_requested {
             self.editor_window(ctx);
         }

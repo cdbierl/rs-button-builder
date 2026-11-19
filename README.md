@@ -92,6 +92,13 @@ select a YAML layout file. Dependency versions are recorded in [Cargo.lock](Carg
   automatically and show a brief success notice. Enable **Close on success** for a
   button to also close successful runs that printed output. Failures, interrupted
   or stopped commands, and terminal or logging errors keep their tabs.
+- **Arrange terminals:** right-click a terminal tab and choose **Split right** or
+  **Split below** to move that session into a second pane. Each pane has its own
+  tabs, and the divider can be dragged to resize them. Click a pane to focus it;
+  new terminals open there, and clicking a running button focuses its existing
+  pane. **Move to other pane** moves a tab; **Merge panes** restores one tab strip.
+  Closing the last tab in either pane also merges the panes. The first revision
+  supports two panes and does not persist their arrangement across app restarts.
 - **Copy terminal text:** click and drag to highlight text; releasing the mouse
   automatically copies it to the clipboard. **Copy** or **Ctrl+Shift+C** copies the
   selection, or all output when nothing is selected. Click in the terminal to clear

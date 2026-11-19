@@ -142,6 +142,290 @@ fn label_center(output: &egui::FullOutput, label: &str) -> egui::Pos2 {
         .unwrap_or_else(|| panic!("Missing UI label: {label}"))
 }
 
+fn terminal_output_position(output: &egui::FullOutput, prefix: &str) -> egui::Pos2 {
+    output
+        .shapes
+        .iter()
+        .find_map(|shape| match &shape.shape {
+            egui::Shape::Text(text) if text.galley.job.text.starts_with(prefix) => Some(text.pos),
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("Missing terminal text: {prefix}"))
+}
+
+fn open_tab_menu(app: &mut ButtonBuilder, ctx: &egui::Context, title: &str) -> egui::FullOutput {
+    let output = frame(app, ctx, vec![]);
+    let pos = label_center(&output, title);
+    for pressed in [true, false] {
+        frame(
+            app,
+            ctx,
+            vec![
+                egui::Event::PointerMoved(pos),
+                egui::Event::PointerButton {
+                    pos,
+                    button: egui::PointerButton::Secondary,
+                    pressed,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ],
+        );
+    }
+    frame(app, ctx, vec![])
+}
+
+#[test]
+fn terminal_split_right_preserves_sessions_and_routes_focus_input_and_tabs() {
+    let ctx = egui::Context::default();
+    let mut config = Config::default();
+    for (index, label) in ["Alpha", "Beta", "Gamma"].into_iter().enumerate() {
+        config.buttons[index] = interactive_button(label);
+    }
+    let mut app = ButtonBuilder::new(&ctx, None, config);
+    app.launch(0);
+    app.split_terminal(0, crate::ui::Split::Right);
+    assert!(
+        app.panes.split.is_none(),
+        "A split needs two existing terminals"
+    );
+    app.launch(1);
+    wait_for_tabs(&mut app, &ctx, |app| {
+        app.tabs
+            .iter()
+            .all(|tab| tab.terminal.screen.text().contains("-ready"))
+    });
+    let sessions: Vec<_> = app
+        .tabs
+        .iter()
+        .map(|tab| (tab.id, tab.terminal.status.clone()))
+        .collect();
+    app.select_tab(0);
+    let menu = open_tab_menu(&mut app, &ctx, "2 · Beta");
+    click(&mut app, &ctx, label_center(&menu, "Split right"));
+    assert!(app.panes.split == Some(crate::ui::Split::Right));
+    assert_eq!(app.pane_tab(0), Some(0));
+    assert_eq!(app.pane_tab(1), Some(1));
+    assert_eq!(app.panes.focused, 1);
+    assert_eq!(
+        sessions,
+        app.tabs
+            .iter()
+            .map(|tab| (tab.id, tab.terminal.status.clone()))
+            .collect::<Vec<_>>()
+    );
+    frame(&mut app, &ctx, vec![]);
+    let output = frame(&mut app, &ctx, vec![]);
+    let alpha = terminal_output_position(&output, "Alpha-ready");
+    let beta = terminal_output_position(&output, "Beta-ready");
+    assert!(alpha.x < beta.x && (alpha.y - beta.y).abs() < 1.0);
+    assert_eq!(
+        app.tabs[0].terminal.screen.cols,
+        app.tabs[1].terminal.screen.cols
+    );
+    assert!(app.tabs[0].terminal.screen.cols < 80);
+    click(&mut app, &ctx, alpha + Vec2::new(30.0, 30.0));
+    assert_eq!(app.active_tab, Some(0));
+    frame(
+        &mut app,
+        &ctx,
+        vec![
+            egui::Event::Text("only-alpha".into()),
+            egui::Event::Key {
+                key: egui::Key::Enter,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: egui::Modifiers::NONE,
+            },
+        ],
+    );
+    wait_for_tabs(&mut app, &ctx, |app| {
+        app.tabs[0]
+            .terminal
+            .screen
+            .text()
+            .contains("Alpha:only-alpha")
+    });
+    assert!(!app.tabs[1].terminal.screen.text().contains("only-alpha"));
+    app.launch(2);
+    assert_eq!(app.tabs[2].pane, 0, "New tabs belong to the focused pane");
+    let menu = open_tab_menu(&mut app, &ctx, "3 · Gamma");
+    click(&mut app, &ctx, label_center(&menu, "Move to other pane"));
+    assert_eq!(app.tabs[2].pane, 1);
+    assert_eq!(app.pane_tab(0), Some(0));
+    assert_eq!(app.pane_tab(1), Some(2));
+    app.launch(1);
+    assert_eq!(
+        app.tabs.len(),
+        3,
+        "Running buttons focus across panes without duplicating"
+    );
+    assert_eq!(app.active_tab, Some(1));
+    assert_eq!(app.panes.focused, 1);
+    frame(&mut app, &ctx, vec![]);
+    let copied = frame_with(
+        &mut app,
+        &ctx,
+        Vec2::new(1200.0, 760.0),
+        egui::Modifiers {
+            ctrl: true,
+            shift: true,
+            ..Default::default()
+        },
+        vec![egui::Event::Copy],
+    );
+    assert!(copied.platform_output.commands.iter().any(|command| matches!(command,
+        egui::OutputCommand::CopyText(text) if text.contains("Beta-ready") && !text.contains("Alpha-ready"))));
+    let menu = open_tab_menu(&mut app, &ctx, "2 · Beta");
+    click(&mut app, &ctx, label_center(&menu, "Merge panes"));
+    assert!(app.panes.split.is_none());
+    assert!(
+        app.tabs
+            .iter()
+            .all(|tab| tab.pane == 0 && tab.terminal.is_running())
+    );
+    assert_eq!(app.active_tab, Some(1));
+}
+
+#[test]
+fn terminal_split_below_divider_resizes_each_pane_and_supports_minimum_window() {
+    let ctx = egui::Context::default();
+    let mut config = Config::default();
+    config.buttons[0] = interactive_button("Alpha");
+    config.buttons[1] = interactive_button("Beta");
+    let mut app = ButtonBuilder::new(&ctx, None, config);
+    app.launch(0);
+    app.launch(1);
+    wait_for_tabs(&mut app, &ctx, |app| {
+        app.tabs
+            .iter()
+            .all(|tab| tab.terminal.screen.text().contains("-ready"))
+    });
+    let menu = open_tab_menu(&mut app, &ctx, "2 · Beta");
+    click(&mut app, &ctx, label_center(&menu, "Split below"));
+    frame(&mut app, &ctx, vec![]);
+    let output = frame(&mut app, &ctx, vec![]);
+    let alpha = terminal_output_position(&output, "Alpha-ready");
+    let beta = terminal_output_position(&output, "Beta-ready");
+    assert!(alpha.y < beta.y && (alpha.x - beta.x).abs() < 1.0);
+    let rows = [
+        app.tabs[0].terminal.screen.rows,
+        app.tabs[1].terminal.screen.rows,
+    ];
+    let divider = output
+        .shapes
+        .iter()
+        .find_map(|shape| match &shape.shape {
+            egui::Shape::LineSegment { points, stroke }
+                if (points[1].x - points[0].x) > 500.0
+                    && points[0].y == points[1].y
+                    && stroke.width == 2.0 =>
+            {
+                Some(points[0].lerp(points[1], 0.5))
+            }
+            _ => None,
+        })
+        .unwrap();
+    frame(
+        &mut app,
+        &ctx,
+        vec![
+            egui::Event::PointerMoved(divider),
+            egui::Event::PointerButton {
+                pos: divider,
+                button: egui::PointerButton::Primary,
+                pressed: true,
+                modifiers: egui::Modifiers::NONE,
+            },
+        ],
+    );
+    let destination = divider + Vec2::new(0.0, 70.0);
+    frame(&mut app, &ctx, vec![egui::Event::PointerMoved(destination)]);
+    frame(
+        &mut app,
+        &ctx,
+        vec![egui::Event::PointerButton {
+            pos: destination,
+            button: egui::PointerButton::Primary,
+            pressed: false,
+            modifiers: egui::Modifiers::NONE,
+        }],
+    );
+    frame(&mut app, &ctx, vec![]);
+    assert!(app.tabs[0].terminal.screen.rows > rows[0]);
+    assert!(app.tabs[1].terminal.screen.rows < rows[1]);
+    for direction in [crate::ui::Split::Right, crate::ui::Split::Below] {
+        app.panes.split = Some(direction);
+        let output = frame_with(
+            &mut app,
+            &ctx,
+            Vec2::new(850.0, 500.0),
+            egui::Modifiers::NONE,
+            vec![],
+        );
+        assert!(
+            app.tabs
+                .iter()
+                .all(|tab| tab.terminal.screen.cols >= 2 && tab.terminal.screen.rows >= 2)
+        );
+        assert!(
+            output
+                .shapes
+                .iter()
+                .filter_map(|shape| match &shape.shape {
+                    egui::Shape::Text(text)
+                        if text.galley.job.text.starts_with("Alpha-ready")
+                            || text.galley.job.text.starts_with("Beta-ready") =>
+                        Some((text.pos, shape.clip_rect)),
+                    _ => None,
+                })
+                .all(|(pos, clip)| clip.contains(pos))
+        );
+    }
+}
+
+#[test]
+fn terminal_panes_collapse_on_close_and_success_without_losing_remaining_sessions() {
+    let ctx = egui::Context::default();
+    let mut config = Config::default();
+    for (index, label) in ["Alpha", "Beta", "Gamma"].into_iter().enumerate() {
+        config.buttons[index] = interactive_button(label);
+    }
+    let mut app = ButtonBuilder::new(&ctx, None, config);
+    for index in 0..3 {
+        app.launch(index);
+    }
+    app.split_terminal(1, crate::ui::Split::Right);
+    app.select_tab(0);
+    app.close_tab(0);
+    assert!(app.panes.split.is_some());
+    assert_eq!(
+        app.active().unwrap().label,
+        "Gamma",
+        "Closing selects another tab in the same pane"
+    );
+    let gamma_id = app.active().unwrap().id;
+    app.close_tab(0); // Beta was the only tab in the other pane.
+    assert!(app.panes.split.is_none());
+    assert_eq!(app.active().unwrap().id, gamma_id);
+    assert!(app.active().unwrap().terminal.is_running());
+    app.launch(1);
+    app.split_terminal(1, crate::ui::Split::Below);
+    let button = ButtonConfig {
+        command: "/usr/bin/printf".into(),
+        arguments: "success".into(),
+        close_on_success: true,
+        ..Default::default()
+    };
+    app.tabs[1].terminal = Terminal::start(&button, 80, 24).unwrap();
+    app.select_tab(0);
+    wait_for_tabs(&mut app, &ctx, |app| app.tabs.len() == 1);
+    assert!(app.panes.split.is_none());
+    assert_eq!(app.active().unwrap().id, gamma_id);
+    assert_eq!(app.active().unwrap().pane, 0);
+    assert!(app.active().unwrap().terminal.is_running());
+}
+
 #[test]
 fn footer_theme_picker_applies_persists_and_follows_system_appearance() {
     use crate::theme::{Accent, Appearance};
