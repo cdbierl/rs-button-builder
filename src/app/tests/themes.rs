@@ -174,6 +174,64 @@ fn terminal_theme_recolors_scrollback_and_can_restore_automatic_colors() {
 }
 
 #[test]
+fn footer_theme_change_recolors_a_running_terminal() {
+    use crate::terminal::colors::Palette;
+
+    let ctx = egui::Context::default();
+    let mut config = Config::default();
+    config.buttons[0] = interactive_button("Theme terminal");
+    let mut app = ButtonBuilder::new(&ctx, None, config);
+    app.launch(0);
+    wait_for_tabs(&mut app, &ctx, |app| {
+        app.workspace.tabs()[0]
+            .terminal
+            .screen
+            .text()
+            .contains("Theme terminal-ready")
+    });
+
+    let select_theme =
+        |app: &mut ButtonBuilder, ctx: &egui::Context, label: &str| -> egui::FullOutput {
+            let output = frame(app, ctx, vec![]);
+            let palette = egui_material3::material_symbol::material_symbol_text("palette");
+            click(app, ctx, label_center(&output, &palette));
+            let menu = frame(app, ctx, vec![]);
+            click(app, ctx, label_center(&menu, label));
+            let themed = frame(app, ctx, vec![]);
+            click(app, ctx, label_center(&themed, &palette));
+            frame(app, ctx, vec![])
+        };
+    let terminal_galley = |output: &egui::FullOutput, expected: &Palette| {
+        assert!(output.shapes.iter().any(|shape| {
+            matches!(&shape.shape, egui::Shape::Rect(rect)
+                if rect.rect.width() > 300.0 && rect.fill == rgb(expected.background))
+        }));
+        let foreground = output
+            .shapes
+            .iter()
+            .find_map(|shape| match &shape.shape {
+                egui::Shape::Text(text)
+                    if text.galley.job.text.starts_with("Theme terminal-ready") =>
+                {
+                    Some((text.galley.clone(), text.fallback_color))
+                }
+                _ => None,
+            })
+            .unwrap();
+        assert_eq!(foreground.1, rgb(expected.foreground));
+        foreground.0
+    };
+
+    let light = select_theme(&mut app, &ctx, "Light");
+    let expected = Palette::new(false, None, None);
+    let light_galley = terminal_galley(&light, &expected);
+    let dark = select_theme(&mut app, &ctx, "Dark");
+    let expected = Palette::new(true, None, None);
+    let dark_galley = terminal_galley(&dark, &expected);
+    assert!(!std::sync::Arc::ptr_eq(&light_galley, &dark_galley));
+}
+
+#[test]
 fn material_font_selection_and_validation_keep_the_dialog_usable() {
     let ctx = egui::Context::default();
     let path = std::env::temp_dir().join(format!(

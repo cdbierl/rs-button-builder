@@ -19,30 +19,30 @@ const TERMINAL_PADDING: f32 = 12.0;
 // drawn in the previous frame, so its own cache cannot preserve hidden terminal text.
 #[derive(Default)]
 pub(in crate::app) struct TerminalTextCache {
-    font: Option<(FontId, f32)>,
+    key: Option<(FontId, f32, bool)>,
     atlas_reference: Option<Arc<egui::Galley>>,
     rows: Vec<Vec<Arc<egui::Galley>>>,
 }
 
 impl TerminalTextCache {
-    fn prepare(&mut self, painter: &egui::Painter, font: &FontId, rows: usize) {
+    fn prepare(&mut self, painter: &egui::Painter, font: &FontId, rows: usize, dark: bool) {
         // Keep one shared layout alive in egui's cache each frame. Its identity changes
-        // when egui rebuilds the font atlas (including on light/dark theme changes),
-        // invalidating the texture coordinates in our retained terminal layouts.
+        // when egui rebuilds the font atlas, invalidating the texture coordinates in our
+        // retained layouts. The explicit key handles theme and font changes.
         let reference = painter.layout_no_wrap(
             "M".into(),
             FontId::monospace(12.0),
             egui::Color32::PLACEHOLDER,
         );
-        let key = (font.clone(), painter.ctx().pixels_per_point());
-        if self.font.as_ref() != Some(&key)
+        let key = (font.clone(), painter.ctx().pixels_per_point(), dark);
+        if self.key.as_ref() != Some(&key)
             || self
                 .atlas_reference
                 .as_ref()
                 .is_none_or(|previous| !Arc::ptr_eq(previous, &reference))
         {
             self.rows.clear();
-            self.font = Some(key);
+            self.key = Some(key);
         }
         self.atlas_reference = Some(reference);
         self.rows.resize_with(rows, Vec::new);
@@ -105,11 +105,8 @@ impl ButtonBuilder {
             None => &self.config.terminal,
         };
         let font = terminal_font(style, &self.fonts);
-        let colors = Palette::new(
-            self.theme.is_dark(ui.ctx().system_theme()),
-            style.fg_color,
-            style.bg_color,
-        );
+        let dark = self.theme.is_dark(ui.ctx().system_theme());
+        let colors = Palette::new(dark, style.fg_color, style.bg_color);
         let foreground = rgb(colors.foreground);
         let (char_width, line_height) = ui.fonts_mut(|fonts| {
             (
@@ -277,7 +274,7 @@ impl ButtonBuilder {
         };
         let focused_pane = self.workspace.focused_pane() == pane;
         let tab = &mut self.workspace.tabs_mut()[index];
-        tab.text_cache.prepare(&painter, &font, rows);
+        tab.text_cache.prepare(&painter, &font, rows, dark);
         let terminal = &mut tab.terminal;
         let screen = &terminal.screen;
         let view = TerminalViewport::new(screen, tab.line_wrap, cols, rows);
