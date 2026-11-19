@@ -244,19 +244,20 @@ fn terminal_shortcuts_wrap_within_the_focused_pane_and_consume_repeats() {
         app.launch(index);
     }
     wait_for_tabs(&mut app, &ctx, |app| {
-        app.tabs
+        app.workspace
+            .tabs()
             .iter()
             .all(|tab| tab.terminal.screen.text().contains("-ready"))
     });
-    app.split_terminal(2, crate::ui::Split::Right);
-    app.select_tab(0);
+    app.workspace.split_terminal(2, crate::ui::Split::Right);
+    app.workspace.select_tab(0);
     frame(&mut app, &ctx, vec![]);
     hotkey(&mut app, &ctx, egui::Key::PageUp, false, false);
-    assert_eq!(app.active_tab, Some(1));
+    assert_eq!(app.workspace.active_index(), Some(1));
     hotkey(&mut app, &ctx, egui::Key::PageDown, false, false);
-    assert_eq!(app.active_tab, Some(0));
-    assert_eq!(app.panes.focused, 0);
-    assert_eq!(app.pane_tab(1), Some(2));
+    assert_eq!(app.workspace.active_index(), Some(0));
+    assert_eq!(app.workspace.focused_pane(), 0);
+    assert_eq!(app.workspace.pane_tab(1), Some(2));
     assert!(!ctx.input(|input| {
         input
             .events
@@ -264,16 +265,28 @@ fn terminal_shortcuts_wrap_within_the_focused_pane_and_consume_repeats() {
             .any(|event| matches!(event, egui::Event::Key { pressed: true, .. }))
     }));
 
-    app.focus_pane(1);
+    app.workspace.focus_pane(1);
     hotkey(&mut app, &ctx, egui::Key::PageDown, false, false);
-    assert_eq!(app.active_tab, Some(2), "A single-tab pane stays selected");
+    assert_eq!(
+        app.workspace.active_index(),
+        Some(2),
+        "A single-tab pane stays selected"
+    );
     hotkey(&mut app, &ctx, egui::Key::W, false, false);
-    assert_eq!(app.tabs.len(), 3, "Ctrl+W belongs to the terminal");
+    assert_eq!(
+        app.workspace.tabs().len(),
+        3,
+        "Ctrl+W belongs to the terminal"
+    );
     hotkey(&mut app, &ctx, egui::Key::W, true, false);
-    assert_eq!(app.tabs.len(), 2);
-    assert!(app.panes.split.is_none());
+    assert_eq!(app.workspace.tabs().len(), 2);
+    assert!(app.workspace.split().is_none());
     hotkey(&mut app, &ctx, egui::Key::W, true, true);
-    assert_eq!(app.tabs.len(), 2, "Holding Close must not close more tabs");
+    assert_eq!(
+        app.workspace.tabs().len(),
+        2,
+        "Holding Close must not close more tabs"
+    );
     assert!(!ctx.input(|input| {
         input
             .events
@@ -283,17 +296,22 @@ fn terminal_shortcuts_wrap_within_the_focused_pane_and_consume_repeats() {
 
     hotkey(&mut app, &ctx, egui::Key::N, false, false);
     assert_eq!(
-        app.tabs.len(),
+        app.workspace.tabs().len(),
         2,
         "New layouts preserve existing terminal sessions"
     );
-    assert!(app.tabs.iter().all(|tab| tab.terminal.is_running()));
+    assert!(
+        app.workspace
+            .tabs()
+            .iter()
+            .all(|tab| tab.terminal.is_running())
+    );
     for _ in 0..2 {
         hotkey(&mut app, &ctx, egui::Key::W, true, false);
     }
     hotkey(&mut app, &ctx, egui::Key::W, true, false);
     hotkey(&mut app, &ctx, egui::Key::PageUp, false, false);
-    assert!(app.tabs.is_empty() && app.active_tab.is_none());
+    assert!(app.workspace.tabs().is_empty() && app.workspace.active_index().is_none());
 }
 
 fn label_center(output: &egui::FullOutput, label: &str) -> egui::Pos2 {
@@ -375,34 +393,37 @@ fn terminal_split_right_preserves_sessions_and_routes_focus_input_and_tabs() {
     }
     let mut app = ButtonBuilder::new(&ctx, None, config);
     app.launch(0);
-    app.split_terminal(0, crate::ui::Split::Right);
+    app.workspace.split_terminal(0, crate::ui::Split::Right);
     assert!(
-        app.panes.split.is_none(),
+        app.workspace.split().is_none(),
         "A split needs two existing terminals"
     );
     app.launch(1);
     wait_for_tabs(&mut app, &ctx, |app| {
-        app.tabs
+        app.workspace
+            .tabs()
             .iter()
             .all(|tab| tab.terminal.screen.text().contains("-ready"))
     });
     let sessions: Vec<_> = app
-        .tabs
+        .workspace
+        .tabs()
         .iter()
-        .map(|tab| (tab.id, tab.terminal.status.clone()))
+        .map(|tab| (tab.id(), tab.terminal.status.clone()))
         .collect();
-    app.select_tab(0);
+    app.workspace.select_tab(0);
     let menu = open_tab_menu(&mut app, &ctx, "2 · Beta");
     click(&mut app, &ctx, label_center(&menu, "Split right"));
-    assert!(app.panes.split == Some(crate::ui::Split::Right));
-    assert_eq!(app.pane_tab(0), Some(0));
-    assert_eq!(app.pane_tab(1), Some(1));
-    assert_eq!(app.panes.focused, 1);
+    assert!(app.workspace.split() == Some(crate::ui::Split::Right));
+    assert_eq!(app.workspace.pane_tab(0), Some(0));
+    assert_eq!(app.workspace.pane_tab(1), Some(1));
+    assert_eq!(app.workspace.focused_pane(), 1);
     assert_eq!(
         sessions,
-        app.tabs
+        app.workspace
+            .tabs()
             .iter()
-            .map(|tab| (tab.id, tab.terminal.status.clone()))
+            .map(|tab| (tab.id(), tab.terminal.status.clone()))
             .collect::<Vec<_>>()
     );
     frame(&mut app, &ctx, vec![]);
@@ -411,12 +432,12 @@ fn terminal_split_right_preserves_sessions_and_routes_focus_input_and_tabs() {
     let beta = terminal_output_position(&output, "Beta-ready");
     assert!(alpha.x < beta.x && (alpha.y - beta.y).abs() < 1.0);
     assert_eq!(
-        app.tabs[0].terminal.screen.cols,
-        app.tabs[1].terminal.screen.cols
+        app.workspace.tabs()[0].terminal.screen.cols,
+        app.workspace.tabs()[1].terminal.screen.cols
     );
-    assert!(app.tabs[0].terminal.screen.cols < 80);
+    assert!(app.workspace.tabs()[0].terminal.screen.cols < 80);
     click(&mut app, &ctx, alpha + Vec2::new(30.0, 30.0));
-    assert_eq!(app.active_tab, Some(0));
+    assert_eq!(app.workspace.active_index(), Some(0));
     frame(
         &mut app,
         &ctx,
@@ -432,28 +453,38 @@ fn terminal_split_right_preserves_sessions_and_routes_focus_input_and_tabs() {
         ],
     );
     wait_for_tabs(&mut app, &ctx, |app| {
-        app.tabs[0]
+        app.workspace.tabs()[0]
             .terminal
             .screen
             .text()
             .contains("Alpha:only-alpha")
     });
-    assert!(!app.tabs[1].terminal.screen.text().contains("only-alpha"));
+    assert!(
+        !app.workspace.tabs()[1]
+            .terminal
+            .screen
+            .text()
+            .contains("only-alpha")
+    );
     app.launch(2);
-    assert_eq!(app.tabs[2].pane, 0, "New tabs belong to the focused pane");
+    assert_eq!(
+        app.workspace.tabs()[2].pane(),
+        0,
+        "New tabs belong to the focused pane"
+    );
     let menu = open_tab_menu(&mut app, &ctx, "3 · Gamma");
     click(&mut app, &ctx, label_center(&menu, "Move to other pane"));
-    assert_eq!(app.tabs[2].pane, 1);
-    assert_eq!(app.pane_tab(0), Some(0));
-    assert_eq!(app.pane_tab(1), Some(2));
+    assert_eq!(app.workspace.tabs()[2].pane(), 1);
+    assert_eq!(app.workspace.pane_tab(0), Some(0));
+    assert_eq!(app.workspace.pane_tab(1), Some(2));
     app.launch(1);
     assert_eq!(
-        app.tabs.len(),
+        app.workspace.tabs().len(),
         3,
         "Running buttons focus across panes without duplicating"
     );
-    assert_eq!(app.active_tab, Some(1));
-    assert_eq!(app.panes.focused, 1);
+    assert_eq!(app.workspace.active_index(), Some(1));
+    assert_eq!(app.workspace.focused_pane(), 1);
     frame(&mut app, &ctx, vec![]);
     let copied = frame_with(
         &mut app,
@@ -470,13 +501,14 @@ fn terminal_split_right_preserves_sessions_and_routes_focus_input_and_tabs() {
         egui::OutputCommand::CopyText(text) if text.contains("Beta-ready") && !text.contains("Alpha-ready"))));
     let menu = open_tab_menu(&mut app, &ctx, "2 · Beta");
     click(&mut app, &ctx, label_center(&menu, "Merge panes"));
-    assert!(app.panes.split.is_none());
+    assert!(app.workspace.split().is_none());
     assert!(
-        app.tabs
+        app.workspace
+            .tabs()
             .iter()
-            .all(|tab| tab.pane == 0 && tab.terminal.is_running())
+            .all(|tab| tab.pane() == 0 && tab.terminal.is_running())
     );
-    assert_eq!(app.active_tab, Some(1));
+    assert_eq!(app.workspace.active_index(), Some(1));
 }
 
 #[test]
@@ -489,7 +521,8 @@ fn terminal_split_below_divider_resizes_each_pane_and_supports_minimum_window() 
     app.launch(0);
     app.launch(1);
     wait_for_tabs(&mut app, &ctx, |app| {
-        app.tabs
+        app.workspace
+            .tabs()
             .iter()
             .all(|tab| tab.terminal.screen.text().contains("-ready"))
     });
@@ -501,8 +534,8 @@ fn terminal_split_below_divider_resizes_each_pane_and_supports_minimum_window() 
     let beta = terminal_output_position(&output, "Beta-ready");
     assert!(alpha.y < beta.y && (alpha.x - beta.x).abs() < 1.0);
     let rows = [
-        app.tabs[0].terminal.screen.rows,
-        app.tabs[1].terminal.screen.rows,
+        app.workspace.tabs()[0].terminal.screen.rows,
+        app.workspace.tabs()[1].terminal.screen.rows,
     ];
     let divider = output
         .shapes
@@ -544,10 +577,11 @@ fn terminal_split_below_divider_resizes_each_pane_and_supports_minimum_window() 
         }],
     );
     frame(&mut app, &ctx, vec![]);
-    assert!(app.tabs[0].terminal.screen.rows > rows[0]);
-    assert!(app.tabs[1].terminal.screen.rows < rows[1]);
+    assert!(app.workspace.tabs()[0].terminal.screen.rows > rows[0]);
+    assert!(app.workspace.tabs()[1].terminal.screen.rows < rows[1]);
     for direction in [crate::ui::Split::Right, crate::ui::Split::Below] {
-        app.panes.split = Some(direction);
+        app.workspace.merge_terminals();
+        app.workspace.split_terminal(1, direction);
         let output = frame_with(
             &mut app,
             &ctx,
@@ -556,7 +590,8 @@ fn terminal_split_below_divider_resizes_each_pane_and_supports_minimum_window() 
             vec![],
         );
         assert!(
-            app.tabs
+            app.workspace
+                .tabs()
                 .iter()
                 .all(|tab| tab.terminal.screen.cols >= 2 && tab.terminal.screen.rows >= 2)
         );
@@ -587,35 +622,35 @@ fn terminal_panes_collapse_on_close_and_success_without_losing_remaining_session
     for index in 0..3 {
         app.launch(index);
     }
-    app.split_terminal(1, crate::ui::Split::Right);
-    app.select_tab(0);
-    app.close_tab(0);
-    assert!(app.panes.split.is_some());
+    app.workspace.split_terminal(1, crate::ui::Split::Right);
+    app.workspace.select_tab(0);
+    app.workspace.close_tab(0);
+    assert!(app.workspace.split().is_some());
     assert_eq!(
-        app.active().unwrap().label,
+        app.workspace.active().unwrap().label,
         "Gamma",
         "Closing selects another tab in the same pane"
     );
-    let gamma_id = app.active().unwrap().id;
-    app.close_tab(0); // Beta was the only tab in the other pane.
-    assert!(app.panes.split.is_none());
-    assert_eq!(app.active().unwrap().id, gamma_id);
-    assert!(app.active().unwrap().terminal.is_running());
+    let gamma_id = app.workspace.active().unwrap().id();
+    app.workspace.close_tab(0); // Beta was the only tab in the other pane.
+    assert!(app.workspace.split().is_none());
+    assert_eq!(app.workspace.active().unwrap().id(), gamma_id);
+    assert!(app.workspace.active().unwrap().terminal.is_running());
     app.launch(1);
-    app.split_terminal(1, crate::ui::Split::Below);
+    app.workspace.split_terminal(1, crate::ui::Split::Below);
     let button = ButtonConfig {
         command: "/usr/bin/printf".into(),
         arguments: "success".into(),
         close_on_success: true,
         ..Default::default()
     };
-    app.tabs[1].terminal = Terminal::start(&button, 80, 24).unwrap();
-    app.select_tab(0);
-    wait_for_tabs(&mut app, &ctx, |app| app.tabs.len() == 1);
-    assert!(app.panes.split.is_none());
-    assert_eq!(app.active().unwrap().id, gamma_id);
-    assert_eq!(app.active().unwrap().pane, 0);
-    assert!(app.active().unwrap().terminal.is_running());
+    app.workspace.tabs_mut()[1].terminal = Terminal::start(&button, 80, 24).unwrap();
+    app.workspace.select_tab(0);
+    wait_for_tabs(&mut app, &ctx, |app| app.workspace.tabs().len() == 1);
+    assert!(app.workspace.split().is_none());
+    assert_eq!(app.workspace.active().unwrap().id(), gamma_id);
+    assert_eq!(app.workspace.active().unwrap().pane(), 0);
+    assert!(app.workspace.active().unwrap().terminal.is_running());
 }
 
 #[test]
@@ -703,17 +738,22 @@ fn terminal_theme_recolors_scrollback_and_can_restore_automatic_colors() {
     };
     let mut app = ButtonBuilder::new(&ctx, None, config);
     app.launch(0);
-    wait_for_tabs(&mut app, &ctx, |app| !app.tabs[0].terminal.needs_poll());
-    app.tabs[0].terminal.screen.feed(b"\x1b[2J\x1b[H");
+    wait_for_tabs(&mut app, &ctx, |app| {
+        !app.workspace.tabs()[0].terminal.needs_poll()
+    });
+    app.workspace.tabs_mut()[0]
+        .terminal
+        .screen
+        .feed(b"\x1b[2J\x1b[H");
     for _ in 0..100 {
-        app.tabs[0]
+        app.workspace.tabs_mut()[0]
             .terminal
             .screen
             .feed(b"\x1b[32mansi\x1b[38;2;205;49;49mexact\x1b[0mplain\r\n");
     }
-    app.tabs[0].scrollback = app.tabs[0].terminal.screen.history.len();
+    app.workspace.tabs_mut()[0].scrollback = app.workspace.tabs()[0].terminal.screen.history.len();
     let original = serde_yaml_ng::to_string(&app.config).unwrap();
-    let scrollback = app.tabs[0].scrollback;
+    let scrollback = app.workspace.tabs()[0].scrollback;
     let check_colors = |output: &egui::FullOutput, colors: &Palette| {
         for (label, expected) in [
             ("ansi", colors.resolve(Color::Indexed(2))),
@@ -754,12 +794,12 @@ fn terminal_theme_recolors_scrollback_and_can_restore_automatic_colors() {
             |ctx| app.show(ctx),
         );
         check_colors(&output, &Palette::new(dark, None, None));
-        assert_eq!(app.tabs[0].scrollback, scrollback);
+        assert_eq!(app.workspace.tabs()[0].scrollback, scrollback);
     }
     assert!(!app.dirty);
     assert_eq!(serde_yaml_ng::to_string(&app.config).unwrap(), original);
-    app.tabs[0].style.fg_color = Some([210, 220, 230]);
-    app.tabs[0].style.bg_color = Some([5, 10, 15]);
+    app.workspace.tabs_mut()[0].style.fg_color = Some([210, 220, 230]);
+    app.workspace.tabs_mut()[0].style.bg_color = Some([5, 10, 15]);
     app.theme.mode = Appearance::Light;
     let output = frame(&mut app, &ctx, vec![]);
     check_colors(
@@ -767,16 +807,16 @@ fn terminal_theme_recolors_scrollback_and_can_restore_automatic_colors() {
         &Palette::new(false, Some([210, 220, 230]), Some([5, 10, 15])),
     );
 
-    let font_size = app.tabs[0].style.font_size;
+    let font_size = app.workspace.tabs()[0].style.font_size;
     app.appearance_open = true;
     frame(&mut app, &ctx, vec![]);
     let output = frame(&mut app, &ctx, vec![]);
     click(&mut app, &ctx, label_center(&output, "Use theme colors"));
-    assert_eq!(app.tabs[0].style.fg_color, None);
-    assert_eq!(app.tabs[0].style.bg_color, None);
+    assert_eq!(app.workspace.tabs()[0].style.fg_color, None);
+    assert_eq!(app.workspace.tabs()[0].style.bg_color, None);
     assert_eq!(app.config.terminal.fg_color, None);
     assert_eq!(app.config.terminal.bg_color, None);
-    assert_eq!(app.tabs[0].style.font_size, font_size);
+    assert_eq!(app.workspace.tabs()[0].style.font_size, font_size);
     assert!(app.dirty);
     app.appearance_open = false;
     let output = frame(&mut app, &ctx, vec![]);
@@ -911,7 +951,11 @@ fn idle_terminal_stops_fast_repaints_and_queued_input_wakes_the_ui() {
     let mut app = ButtonBuilder::new(&ctx, None, config);
     app.launch(0);
     wait_for_tabs(&mut app, &ctx, |app| {
-        app.tabs[0].terminal.screen.text().contains("Idle-ready")
+        app.workspace.tabs()[0]
+            .terminal
+            .screen
+            .text()
+            .contains("Idle-ready")
     });
     let deadline = Instant::now() + Duration::from_secs(2);
     loop {
@@ -931,13 +975,18 @@ fn idle_terminal_stops_fast_repaints_and_queued_input_wakes_the_ui() {
     ctx.set_request_repaint_callback(move |_| {
         let _ = send.send(());
     });
-    app.tabs[0].terminal.send(b"hello\n");
+    app.workspace.tabs_mut()[0].terminal.send(b"hello\n");
     receive.recv_timeout(Duration::from_secs(1)).unwrap();
     // Service only notified frames; idle fallback polling is not needed to deliver input/output.
     let deadline = Instant::now() + Duration::from_secs(2);
     loop {
         frame(&mut app, &ctx, vec![]);
-        if app.tabs[0].terminal.screen.text().contains("Idle:hello") {
+        if app.workspace.tabs()[0]
+            .terminal
+            .screen
+            .text()
+            .contains("Idle:hello")
+        {
             break;
         }
         receive
@@ -956,11 +1005,12 @@ fn switching_tabs_reuses_terminal_layouts_and_updates_text_colors_and_fonts() {
     app.launch(0);
     app.launch(1);
     wait_for_tabs(&mut app, &ctx, |app| {
-        app.tabs
+        app.workspace
+            .tabs()
             .iter()
             .all(|tab| tab.terminal.screen.text().contains("-ready"))
     });
-    app.tabs[0]
+    app.workspace.tabs_mut()[0]
         .terminal
         .screen
         .feed(b"\x1b[2J\x1b[Hcached-alpha");
@@ -976,26 +1026,29 @@ fn switching_tabs_reuses_terminal_layouts_and_updates_text_colors_and_fonts() {
             })
             .unwrap()
     };
-    app.select_tab(0);
+    app.workspace.select_tab(0);
     let first = layout(&frame(&mut app, &ctx, vec![]), "cached-alpha").0;
-    app.select_tab(1);
+    app.workspace.select_tab(1);
     for _ in 0..3 {
         frame(&mut app, &ctx, vec![]);
     }
-    app.select_tab(0);
+    app.workspace.select_tab(0);
     let returned = layout(&frame(&mut app, &ctx, vec![]), "cached-alpha").0;
     assert!(
         std::sync::Arc::ptr_eq(&first, &returned),
         "Returning to a hidden tab should reuse its text layout"
     );
-    app.tabs[0].style.fg_color = Some([20, 100, 200]);
+    app.workspace.tabs_mut()[0].style.fg_color = Some([20, 100, 200]);
     let (recolored, color) = layout(&frame(&mut app, &ctx, vec![]), "cached-alpha");
     assert!(std::sync::Arc::ptr_eq(&first, &recolored));
     assert_eq!(color, rgb([20, 100, 200]));
-    app.tabs[0].terminal.screen.feed(b"\x1b[Hchanged-alpha");
+    app.workspace.tabs_mut()[0]
+        .terminal
+        .screen
+        .feed(b"\x1b[Hchanged-alpha");
     let changed = layout(&frame(&mut app, &ctx, vec![]), "changed-alpha").0;
     assert!(!std::sync::Arc::ptr_eq(&first, &changed));
-    app.tabs[0].style.font_size += 1.0;
+    app.workspace.tabs_mut()[0].style.font_size += 1.0;
     let resized = layout(&frame(&mut app, &ctx, vec![]), "changed-alpha").0;
     assert!(!std::sync::Arc::ptr_eq(&changed, &resized));
 }
@@ -1015,17 +1068,34 @@ fn close_on_success_applies_to_auto_start_and_is_captured_at_launch() {
         };
     }
     let mut app = ButtonBuilder::new(&ctx, Some("/tmp/close-on-success.yaml".into()), config);
-    assert_eq!(app.tabs.len(), 3);
+    assert_eq!(app.workspace.tabs().len(), 3);
     // Editing button preferences doesn't change the policy for an existing run.
     app.config.buttons[0].close_on_success = false;
     app.config.buttons[1].close_on_success = true;
     wait_for_tabs(&mut app, &ctx, |app| {
-        app.tabs.len() == 2 && app.tabs.iter().all(|tab| !tab.terminal.needs_poll())
+        app.workspace.tabs().len() == 2
+            && app
+                .workspace
+                .tabs()
+                .iter()
+                .all(|tab| !tab.terminal.needs_poll())
     });
-    assert_eq!(app.tabs[0].label, "Run 1");
-    assert!(app.tabs[0].terminal.screen.text().contains("result 1"));
-    assert_eq!(app.tabs[1].label, "Run 2");
-    assert!(app.tabs[1].terminal.screen.text().contains("result 2"));
+    assert_eq!(app.workspace.tabs()[0].label, "Run 1");
+    assert!(
+        app.workspace.tabs()[0]
+            .terminal
+            .screen
+            .text()
+            .contains("result 1")
+    );
+    assert_eq!(app.workspace.tabs()[1].label, "Run 2");
+    assert!(
+        app.workspace.tabs()[1]
+            .terminal
+            .screen
+            .text()
+            .contains("result 2")
+    );
     assert_eq!(
         app.completion_notice.as_ref().unwrap().0,
         "Run 0 completed successfully"
@@ -1048,22 +1118,22 @@ fn silent_successes_close_without_disturbing_other_tabs_and_show_a_temporary_not
     let baseline_notice = app.notice.clone();
     app.launch(2);
     wait_for_tabs(&mut app, &ctx, |app| {
-        app.tabs[0]
+        app.workspace.tabs()[0]
             .terminal
             .screen
             .text()
             .contains("Keep open-ready")
     });
-    let kept_id = app.tabs[0].id;
+    let kept_id = app.workspace.tabs()[0].id();
     app.launch(0);
     app.launch(1);
-    app.select_tab(0);
+    app.workspace.select_tab(0);
     frame(&mut app, &ctx, vec![]);
     let focused = ctx.memory(|memory| memory.focused());
-    wait_for_tabs(&mut app, &ctx, |app| app.tabs.len() == 1);
-    assert_eq!(app.active_tab, Some(0));
-    assert_eq!(app.tabs[0].id, kept_id);
-    assert!(app.tabs[0].terminal.is_running());
+    wait_for_tabs(&mut app, &ctx, |app| app.workspace.tabs().len() == 1);
+    assert_eq!(app.workspace.active_index(), Some(0));
+    assert_eq!(app.workspace.tabs()[0].id(), kept_id);
+    assert!(app.workspace.tabs()[0].terminal.is_running());
     assert_eq!(ctx.memory(|memory| memory.focused()), focused);
     assert!(!app.dirty);
     assert_eq!(app.notice, baseline_notice);
@@ -1075,17 +1145,17 @@ fn silent_successes_close_without_disturbing_other_tabs_and_show_a_temporary_not
     let output = frame(&mut app, &ctx, vec![]);
     assert!(app.completion_notice.is_none());
     label_center(&output, &baseline_notice);
-    app.close_tab(0);
+    app.workspace.close_tab(0);
     app.launch(0);
-    wait_for_tabs(&mut app, &ctx, |app| app.tabs.is_empty());
-    assert_eq!(app.active_tab, None);
+    wait_for_tabs(&mut app, &ctx, |app| app.workspace.tabs().is_empty());
+    assert_eq!(app.workspace.active_index(), None);
     let output = frame(&mut app, &ctx, vec![]);
     label_center(&output, "No process output yet.");
     label_center(&output, "Silent 1 completed successfully");
     app.launch(2);
     assert!(app.completion_notice.is_none());
     wait_for_tabs(&mut app, &ctx, |app| {
-        app.tabs[0]
+        app.workspace.tabs()[0]
             .terminal
             .screen
             .text()
@@ -1120,58 +1190,73 @@ fn silent_active_success_selects_a_remaining_tab_and_failures_and_output_stay_op
     let mut app = ButtonBuilder::new(&ctx, None, config);
     app.launch(0);
     wait_for_tabs(&mut app, &ctx, |app| {
-        app.tabs[0]
+        app.workspace.tabs()[0]
             .terminal
             .screen
             .text()
             .contains("Keep open-ready")
     });
     app.launch(1);
-    assert_eq!(app.active_tab, Some(1));
-    wait_for_tabs(&mut app, &ctx, |app| app.tabs.len() == 1);
-    assert_eq!(app.active_tab, Some(0));
+    assert_eq!(app.workspace.active_index(), Some(1));
+    wait_for_tabs(&mut app, &ctx, |app| app.workspace.tabs().len() == 1);
+    assert_eq!(app.workspace.active_index(), Some(0));
     for index in 2..=5 {
         app.launch(index);
     }
     wait_for_tabs(&mut app, &ctx, |app| {
-        app.tabs
+        app.workspace
+            .tabs()
             .iter()
             .skip(1)
             .all(|tab| !tab.terminal.needs_poll())
     });
-    assert_eq!(app.tabs.len(), 5);
+    assert_eq!(app.workspace.tabs().len(), 5);
     assert_eq!(
-        app.tabs[1].terminal.status,
+        app.workspace.tabs()[1].terminal.status,
         "Process finished: exit status: 7"
     );
     assert!(
-        app.tabs[1]
+        app.workspace.tabs()[1]
             .terminal
             .screen
             .text()
             .contains("failure details")
     );
     assert_eq!(
-        app.tabs[2].terminal.status,
+        app.workspace.tabs()[2].terminal.status,
         "Process finished: exit status: 1"
     );
-    assert!(app.tabs[2].terminal.screen.text().trim().is_empty());
     assert!(
-        app.tabs[3]
+        app.workspace.tabs()[2]
+            .terminal
+            .screen
+            .text()
+            .trim()
+            .is_empty()
+    );
+    assert!(
+        app.workspace.tabs()[3]
             .terminal
             .screen
             .text()
             .contains("successful output")
     );
-    assert!(app.tabs[4].terminal.screen.text().trim().is_empty());
-    app.select_tab(2);
+    assert!(
+        app.workspace.tabs()[4]
+            .terminal
+            .screen
+            .text()
+            .trim()
+            .is_empty()
+    );
+    app.workspace.select_tab(2);
     let output = frame(&mut app, &ctx, vec![]);
     label_center(&output, "Process finished: exit status: 1");
     app.launch(6);
-    app.tabs[5].terminal.stop();
+    app.workspace.tabs_mut()[5].terminal.stop();
     frame(&mut app, &ctx, vec![]);
-    assert_eq!(app.tabs.len(), 6);
-    assert_eq!(app.tabs[5].terminal.status, "Stopped");
+    assert_eq!(app.workspace.tabs().len(), 6);
+    assert_eq!(app.workspace.tabs()[5].terminal.status, "Stopped");
 }
 
 #[test]
@@ -1188,19 +1273,19 @@ fn button_clicks_route_input_and_toolbar_actions_to_the_selected_process() {
     frame(&mut app, &ctx, vec![]);
     let output = frame(&mut app, &ctx, vec![]);
     click(&mut app, &ctx, label_center(&output, "Alpha"));
-    assert_eq!(app.tabs.len(), 1);
+    assert_eq!(app.workspace.tabs().len(), 1);
     let output = frame(&mut app, &ctx, vec![]);
     click(&mut app, &ctx, label_center(&output, "Beta"));
     assert_eq!(
-        app.tabs.len(),
+        app.workspace.tabs().len(),
         2,
         "Clicking a different button opens a tab without replacing a running process"
     );
     let output = frame(&mut app, &ctx, vec![]);
     click(&mut app, &ctx, label_center(&output, "Alpha"));
-    assert_eq!(app.active_tab, Some(0));
+    assert_eq!(app.workspace.active_index(), Some(0));
     assert_eq!(
-        app.tabs.len(),
+        app.workspace.tabs().len(),
         2,
         "Clicking a running button focuses its tab"
     );
@@ -1212,11 +1297,17 @@ fn button_clicks_route_input_and_toolbar_actions_to_the_selected_process() {
         label_center(&output, "Beta"),
         egui::Modifiers::CTRL,
     );
-    assert_eq!(app.tabs.len(), 2);
-    assert_eq!(app.active_tab, Some(1));
-    assert!(app.tabs.iter().all(|tab| tab.terminal.is_running()));
+    assert_eq!(app.workspace.tabs().len(), 2);
+    assert_eq!(app.workspace.active_index(), Some(1));
+    assert!(
+        app.workspace
+            .tabs()
+            .iter()
+            .all(|tab| tab.terminal.is_running())
+    );
     wait_for_tabs(&mut app, &ctx, |app| {
-        app.tabs
+        app.workspace
+            .tabs()
             .iter()
             .all(|tab| tab.terminal.screen.text().contains("-ready"))
     });
@@ -1236,30 +1327,36 @@ fn button_clicks_route_input_and_toolbar_actions_to_the_selected_process() {
         ],
     );
     wait_for_tabs(&mut app, &ctx, |app| {
-        app.tabs[1]
+        app.workspace.tabs()[1]
             .terminal
             .screen
             .text()
             .contains("Beta:only-beta")
     });
-    assert!(!app.tabs[0].terminal.screen.text().contains("only-beta"));
-    app.tabs[0].terminal.send(b"background\r");
+    assert!(
+        !app.workspace.tabs()[0]
+            .terminal
+            .screen
+            .text()
+            .contains("only-beta")
+    );
+    app.workspace.tabs_mut()[0].terminal.send(b"background\r");
     wait_for_tabs(&mut app, &ctx, |app| {
-        app.tabs[0]
+        app.workspace.tabs()[0]
             .terminal
             .screen
             .text()
             .contains("Alpha:background")
     });
     assert_eq!(
-        app.active_tab,
+        app.workspace.active_index(),
         Some(1),
         "Inactive terminals must keep polling"
     );
 
     let output = frame(&mut app, &ctx, vec![]);
     click(&mut app, &ctx, label_center(&output, "1 · Alpha"));
-    assert_eq!(app.active_tab, Some(0));
+    assert_eq!(app.workspace.active_index(), Some(0));
     let output = frame(&mut app, &ctx, vec![]);
     let copy_pos = label_center(&output, "Copy");
     frame(
@@ -1290,33 +1387,40 @@ fn button_clicks_route_input_and_toolbar_actions_to_the_selected_process() {
     )));
     let output = frame(&mut app, &ctx, vec![]);
     click(&mut app, &ctx, label_center(&output, "Ctrl+C"));
-    wait_for_tabs(&mut app, &ctx, |app| !app.tabs[0].terminal.is_running());
-    assert!(app.tabs[1].terminal.is_running());
+    wait_for_tabs(&mut app, &ctx, |app| {
+        !app.workspace.tabs()[0].terminal.is_running()
+    });
+    assert!(app.workspace.tabs()[1].terminal.is_running());
 
     let output = frame(&mut app, &ctx, vec![]);
     click(&mut app, &ctx, label_center(&output, "Alpha"));
-    assert_eq!(app.tabs.len(), 3, "Rerunning preserves the finished tab");
-    assert_eq!(app.tabs[0].id, 1);
+    assert_eq!(
+        app.workspace.tabs().len(),
+        3,
+        "Rerunning preserves the finished tab"
+    );
+    assert_eq!(app.workspace.tabs()[0].id(), 1);
     assert!(
-        app.tabs[0]
+        app.workspace.tabs()[0]
             .terminal
             .screen
             .text()
             .contains("Alpha:background")
     );
-    assert!(!app.tabs[0].terminal.is_running());
-    assert_eq!(app.active_tab, Some(2));
-    assert_eq!(app.tabs[2].id, 3);
-    assert!(app.tabs[2].terminal.is_running());
+    assert!(!app.workspace.tabs()[0].terminal.is_running());
+    assert_eq!(app.workspace.active_index(), Some(2));
+    assert_eq!(app.workspace.tabs()[2].id(), 3);
+    assert!(app.workspace.tabs()[2].terminal.is_running());
     let output = frame(&mut app, &ctx, vec![]);
     click(&mut app, &ctx, label_center(&output, "Stop"));
-    assert!(!app.tabs[0].terminal.is_running());
-    assert!(app.tabs[1].terminal.is_running());
-    assert_eq!(app.tabs[2].terminal.status, "Stopped");
+    assert!(!app.workspace.tabs()[0].terminal.is_running());
+    assert!(app.workspace.tabs()[1].terminal.is_running());
+    assert_eq!(app.workspace.tabs()[2].terminal.status, "Stopped");
 
     let output = frame(&mut app, &ctx, vec![]);
     click(&mut app, &ctx, label_center(&output, "2 · Beta"));
     let pid: i32 = app
+        .workspace
         .active()
         .unwrap()
         .terminal
@@ -1328,8 +1432,8 @@ fn button_clicks_route_input_and_toolbar_actions_to_the_selected_process() {
         .unwrap();
     let output = frame(&mut app, &ctx, vec![]);
     click(&mut app, &ctx, label_center(&output, "Close tab"));
-    assert_eq!(app.tabs.len(), 2);
-    assert_eq!(app.active_tab, Some(1));
+    assert_eq!(app.workspace.tabs().len(), 2);
+    assert_eq!(app.workspace.active_index(), Some(1));
     // Reaping is asynchronous; wait for the worker while the UI keeps rendering.
     wait_for_tabs(&mut app, &ctx, |_| {
         // SAFETY: signal zero only checks whether this test's child still exists.
@@ -1343,13 +1447,17 @@ fn button_clicks_route_input_and_toolbar_actions_to_the_selected_process() {
     );
     let output = frame(&mut app, &ctx, vec![]);
     click(&mut app, &ctx, label_center(&output, "Close tab"));
-    assert_eq!(app.tabs.len(), 1);
+    assert_eq!(app.workspace.tabs().len(), 1);
     let output = frame(&mut app, &ctx, vec![]);
     click(&mut app, &ctx, label_center(&output, "Close tab"));
-    assert!(app.tabs.is_empty() && app.active_tab.is_none());
+    assert!(app.workspace.tabs().is_empty() && app.workspace.active_index().is_none());
     let output = frame(&mut app, &ctx, vec![]);
     click(&mut app, &ctx, label_center(&output, "Alpha"));
-    assert_eq!(app.tabs[0].id, 4, "New tabs must not reuse old UI IDs");
+    assert_eq!(
+        app.workspace.tabs()[0].id(),
+        4,
+        "New tabs must not reuse old UI IDs"
+    );
 }
 
 #[test]
@@ -1372,13 +1480,22 @@ fn noisy_processes_can_be_interrupted_stopped_closed_and_run_alongside_new_tabs(
     let output = frame(&mut app, &ctx, vec![]);
     click(&mut app, &ctx, label_center(&output, "Flood"));
     wait_for_tabs(&mut app, &ctx, |app| {
-        !app.tabs[0].terminal.screen.text().trim().is_empty()
+        !app.workspace.tabs()[0]
+            .terminal
+            .screen
+            .text()
+            .trim()
+            .is_empty()
     });
     let output = frame(&mut app, &ctx, vec![]);
     click(&mut app, &ctx, label_center(&output, "Quiet"));
-    assert_eq!(app.tabs.len(), 2);
+    assert_eq!(app.workspace.tabs().len(), 2);
     wait_for_tabs(&mut app, &ctx, |app| {
-        app.tabs[1].terminal.screen.text().contains("Quiet-ready")
+        app.workspace.tabs()[1]
+            .terminal
+            .screen
+            .text()
+            .contains("Quiet-ready")
     });
     for _ in 0..10 {
         let started = Instant::now();
@@ -1393,18 +1510,18 @@ fn noisy_processes_can_be_interrupted_stopped_closed_and_run_alongside_new_tabs(
     let output = frame(&mut app, &ctx, vec![]);
     click(&mut app, &ctx, label_center(&output, "Ctrl+C"));
     assert!(
-        app.tabs[0].terminal.is_running(),
+        app.workspace.tabs()[0].terminal.is_running(),
         "The flood deliberately ignores SIGINT"
     );
     let output = frame(&mut app, &ctx, vec![]);
     click(&mut app, &ctx, label_center(&output, "Stop"));
-    assert_eq!(app.tabs[0].terminal.status, "Stopped");
-    assert!(!app.tabs[0].terminal.needs_poll());
-    assert!(app.tabs[1].terminal.is_running());
+    assert_eq!(app.workspace.tabs()[0].terminal.status, "Stopped");
+    assert!(!app.workspace.tabs()[0].terminal.needs_poll());
+    assert!(app.workspace.tabs()[1].terminal.is_running());
     let output = frame(&mut app, &ctx, vec![]);
     click(&mut app, &ctx, label_center(&output, "Flood"));
-    assert!(app.tabs[2].terminal.is_running());
-    let pid: i32 = app.tabs[2]
+    assert!(app.workspace.tabs()[2].terminal.is_running());
+    let pid: i32 = app.workspace.tabs()[2]
         .terminal
         .status
         .split_whitespace()
@@ -1414,14 +1531,14 @@ fn noisy_processes_can_be_interrupted_stopped_closed_and_run_alongside_new_tabs(
         .unwrap();
     let output = frame(&mut app, &ctx, vec![]);
     click(&mut app, &ctx, label_center(&output, "Close tab"));
-    assert_eq!(app.tabs.len(), 2);
-    assert_eq!(app.tabs[1].label, "Quiet");
-    assert_eq!(app.tabs[0].terminal.status, "Stopped");
+    assert_eq!(app.workspace.tabs().len(), 2);
+    assert_eq!(app.workspace.tabs()[1].label, "Quiet");
+    assert_eq!(app.workspace.tabs()[0].terminal.status, "Stopped");
     wait_for_tabs(&mut app, &ctx, |_| {
         // SAFETY: signal zero only observes this test's child.
         (unsafe { libc::kill(pid, 0) }) == -1
     });
-    assert!(app.tabs[1].terminal.is_running());
+    assert!(app.workspace.tabs()[1].terminal.is_running());
 }
 
 #[test]
@@ -1432,9 +1549,13 @@ fn terminal_drag_selects_highlights_and_copies_on_release() {
     let mut app = ButtonBuilder::new(&ctx, None, config);
     app.launch(0);
     wait_for_tabs(&mut app, &ctx, |app| {
-        app.tabs[0].terminal.screen.text().contains("Alpha-ready")
+        app.workspace.tabs()[0]
+            .terminal
+            .screen
+            .text()
+            .contains("Alpha-ready")
     });
-    app.tabs[0]
+    app.workspace.tabs_mut()[0]
         .terminal
         .screen
         .feed(b"\x1b[2J\x1b[Halpha bravo\r\ncharlie delta");
@@ -1449,11 +1570,11 @@ fn terminal_drag_selects_highlights_and_copies_on_release() {
             _ => None,
         })
         .unwrap();
-    let font = egui::FontId::monospace(app.tabs[0].style.font_size);
+    let font = egui::FontId::monospace(app.workspace.tabs()[0].style.font_size);
     let (width, height) = ctx.fonts_mut(|fonts| {
         (
             fonts.glyph_width(&font, 'M'),
-            fonts.row_height(&font) * app.tabs[0].style.line_spacing,
+            fonts.row_height(&font) * app.workspace.tabs()[0].style.line_spacing,
         )
     });
     let cell = |row: usize, col: usize| {
@@ -1537,9 +1658,9 @@ fn terminal_drag_selects_highlights_and_copies_on_release() {
     );
     click(&mut app, &ctx, start);
     assert!(
-        app.tabs[0]
+        app.workspace.tabs()[0]
             .selection
-            .text(&app.tabs[0].terminal.screen)
+            .text(&app.workspace.tabs()[0].terminal.screen)
             .is_none()
     );
     let copied = frame_with(
@@ -1568,13 +1689,17 @@ fn terminal_drag_selects_highlights_and_copies_on_release() {
     frame(&mut app, &ctx, vec![press(end, false)]);
     frame(&mut app, &ctx, vec![egui::Event::Text("typed\n".into())]);
     assert!(
-        app.tabs[0]
+        app.workspace.tabs()[0]
             .selection
-            .text(&app.tabs[0].terminal.screen)
+            .text(&app.workspace.tabs()[0].terminal.screen)
             .is_none()
     );
     wait_for_tabs(&mut app, &ctx, |app| {
-        app.tabs[0].terminal.screen.text().contains("Alpha:typed")
+        app.workspace.tabs()[0]
+            .terminal
+            .screen
+            .text()
+            .contains("Alpha:typed")
     });
     frame(
         &mut app,
@@ -1597,7 +1722,9 @@ fn terminal_drag_selects_highlights_and_copies_on_release() {
             .iter()
             .all(|command| !matches!(command, egui::OutputCommand::CopyText(_)))
     );
-    wait_for_tabs(&mut app, &ctx, |app| !app.tabs[0].terminal.is_running());
+    wait_for_tabs(&mut app, &ctx, |app| {
+        !app.workspace.tabs()[0].terminal.is_running()
+    });
 }
 
 #[test]
@@ -1610,20 +1737,24 @@ fn terminal_selection_copies_scrollback_survives_tab_switches_and_releases_outsi
     app.launch(0);
     app.launch(1);
     wait_for_tabs(&mut app, &ctx, |app| {
-        app.tabs
+        app.workspace
+            .tabs()
             .iter()
             .all(|tab| tab.terminal.screen.text().contains("-ready"))
     });
-    app.select_tab(0);
+    app.workspace.select_tab(0);
     frame(&mut app, &ctx, vec![]);
-    app.tabs[0].terminal.screen.feed(b"\x1b[2J\x1b[H");
+    app.workspace.tabs_mut()[0]
+        .terminal
+        .screen
+        .feed(b"\x1b[2J\x1b[H");
     for i in 0..120 {
-        app.tabs[0]
+        app.workspace.tabs_mut()[0]
             .terminal
             .screen
             .feed(format!("history-{i}\r\n").as_bytes());
     }
-    app.tabs[0].scrollback = app.tabs[0].terminal.screen.history.len();
+    app.workspace.tabs_mut()[0].scrollback = app.workspace.tabs()[0].terminal.screen.history.len();
     let output = frame(&mut app, &ctx, vec![]);
     let origin = output
         .shapes
@@ -1635,11 +1766,11 @@ fn terminal_selection_copies_scrollback_survives_tab_switches_and_releases_outsi
             _ => None,
         })
         .unwrap();
-    let font = egui::FontId::monospace(app.tabs[0].style.font_size);
+    let font = egui::FontId::monospace(app.workspace.tabs()[0].style.font_size);
     let (width, height) = ctx.fonts_mut(|fonts| {
         (
             fonts.glyph_width(&font, 'M'),
-            fonts.row_height(&font) * app.tabs[0].style.line_spacing,
+            fonts.row_height(&font) * app.workspace.tabs()[0].style.line_spacing,
         )
     });
     let anchor = origin + Vec2::new(0.0, height / 2.0);
@@ -1660,29 +1791,32 @@ fn terminal_selection_copies_scrollback_survives_tab_switches_and_releases_outsi
     assert!(copied.platform_output.commands.iter().any(
         |command| matches!(command, egui::OutputCommand::CopyText(text) if text == "history-0")
     ));
-    app.select_tab(1);
+    app.workspace.select_tab(1);
     frame(&mut app, &ctx, vec![]);
     assert!(
-        app.tabs[1]
+        app.workspace.tabs()[1]
             .selection
-            .text(&app.tabs[1].terminal.screen)
+            .text(&app.workspace.tabs()[1].terminal.screen)
             .is_none()
     );
-    app.select_tab(0);
+    app.workspace.select_tab(0);
     frame(&mut app, &ctx, vec![]);
     assert_eq!(
-        app.tabs[0]
+        app.workspace.tabs()[0]
             .selection
-            .text(&app.tabs[0].terminal.screen)
+            .text(&app.workspace.tabs()[0].terminal.screen)
             .as_deref(),
         Some("history-0")
     );
-    app.tabs[0].terminal.screen.feed(b"new output\r\n");
+    app.workspace.tabs_mut()[0]
+        .terminal
+        .screen
+        .feed(b"new output\r\n");
     let output = frame(&mut app, &ctx, vec![]);
     assert_eq!(
-        app.tabs[0]
+        app.workspace.tabs()[0]
             .selection
-            .text(&app.tabs[0].terminal.screen)
+            .text(&app.workspace.tabs()[0].terminal.screen)
             .as_deref(),
         Some("history-0")
     );
@@ -1707,7 +1841,7 @@ fn terminal_selection_copies_scrollback_survives_tab_switches_and_releases_outsi
             .all(|command| !matches!(command, egui::OutputCommand::CopyText(_))),
         "Dragging the scrollbar must not copy text"
     );
-    app.tabs[0].scrollback = app.tabs[0].terminal.screen.history.len();
+    app.workspace.tabs_mut()[0].scrollback = app.workspace.tabs()[0].terminal.screen.history.len();
     frame(&mut app, &ctx, vec![]);
     frame(
         &mut app,
@@ -1737,14 +1871,15 @@ fn terminal_scrollbar_drags_history_and_preserves_tab_position_and_input_focus()
     app.launch(0);
     app.launch(1);
     wait_for_tabs(&mut app, &ctx, |app| {
-        app.tabs
+        app.workspace
+            .tabs()
             .iter()
             .all(|tab| tab.terminal.screen.text().contains("-ready"))
     });
-    app.select_tab(0);
+    app.workspace.select_tab(0);
     frame(&mut app, &ctx, vec![]);
     for i in 0..120 {
-        app.tabs[0]
+        app.workspace.tabs_mut()[0]
             .terminal
             .screen
             .feed(format!("history-{i}\r\n").as_bytes());
@@ -1767,7 +1902,8 @@ fn terminal_scrollbar_drags_history_and_preserves_tab_position_and_input_focus()
         ],
     );
     assert_eq!(
-        app.tabs[0].scrollback, 0,
+        app.workspace.tabs()[0].scrollback,
+        0,
         "Grabbing the thumb must not jump"
     );
     frame(
@@ -1775,8 +1911,10 @@ fn terminal_scrollbar_drags_history_and_preserves_tab_position_and_input_focus()
         &ctx,
         vec![egui::Event::PointerMoved(track.center())],
     );
-    assert!(app.tabs[0].scrollback > 0);
-    assert!(app.tabs[0].scrollback < app.tabs[0].terminal.screen.history.len());
+    assert!(app.workspace.tabs()[0].scrollback > 0);
+    assert!(
+        app.workspace.tabs()[0].scrollback < app.workspace.tabs()[0].terminal.screen.history.len()
+    );
     frame(
         &mut app,
         &ctx,
@@ -1787,17 +1925,17 @@ fn terminal_scrollbar_drags_history_and_preserves_tab_position_and_input_focus()
             modifiers: egui::Modifiers::NONE,
         }],
     );
-    let saved = app.tabs[0].scrollback;
-    app.select_tab(1);
+    let saved = app.workspace.tabs()[0].scrollback;
+    app.workspace.select_tab(1);
     let output = frame(&mut app, &ctx, vec![]);
     assert!(
         scrollbar_rects(&output).is_none(),
         "No scrollbar without history"
     );
-    app.select_tab(0);
+    app.workspace.select_tab(0);
     frame(&mut app, &ctx, vec![]);
-    assert_eq!(app.tabs[0].scrollback, saved);
-    let anchor = app.tabs[0].terminal.screen.history.len() - saved;
+    assert_eq!(app.workspace.tabs()[0].scrollback, saved);
+    let anchor = app.workspace.tabs()[0].terminal.screen.history.len() - saved;
     wheel(
         &mut app,
         &ctx,
@@ -1807,19 +1945,24 @@ fn terminal_scrollbar_drags_history_and_preserves_tab_position_and_input_focus()
         egui::Modifiers::CTRL,
     );
     assert_eq!(
-        app.tabs[0].style.font_size, 15.0,
+        app.workspace.tabs()[0].style.font_size,
+        15.0,
         "Zoom also works over the scrollbar"
     );
     assert_eq!(
-        app.tabs[0].terminal.screen.history.len() - app.tabs[0].scrollback,
+        app.workspace.tabs()[0].terminal.screen.history.len() - app.workspace.tabs()[0].scrollback,
         anchor
     );
-    app.tabs[0].terminal.send(b"arrived\n");
+    app.workspace.tabs_mut()[0].terminal.send(b"arrived\n");
     wait_for_tabs(&mut app, &ctx, |app| {
-        app.tabs[0].terminal.screen.text().contains("Alpha:arrived")
+        app.workspace.tabs()[0]
+            .terminal
+            .screen
+            .text()
+            .contains("Alpha:arrived")
     });
     assert_eq!(
-        app.tabs[0].terminal.screen.history.len() - app.tabs[0].scrollback,
+        app.workspace.tabs()[0].terminal.screen.history.len() - app.workspace.tabs()[0].scrollback,
         anchor,
         "Incoming output must keep the viewed text anchored"
     );
@@ -1827,18 +1970,32 @@ fn terminal_scrollbar_drags_history_and_preserves_tab_position_and_input_focus()
     let (track, _) = scrollbar_rects(&output).unwrap();
     click(&mut app, &ctx, track.center_top());
     assert_eq!(
-        app.tabs[0].scrollback,
-        app.tabs[0].terminal.screen.history.len()
+        app.workspace.tabs()[0].scrollback,
+        app.workspace.tabs()[0].terminal.screen.history.len()
     );
     click(&mut app, &ctx, track.center_bottom() - Vec2::new(0.0, 1.0));
-    assert_eq!(app.tabs[0].scrollback, 0, "Bottom resumes live output");
+    assert_eq!(
+        app.workspace.tabs()[0].scrollback,
+        0,
+        "Bottom resumes live output"
+    );
     click(&mut app, &ctx, track.center_top());
     frame(&mut app, &ctx, vec![egui::Event::Text("hello\n".into())]);
-    assert_eq!(app.tabs[0].scrollback, 0);
+    assert_eq!(app.workspace.tabs()[0].scrollback, 0);
     wait_for_tabs(&mut app, &ctx, |app| {
-        app.tabs[0].terminal.screen.text().contains("Alpha:hello")
+        app.workspace.tabs()[0]
+            .terminal
+            .screen
+            .text()
+            .contains("Alpha:hello")
     });
-    assert!(!app.tabs[1].terminal.screen.text().contains("hello"));
+    assert!(
+        !app.workspace.tabs()[1]
+            .terminal
+            .screen
+            .text()
+            .contains("hello")
+    );
 }
 
 #[test]
@@ -1864,7 +2021,7 @@ fn terminal_scrollbar_handles_full_buffer_and_alternate_screen_at_minimum_window
     };
     small_frame(&mut app, vec![]);
     for i in 0..2300 {
-        app.tabs[0]
+        app.workspace.tabs_mut()[0]
             .terminal
             .screen
             .feed(format!("line-{i}\r\n").as_bytes());
@@ -1892,13 +2049,13 @@ fn terminal_scrollbar_handles_full_buffer_and_alternate_screen_at_minimum_window
     );
     let above = egui::pos2(grab.x, -100.0);
     small_frame(&mut app, vec![egui::Event::PointerMoved(above)]);
-    assert_eq!(app.tabs[0].scrollback, 2000);
+    assert_eq!(app.workspace.tabs()[0].scrollback, 2000);
     let output = small_frame(&mut app, vec![]);
     let (track, thumb) = scrollbar_rects(&output).unwrap();
     assert_eq!(track.top(), thumb.top());
     let below = egui::pos2(grab.x, 600.0);
     small_frame(&mut app, vec![egui::Event::PointerMoved(below)]);
-    assert_eq!(app.tabs[0].scrollback, 0);
+    assert_eq!(app.workspace.tabs()[0].scrollback, 0);
     small_frame(
         &mut app,
         vec![egui::Event::PointerButton {
@@ -1908,13 +2065,19 @@ fn terminal_scrollbar_handles_full_buffer_and_alternate_screen_at_minimum_window
             modifiers: egui::Modifiers::NONE,
         }],
     );
-    app.tabs[0].terminal.screen.feed(b"\x1b[?1049h");
+    app.workspace.tabs_mut()[0]
+        .terminal
+        .screen
+        .feed(b"\x1b[?1049h");
     let output = small_frame(&mut app, vec![]);
     assert!(
         scrollbar_rects(&output).is_none(),
         "Full-screen programs use their alternate screen"
     );
-    app.tabs[0].terminal.screen.feed(b"\x1b[?1049l");
+    app.workspace.tabs_mut()[0]
+        .terminal
+        .screen
+        .feed(b"\x1b[?1049l");
     assert!(scrollbar_rects(&small_frame(&mut app, vec![])).is_some());
 }
 
@@ -1932,26 +2095,28 @@ fn control_wheel_zooms_only_active_tab_and_preserves_history_anchor() {
     app.launch(0);
     app.launch(1);
     wait_for_tabs(&mut app, &ctx, |app| {
-        app.tabs
+        app.workspace
+            .tabs()
             .iter()
             .all(|tab| tab.terminal.screen.text().contains("-ready"))
     });
-    app.select_tab(0);
+    app.workspace.select_tab(0);
     frame(&mut app, &ctx, vec![]);
     for i in 0..100 {
-        app.tabs[0]
+        app.workspace.tabs_mut()[0]
             .terminal
             .screen
             .feed(format!("history-{i}\r\n").as_bytes());
     }
-    app.tabs[0].scrollback = 20;
-    app.tabs[0].scroll_fraction = 0.5;
+    app.workspace.tabs_mut()[0].scrollback = 20;
+    app.workspace.tabs_mut()[0].scroll_fraction = 0.5;
     frame(&mut app, &ctx, vec![]);
-    let anchor = app.tabs[0].terminal.screen.history.len() - app.tabs[0].scrollback;
-    let first_size = app.terminal_size;
+    let anchor =
+        app.workspace.tabs()[0].terminal.screen.history.len() - app.workspace.tabs()[0].scrollback;
+    let first_size = app.workspace.terminal_size();
     let second_size = (
-        app.tabs[1].terminal.screen.cols,
-        app.tabs[1].terminal.screen.rows,
+        app.workspace.tabs()[1].terminal.screen.cols,
+        app.workspace.tabs()[1].terminal.screen.rows,
     );
     let pane = egui::pos2(700.0, 400.0);
 
@@ -1963,31 +2128,31 @@ fn control_wheel_zooms_only_active_tab_and_preserves_history_anchor() {
         Vec2::new(0.0, 2.0),
         egui::Modifiers::CTRL,
     );
-    assert_eq!(app.tabs[0].style.font_size, 16.0);
-    assert_eq!(app.tabs[1].style.font_size, 14.0);
+    assert_eq!(app.workspace.tabs()[0].style.font_size, 16.0);
+    assert_eq!(app.workspace.tabs()[1].style.font_size, 14.0);
     assert_eq!(app.config.terminal.font_size, 16.0);
     assert!(app.dirty);
-    assert!(app.terminal_size.0 < first_size.0);
-    assert!(app.terminal_size.1 < first_size.1);
+    assert!(app.workspace.terminal_size().0 < first_size.0);
+    assert!(app.workspace.terminal_size().1 < first_size.1);
     assert_eq!(
-        app.terminal_size,
+        app.workspace.terminal_size(),
         (
-            app.tabs[0].terminal.screen.cols,
-            app.tabs[0].terminal.screen.rows
+            app.workspace.tabs()[0].terminal.screen.cols,
+            app.workspace.tabs()[0].terminal.screen.rows
         )
     );
     assert_eq!(
         second_size,
         (
-            app.tabs[1].terminal.screen.cols,
-            app.tabs[1].terminal.screen.rows
+            app.workspace.tabs()[1].terminal.screen.cols,
+            app.workspace.tabs()[1].terminal.screen.rows
         )
     );
     assert_eq!(
-        app.tabs[0].terminal.screen.history.len() - app.tabs[0].scrollback,
+        app.workspace.tabs()[0].terminal.screen.history.len() - app.workspace.tabs()[0].scrollback,
         anchor
     );
-    assert_eq!(app.tabs[0].scroll_fraction, 0.5);
+    assert_eq!(app.workspace.tabs()[0].scroll_fraction, 0.5);
     assert_eq!(ctx.zoom_factor(), 1.0);
 
     wheel(
@@ -1998,17 +2163,17 @@ fn control_wheel_zooms_only_active_tab_and_preserves_history_anchor() {
         Vec2::new(0.0, -1.0),
         egui::Modifiers::CTRL,
     );
-    assert_eq!(app.tabs[0].style.font_size, 15.0);
+    assert_eq!(app.workspace.tabs()[0].style.font_size, 15.0);
     // egui's smoothed zoom input must not keep changing font size after the wheel stops.
     for _ in 0..12 {
         frame(&mut app, &ctx, vec![]);
     }
-    assert_eq!(app.tabs[0].style.font_size, 15.0);
+    assert_eq!(app.workspace.tabs()[0].style.font_size, 15.0);
     assert_eq!(
-        app.tabs[0].terminal.screen.history.len() - app.tabs[0].scrollback,
+        app.workspace.tabs()[0].terminal.screen.history.len() - app.workspace.tabs()[0].scrollback,
         anchor
     );
-    let scrollback = app.tabs[0].scrollback;
+    let scrollback = app.workspace.tabs()[0].scrollback;
     for _ in 0..5 {
         wheel(
             &mut app,
@@ -2020,10 +2185,10 @@ fn control_wheel_zooms_only_active_tab_and_preserves_history_anchor() {
         );
     }
     assert!(
-        app.tabs[0].scrollback > scrollback,
+        app.workspace.tabs()[0].scrollback > scrollback,
         "Plain scrolling still moves through history"
     );
-    assert_eq!(app.tabs[0].style.font_size, 15.0);
+    assert_eq!(app.workspace.tabs()[0].style.font_size, 15.0);
     app.save();
     assert_eq!(
         Config::load_existing(app.config_path.as_deref().unwrap())
@@ -2034,8 +2199,8 @@ fn control_wheel_zooms_only_active_tab_and_preserves_history_anchor() {
     );
     app.config.buttons[2] = interactive_button("Gamma");
     app.launch(2);
-    assert_eq!(app.tabs[2].style.font_size, 15.0);
-    assert_eq!(app.tabs[1].style.font_size, 14.0);
+    assert_eq!(app.workspace.tabs()[2].style.font_size, 15.0);
+    assert_eq!(app.workspace.tabs()[1].style.font_size, 14.0);
 }
 
 #[test]
@@ -2152,24 +2317,26 @@ fn tabs_preserve_appearance_history_and_resize_inactive_processes() {
     app.launch(1);
     frame(&mut app, &ctx, vec![]);
     wait_for_tabs(&mut app, &ctx, |app| {
-        app.tabs
+        app.workspace
+            .tabs()
             .iter()
             .all(|tab| tab.terminal.screen.text().contains("-ready"))
     });
     // Build history without depending on asynchronous process timing.
     for i in 0..100 {
-        app.tabs[0]
+        app.workspace.tabs_mut()[0]
             .terminal
             .screen
             .feed(format!("history-{i}\r\n").as_bytes());
     }
-    app.tabs[0].scrollback = 10;
-    app.tabs[0].scroll_fraction = 0.5;
-    app.tabs[0].style.font_size = 22.0;
-    app.tabs[0].style.bg_color = Some([10, 30, 40]);
-    app.select_tab(0);
+    app.workspace.tabs_mut()[0].scrollback = 10;
+    app.workspace.tabs_mut()[0].scroll_fraction = 0.5;
+    app.workspace.tabs_mut()[0].style.font_size = 22.0;
+    app.workspace.tabs_mut()[0].style.bg_color = Some([10, 30, 40]);
+    app.workspace.select_tab(0);
     let output = frame(&mut app, &ctx, vec![]);
-    let history_anchor = app.tabs[0].terminal.screen.history.len() - app.tabs[0].scrollback;
+    let history_anchor =
+        app.workspace.tabs()[0].terminal.screen.history.len() - app.workspace.tabs()[0].scrollback;
     click(&mut app, &ctx, label_center(&output, "Appearance"));
     let output = frame(&mut app, &ctx, vec![]);
     let pos = label_center(&output, "22.0 pt");
@@ -2202,8 +2369,8 @@ fn tabs_preserve_appearance_history_and_resize_inactive_processes() {
             },
         ],
     );
-    assert_eq!(app.tabs[0].style.font_size, 20.0);
-    assert_eq!(app.tabs[1].style.font_size, 14.0);
+    assert_eq!(app.workspace.tabs()[0].style.font_size, 20.0);
+    assert_eq!(app.workspace.tabs()[1].style.font_size, 14.0);
     let output = frame(&mut app, &ctx, vec![]);
     click(&mut app, &ctx, label_center(&output, "Save appearance"));
     assert_eq!(
@@ -2215,16 +2382,16 @@ fn tabs_preserve_appearance_history_and_resize_inactive_processes() {
     );
     let output = frame(&mut app, &ctx, vec![]);
     click(&mut app, &ctx, label_center(&output, "Close"));
-    let first_cols = app.tabs[0].terminal.screen.cols;
-    let first_rows = app.tabs[0].terminal.screen.rows;
-    app.select_tab(1);
+    let first_cols = app.workspace.tabs()[0].terminal.screen.cols;
+    let first_rows = app.workspace.tabs()[0].terminal.screen.rows;
+    app.workspace.select_tab(1);
     let second_output = frame(&mut app, &ctx, vec![]);
     assert!(!second_output.shapes.iter().any(|shape| matches!(&shape.shape, egui::Shape::Text(text) if text.galley.job.text == "Jump to live")));
     assert_eq!(
-        app.tabs[0].terminal.screen.history.len() - app.tabs[0].scrollback,
+        app.workspace.tabs()[0].terminal.screen.history.len() - app.workspace.tabs()[0].scrollback,
         history_anchor
     );
-    assert_eq!(app.tabs[0].scroll_fraction, 0.5);
+    assert_eq!(app.workspace.tabs()[0].scroll_fraction, 0.5);
     for _ in 0..3 {
         frame_with(
             &mut app,
@@ -2234,10 +2401,12 @@ fn tabs_preserve_appearance_history_and_resize_inactive_processes() {
             vec![],
         );
     }
-    assert!(app.tabs[0].terminal.screen.cols < first_cols);
-    assert!(app.tabs[0].terminal.screen.rows < first_rows);
-    assert!(app.tabs[0].terminal.screen.cols < app.tabs[1].terminal.screen.cols);
-    app.select_tab(0);
+    assert!(app.workspace.tabs()[0].terminal.screen.cols < first_cols);
+    assert!(app.workspace.tabs()[0].terminal.screen.rows < first_rows);
+    assert!(
+        app.workspace.tabs()[0].terminal.screen.cols < app.workspace.tabs()[1].terminal.screen.cols
+    );
+    app.workspace.select_tab(0);
     let output = frame(&mut app, &ctx, vec![]);
     let output = frame(
         &mut app,
@@ -2248,14 +2417,15 @@ fn tabs_preserve_appearance_history_and_resize_inactive_processes() {
         ))],
     );
     click(&mut app, &ctx, label_center(&output, "Jump to live"));
-    assert_eq!(app.tabs[0].scrollback, 0);
-    assert_eq!(app.tabs[0].scroll_fraction, 0.0);
+    assert_eq!(app.workspace.tabs()[0].scrollback, 0);
+    assert_eq!(app.workspace.tabs()[0].scroll_fraction, 0.0);
     app.launch(2);
     assert_eq!(
-        app.tabs[2].style.font_size, 20.0,
+        app.workspace.tabs()[2].style.font_size,
+        20.0,
         "New tabs inherit the edited appearance default"
     );
-    app.select_tab(1);
+    app.workspace.select_tab(1);
     app.appearance_open = true;
     frame(&mut app, &ctx, vec![]);
     let output = frame(&mut app, &ctx, vec![]);
@@ -2268,8 +2438,8 @@ fn tabs_preserve_appearance_history_and_resize_inactive_processes() {
         14.0,
         "Saving an unchanged tab's appearance must make its settings the default"
     );
-    assert_eq!(app.tabs[0].style.font_size, 20.0);
-    assert_eq!(app.tabs[2].style.font_size, 20.0);
+    assert_eq!(app.workspace.tabs()[0].style.font_size, 20.0);
+    assert_eq!(app.workspace.tabs()[2].style.font_size, 20.0);
 }
 
 #[test]
@@ -2286,40 +2456,57 @@ fn failed_launch_and_config_loading_preserve_multiple_sessions() {
     );
     app.launch(0);
     app.launch(2);
-    app.tabs[0].style.bg_color = Some([10, 30, 40]);
-    app.tabs[1].terminal.screen.feed(b"Retain me");
-    let next_id = app.next_tab_id;
+    app.workspace.tabs_mut()[0].style.bg_color = Some([10, 30, 40]);
+    app.workspace.tabs_mut()[1]
+        .terminal
+        .screen
+        .feed(b"Retain me");
+    let next_id = app.workspace.next_tab_id();
     app.launch(1);
     assert!(app.error.is_some());
-    assert_eq!(app.tabs.len(), 2);
-    assert_eq!(app.active_tab, Some(1));
-    assert_eq!(app.next_tab_id, next_id);
-    app.tabs[1].terminal.stop();
+    assert_eq!(app.workspace.tabs().len(), 2);
+    assert_eq!(app.workspace.active_index(), Some(1));
+    assert_eq!(app.workspace.next_tab_id(), next_id);
+    app.workspace.tabs_mut()[1].terminal.stop();
     app.launch(1);
     assert!(app.error.is_some());
-    assert!(app.tabs[1].terminal.screen.text().contains("Retain me"));
-    assert_eq!(app.tabs[1].id, 2);
+    assert!(
+        app.workspace.tabs()[1]
+            .terminal
+            .screen
+            .text()
+            .contains("Retain me")
+    );
+    assert_eq!(app.workspace.tabs()[1].id(), 2);
     app.load_config(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("examples/terminal-demo.yaml"))
         .unwrap();
-    assert_eq!(app.tabs.len(), 2);
-    assert_eq!(app.active_tab, Some(1));
+    assert_eq!(app.workspace.tabs().len(), 2);
+    assert_eq!(app.workspace.active_index(), Some(1));
     assert!(
-        app.running(),
+        app.workspace.running(),
         "A background process still counts as running"
     );
-    assert!(app.tabs[0].terminal.is_running());
-    assert_eq!(app.tabs[0].label, "Alpha");
-    assert_eq!(app.tabs[0].style.bg_color, Some([10, 30, 40]));
-    assert!(app.tabs.iter().all(|tab| tab.button_index.is_none()));
+    assert!(app.workspace.tabs()[0].terminal.is_running());
+    assert_eq!(app.workspace.tabs()[0].label, "Alpha");
+    assert_eq!(app.workspace.tabs()[0].style.bg_color, Some([10, 30, 40]));
+    assert!(
+        app.workspace
+            .tabs()
+            .iter()
+            .all(|tab| tab.button_index.is_none())
+    );
     app.launch(0);
-    assert_eq!(app.tabs[2].label, app.config.buttons[0].label);
-    assert_eq!(app.tabs[2].style.font_size, app.config.terminal.font_size);
-    app.close_tab(0);
-    assert_eq!(app.active_tab, Some(1));
-    assert_eq!(app.active().unwrap().id, 3);
-    app.close_tab(1);
-    assert_eq!(app.active_tab, Some(0));
-    assert_eq!(app.active().unwrap().id, 2);
+    assert_eq!(app.workspace.tabs()[2].label, app.config.buttons[0].label);
+    assert_eq!(
+        app.workspace.tabs()[2].style.font_size,
+        app.config.terminal.font_size
+    );
+    app.workspace.close_tab(0);
+    assert_eq!(app.workspace.active_index(), Some(1));
+    assert_eq!(app.workspace.active().unwrap().id(), 3);
+    app.workspace.close_tab(1);
+    assert_eq!(app.workspace.active_index(), Some(0));
+    assert_eq!(app.workspace.active().unwrap().id(), 2);
 }
 
 #[test]
@@ -2398,17 +2585,17 @@ fn many_tabs_scroll_and_keep_toolbar_controls_visible_at_minimum_size() {
     };
     click_arrow(&mut app, right);
     assert_eq!(
-        app.active_tab,
+        app.workspace.active_index(),
         Some(7),
         "The next arrow stops at the last tab"
     );
     for expected in (0..7).rev() {
         click_arrow(&mut app, left);
-        assert_eq!(app.active_tab, Some(expected));
+        assert_eq!(app.workspace.active_index(), Some(expected));
     }
     click_arrow(&mut app, left);
     assert_eq!(
-        app.active_tab,
+        app.workspace.active_index(),
         Some(0),
         "The previous arrow stops at the first tab"
     );
@@ -2419,12 +2606,17 @@ fn many_tabs_scroll_and_keep_toolbar_controls_visible_at_minimum_size() {
     assert!(first.x > left.x && first.x < right.x);
     for expected in 1..8 {
         click_arrow(&mut app, right);
-        assert_eq!(app.active_tab, Some(expected));
+        assert_eq!(app.workspace.active_index(), Some(expected));
     }
-    assert!(app.tabs.iter().all(|tab| tab.terminal.is_running()));
+    assert!(
+        app.workspace
+            .tabs()
+            .iter()
+            .all(|tab| tab.terminal.is_running())
+    );
     // Empty slots and edit mode keep configuring buttons instead of launching.
     app.launch(8);
-    assert_eq!(app.tabs.len(), 8);
+    assert_eq!(app.workspace.tabs().len(), 8);
     assert_eq!(app.editor.as_ref().unwrap().index, 8);
     app.editor = None;
     app.edit_mode = true;
@@ -2434,7 +2626,7 @@ fn many_tabs_scroll_and_keep_toolbar_controls_visible_at_minimum_size() {
         &ctx,
         label_center(&output, "A long running command label"),
     );
-    assert_eq!(app.tabs.len(), 8);
+    assert_eq!(app.workspace.tabs().len(), 8);
     assert_eq!(app.editor.as_ref().unwrap().index, 0);
 }
 
@@ -2497,7 +2689,10 @@ fn layout_heading_edits_cancel_save_and_follow_the_loaded_config() {
     assert_title(&output, "Button Builder - Workstation · Local *");
     assert_eq!(app.config.display_name, "Workstation · Local");
     assert!(app.dirty && app.layout_name_edit.is_none());
-    assert!(app.tabs.is_empty(), "Renaming must not launch a process");
+    assert!(
+        app.workspace.tabs().is_empty(),
+        "Renaming must not launch a process"
+    );
     let output = frame(&mut app, &ctx, vec![]);
     label_center(&output, "Workstation · Local *");
     assert_no_title_change(&output);
@@ -2658,16 +2853,18 @@ fn loaded_layouts_auto_start_visible_buttons_in_separate_tabs() {
     startup.save(&startup_path).unwrap();
 
     let mut app = ButtonBuilder::new(&ctx, Some(startup_path), startup);
-    assert_eq!(app.tabs.len(), 2);
+    assert_eq!(app.workspace.tabs().len(), 2);
     assert_eq!(
-        app.tabs
+        app.workspace
+            .tabs()
             .iter()
             .map(|tab| (tab.label.as_str(), tab.button_index))
             .collect::<Vec<_>>(),
         [("Alpha", Some(0)), ("Beta", Some(1))]
     );
     wait_for_tabs(&mut app, &ctx, |app| {
-        app.tabs
+        app.workspace
+            .tabs()
             .iter()
             .all(|tab| tab.terminal.screen.text().contains("-ready"))
     });
@@ -2684,10 +2881,14 @@ fn loaded_layouts_auto_start_visible_buttons_in_separate_tabs() {
     loaded.save(&loaded_path).unwrap();
     app.load_config(loaded_path).unwrap();
 
-    assert_eq!(app.tabs.len(), 3);
-    assert!(app.tabs[..2].iter().all(|tab| tab.button_index.is_none()));
-    assert_eq!(app.tabs[2].label, "Gamma");
-    assert_eq!(app.tabs[2].button_index, Some(0));
+    assert_eq!(app.workspace.tabs().len(), 3);
+    assert!(
+        app.workspace.tabs()[..2]
+            .iter()
+            .all(|tab| tab.button_index.is_none())
+    );
+    assert_eq!(app.workspace.tabs()[2].label, "Gamma");
+    assert_eq!(app.workspace.tabs()[2].button_index, Some(0));
 }
 
 #[test]
@@ -2713,7 +2914,8 @@ fn button_context_menu_resets_one_slot_and_preserves_running_terminals() {
     app.launch(1);
     app.launch(2);
     wait_for_tabs(&mut app, &ctx, |app| {
-        app.tabs
+        app.workspace
+            .tabs()
             .iter()
             .all(|tab| tab.terminal.screen.text().contains("-ready"))
     });
@@ -2748,11 +2950,22 @@ fn button_context_menu_resets_one_slot_and_preserves_running_terminals() {
         serde_yaml_ng::to_string(&expected).unwrap()
     );
     assert!(app.dirty && app.editor.is_none());
-    assert_eq!(app.tabs.len(), 2);
-    assert!(app.tabs.iter().all(|tab| tab.terminal.is_running()));
-    assert_eq!(app.tabs[0].button_index, None);
-    assert_eq!(app.tabs[1].button_index, Some(2));
-    assert!(app.tabs[0].terminal.screen.text().contains("Alpha-ready"));
+    assert_eq!(app.workspace.tabs().len(), 2);
+    assert!(
+        app.workspace
+            .tabs()
+            .iter()
+            .all(|tab| tab.terminal.is_running())
+    );
+    assert_eq!(app.workspace.tabs()[0].button_index, None);
+    assert_eq!(app.workspace.tabs()[1].button_index, Some(2));
+    assert!(
+        app.workspace.tabs()[0]
+            .terminal
+            .screen
+            .text()
+            .contains("Alpha-ready")
+    );
     let output = frame(&mut app, &ctx, vec![]);
     let empty = empty_button_centers(&output)[1];
     click_app_action(&mut app, &ctx, &output, "Save layout *");
@@ -2812,7 +3025,7 @@ fn button_drag_swaps_positions_without_running_and_saves_full_definitions() {
         serde_yaml_ng::to_string(&app.config).unwrap(),
         serde_yaml_ng::to_string(&expected).unwrap()
     );
-    assert!(app.dirty && app.tabs.is_empty() && app.editor.is_none());
+    assert!(app.dirty && app.workspace.tabs().is_empty() && app.editor.is_none());
     let output = frame(&mut app, &ctx, vec![]);
     assert!(label_center(&output, "Alpha").distance(beta) < 1.0);
     assert!(label_center(&output, "Beta").distance(alpha) < 1.0);
@@ -2823,7 +3036,7 @@ fn button_drag_swaps_positions_without_running_and_saves_full_definitions() {
     expected.buttons.swap(4, 1);
     let output = frame(&mut app, &ctx, vec![]);
     click_app_action(&mut app, &ctx, &output, "Save layout *");
-    assert!(!app.dirty && app.tabs.is_empty() && app.editor.is_none());
+    assert!(!app.dirty && app.workspace.tabs().is_empty() && app.editor.is_none());
     assert_eq!(
         serde_yaml_ng::to_string(&Config::load_existing(&path).unwrap()).unwrap(),
         serde_yaml_ng::to_string(&expected).unwrap()
@@ -2879,7 +3092,7 @@ fn button_drag_cancellation_and_edit_mode_preserve_click_behavior() {
             ],
         );
         assert_eq!(serde_yaml_ng::to_string(&app.config).unwrap(), original);
-        assert!(!app.dirty && app.tabs.is_empty() && app.editor.is_none());
+        assert!(!app.dirty && app.workspace.tabs().is_empty() && app.editor.is_none());
     }
     start_button_drag(&mut app, &ctx, source, target);
     frame(
@@ -2896,13 +3109,13 @@ fn button_drag_cancellation_and_edit_mode_preserve_click_behavior() {
     assert!(app.dragged_button.is_none());
     frame(&mut app, &ctx, vec![primary_pointer(target, false)]);
     assert_eq!(serde_yaml_ng::to_string(&app.config).unwrap(), original);
-    assert!(!app.dirty && app.tabs.is_empty() && app.editor.is_none());
+    assert!(!app.dirty && app.workspace.tabs().is_empty() && app.editor.is_none());
     let output = frame(&mut app, &ctx, vec![]);
     click(&mut app, &ctx, label_center(&output, "Edit buttons"));
     assert!(app.edit_mode);
     start_button_drag(&mut app, &ctx, source, target);
     frame(&mut app, &ctx, vec![primary_pointer(target, false)]);
-    assert!(app.dirty && app.editor.is_none() && app.tabs.is_empty());
+    assert!(app.dirty && app.editor.is_none() && app.workspace.tabs().is_empty());
     assert_eq!(app.config.buttons[1].label, "Alpha");
     click(&mut app, &ctx, target);
     assert_eq!(app.editor.as_ref().unwrap().index, 1);
@@ -2912,9 +3125,9 @@ fn button_drag_cancellation_and_edit_mode_preserve_click_behavior() {
     click(&mut app, &ctx, label_center(&output, "Edit buttons"));
     assert!(!app.edit_mode);
     click(&mut app, &ctx, target);
-    assert_eq!(app.tabs.len(), 1);
-    assert_eq!(app.tabs[0].button_index, Some(1));
-    assert_eq!(app.tabs[0].label, "Alpha");
+    assert_eq!(app.workspace.tabs().len(), 1);
+    assert_eq!(app.workspace.tabs()[0].button_index, Some(1));
+    assert_eq!(app.workspace.tabs()[0].label, "Alpha");
 }
 
 #[test]
@@ -2925,25 +3138,31 @@ fn repositioning_buttons_preserves_tab_associations_and_editor_drafts() {
     config.buttons[1] = interactive_button("Beta");
     let mut app = ButtonBuilder::new(&ctx, None, config);
     app.launch(0);
-    app.tabs[0].button_index = None; // A tab retained from a previous layout.
+    app.workspace.tabs_mut()[0].button_index = None; // A tab retained from a previous layout.
     app.launch(0);
     app.launch(1);
     app.edit(0);
     app.editor.as_mut().unwrap().button.label = "Alpha draft".into();
     app.reposition_button(0, 1);
     assert_eq!(
-        app.tabs
+        app.workspace
+            .tabs()
             .iter()
             .map(|tab| tab.button_index)
             .collect::<Vec<_>>(),
         [None, Some(1), Some(0)]
     );
-    assert!(app.tabs.iter().all(|tab| tab.terminal.is_running()));
-    assert_eq!(app.active_tab, Some(2));
+    assert!(
+        app.workspace
+            .tabs()
+            .iter()
+            .all(|tab| tab.terminal.is_running())
+    );
+    assert_eq!(app.workspace.active_index(), Some(2));
     app.launch(1);
-    assert_eq!(app.tabs.len(), 3);
+    assert_eq!(app.workspace.tabs().len(), 3);
     assert_eq!(
-        app.active_tab,
+        app.workspace.active_index(),
         Some(1),
         "Moved buttons still focus their running tab"
     );
@@ -2997,7 +3216,10 @@ fn grid_editor_save_and_launch_work_through_the_ui() {
     let output = frame(&mut app, &ctx, vec![]);
     click(&mut app, &ctx, label_center(&output, "Save button"));
     assert!(app.editor.is_none());
-    assert!(app.tabs.is_empty(), "Saving must not execute the command");
+    assert!(
+        app.workspace.tabs().is_empty(),
+        "Saving must not execute the command"
+    );
     assert_eq!(
         Config::load_existing(&path).unwrap().buttons[1].label,
         "Local output"
@@ -3024,16 +3246,17 @@ fn grid_editor_save_and_launch_work_through_the_ui() {
                     || section.format.color == rgb([250, 230, 210]))
     )));
     click(&mut app, &ctx, label_center(&output, "Local output"));
-    assert!(!app.tabs.is_empty());
+    assert!(!app.workspace.tabs().is_empty());
     let deadline = std::time::Instant::now() + Duration::from_secs(5);
-    while app.running() {
+    while app.workspace.running() {
         assert!(std::time::Instant::now() < deadline);
         frame(&mut app, &ctx, vec![]);
         std::thread::sleep(Duration::from_millis(10));
     }
     frame(&mut app, &ctx, vec![]);
     assert!(
-        app.active()
+        app.workspace
+            .active()
             .unwrap()
             .terminal
             .screen
@@ -3400,7 +3623,8 @@ fn footer_app_menu_clears_the_layout_and_preserves_running_terminals() {
     app.launch(0);
     app.launch(1);
     wait_for_tabs(&mut app, &ctx, |app| {
-        app.tabs
+        app.workspace
+            .tabs()
             .iter()
             .all(|tab| tab.terminal.screen.text().contains("-ready"))
     });
@@ -3410,7 +3634,8 @@ fn footer_app_menu_clears_the_layout_and_preserves_running_terminals() {
         let trigger = label_center(&output, "Button Builder");
         assert!(trigger.y > size.y - 40.0);
         let terminal_sizes: Vec<_> = app
-            .tabs
+            .workspace
+            .tabs()
             .iter()
             .map(|tab| (tab.terminal.screen.cols, tab.terminal.screen.rows))
             .collect();
@@ -3429,7 +3654,8 @@ fn footer_app_menu_clears_the_layout_and_preserves_running_terminals() {
             .collect();
         assert_eq!(
             terminal_sizes,
-            app.tabs
+            app.workspace
+                .tabs()
                 .iter()
                 .map(|tab| (tab.terminal.screen.cols, tab.terminal.screen.rows))
                 .collect::<Vec<_>>()
@@ -3462,8 +3688,8 @@ fn footer_app_menu_clears_the_layout_and_preserves_running_terminals() {
     }
     frame(&mut app, &ctx, vec![]);
     let output = frame(&mut app, &ctx, vec![]);
-    let active_id = app.active().unwrap().id;
-    let text = app.tabs[0].terminal.screen.text();
+    let active_id = app.workspace.active().unwrap().id();
+    let text = app.workspace.tabs()[0].terminal.screen.text();
     click_app_action(&mut app, &ctx, &output, "New layout");
     assert!(app.config_path.is_none() && !app.dirty && !app.new_layout_requested);
     assert_eq!(
@@ -3482,16 +3708,18 @@ fn footer_app_menu_clears_the_layout_and_preserves_running_terminals() {
             .all(|button| button.command.is_empty())
     );
     assert_eq!(app.config.terminal.font_size, 14.0);
-    assert_eq!(app.tabs.len(), 2);
-    assert_eq!(app.active().unwrap().id, active_id);
-    assert_eq!(app.tabs[0].terminal.screen.text(), text);
+    assert_eq!(app.workspace.tabs().len(), 2);
+    assert_eq!(app.workspace.active().unwrap().id(), active_id);
+    assert_eq!(app.workspace.tabs()[0].terminal.screen.text(), text);
     assert!(
-        app.tabs
+        app.workspace
+            .tabs()
             .iter()
             .all(|tab| tab.terminal.is_running() && tab.button_index.is_none())
     );
     assert!(
-        app.tabs
+        app.workspace
+            .tabs()
             .iter()
             .all(|tab| tab.style.font_size == 18.0 && tab.style.bg_color == Some([10, 20, 30]))
     );
@@ -3651,7 +3879,7 @@ fn unsaved_layout_requires_a_filename_and_then_reuses_the_selected_file() {
             .iter()
             .all(|button| button.command.is_empty())
     );
-    assert!(app.tabs.is_empty());
+    assert!(app.workspace.tabs().is_empty());
     app.config.resize_grid(2, 2).unwrap();
     app.dirty = true;
     frame(&mut app, &ctx, vec![]);
@@ -3792,10 +4020,13 @@ fn first_button_save_preserves_its_draft_on_cancel_and_error_and_confirms_overwr
         Config::load_existing(&existing).unwrap().buttons[0].label,
         "Local output"
     );
-    assert!(app.tabs.is_empty(), "Saving a config must not run commands");
+    assert!(
+        app.workspace.tabs().is_empty(),
+        "Saving a config must not run commands"
+    );
     app.launch(0);
     wait_for_tabs(&mut app, &ctx, |app| {
-        app.tabs[0]
+        app.workspace.tabs()[0]
             .terminal
             .screen
             .text()
@@ -3926,7 +4157,10 @@ fn chooser_loads_an_example_only_after_unsaved_changes_are_replaced() {
         app.config_path.as_ref().unwrap().file_name().unwrap(),
         "json-streams.yaml"
     );
-    assert!(app.tabs.is_empty(), "Loading must not execute a command");
+    assert!(
+        app.workspace.tabs().is_empty(),
+        "Loading must not execute a command"
+    );
 }
 
 #[test]
@@ -3964,19 +4198,20 @@ fn failed_load_keeps_layout_and_successful_load_keeps_running_process() {
     let status = terminal.status.clone();
     app.config.buttons[0] = button;
     app.launch(0);
-    app.tabs[0].terminal = terminal;
+    app.workspace.tabs_mut()[0].terminal = terminal;
     app.load_config(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("examples/terminal-demo.yaml"))
         .unwrap();
-    assert!(app.running());
-    assert_eq!(app.active().unwrap().terminal.status, status);
+    assert!(app.workspace.running());
+    assert_eq!(app.workspace.active().unwrap().terminal.status, status);
     assert!(
-        app.active()
+        app.workspace
+            .active()
             .unwrap()
             .terminal
             .screen
             .text()
             .contains("Retained output")
     );
-    assert!(app.active().unwrap().button_index.is_none() && app.editor.is_none());
+    assert!(app.workspace.active().unwrap().button_index.is_none() && app.editor.is_none());
     assert_eq!((app.config.rows, app.config.columns), (2, 2));
 }

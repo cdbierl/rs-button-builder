@@ -2,7 +2,8 @@
 
 use super::terminal_selection::{SelectionViewport, live_row};
 use super::{CORNER_RADIUS, rgb};
-use crate::app::{ButtonBuilder, TerminalTab};
+use crate::app::ButtonBuilder;
+use crate::app::workspace::TerminalTab;
 use crate::layout_config::TerminalStyle;
 use crate::terminal::colors::Palette;
 use crate::terminal::screen::Cell;
@@ -36,10 +37,10 @@ impl ButtonBuilder {
     pub(in crate::app) fn terminal_panel(&mut self, ui: &mut egui::Ui, pane: usize) {
         self.terminal_tabs(ui, pane);
         self.terminal_toolbar(ui, pane);
-        let active = self.pane_tab(pane);
+        let active = self.workspace.pane_tab(pane);
         ui.add_space(4.0);
         let size = ui.available_size().max(Vec2::splat(1.0));
-        let id = active.map(|index| self.tabs[index].id);
+        let id = active.map(|index| self.workspace.tabs()[index].id());
         let (response, painter) = ui
             .push_id(("terminal_pane", id), |ui| {
                 ui.allocate_painter(size, egui::Sense::click())
@@ -73,7 +74,7 @@ impl ButtonBuilder {
                     .sum()
             });
             let style = match active {
-                Some(index) => &mut self.tabs[index].style,
+                Some(index) => &mut self.workspace.tabs_mut()[index].style,
                 None => &mut self.config.terminal,
             };
             let font_size = (style.font_size + delta).clamp(8.0, 32.0);
@@ -84,7 +85,7 @@ impl ButtonBuilder {
             }
         }
         let style = match active {
-            Some(index) => &self.tabs[index].style,
+            Some(index) => &self.workspace.tabs()[index].style,
             None => &self.config.terminal,
         };
         let font = terminal_font(style, &self.fonts);
@@ -103,13 +104,16 @@ impl ButtonBuilder {
         let content_width = (size.x - 16.0 - TERMINAL_SCROLLBAR_WIDTH).max(0.0);
         let cols = ((content_width / char_width) as usize).clamp(2, 500);
         let rows = (((size.y - 16.0) / line_height) as usize).clamp(2, 200);
-        if self.panes.focused == pane {
-            self.terminal_size = (cols, rows);
-        }
+        self.workspace.resize_target(pane, cols, rows);
         let rect = response.rect;
         painter.rect_filled(rect, CORNER_RADIUS, rgb(colors.background));
         // Inactive processes also receive viewport changes, using their own font metrics.
-        for tab in self.tabs.iter_mut().filter(|tab| tab.pane == pane) {
+        for tab in self
+            .workspace
+            .tabs_mut()
+            .iter_mut()
+            .filter(|tab| tab.pane() == pane)
+        {
             let tab_font = terminal_font(&tab.style, &self.fonts);
             let (width, height) = ui.fonts_mut(|fonts| {
                 (
@@ -124,7 +128,7 @@ impl ButtonBuilder {
         }
         let mut scrollbar_interacted = false;
         if let Some(index) = active {
-            let tab = &mut self.tabs[index];
+            let tab = &mut self.workspace.tabs_mut()[index];
             let screen = &tab.terminal.screen;
             let history_len = if screen.is_alternate() {
                 0
@@ -159,7 +163,7 @@ impl ButtonBuilder {
             egui::Sense::click_and_drag(),
         );
         if let Some(index) = active {
-            let tab = &mut self.tabs[index];
+            let tab = &mut self.workspace.tabs_mut()[index];
             let viewport = SelectionViewport {
                 rect: text_rect,
                 char_width,
@@ -173,15 +177,15 @@ impl ButtonBuilder {
             || selection_response.clicked()
             || selection_response.drag_started()
             || scrollbar_interacted
-            || (self.focus_terminal && self.panes.focused == pane)
+            || self.workspace.focus_requested(pane)
         {
             if let Some(index) = active {
-                self.select_tab(index);
+                self.workspace.select_tab(index);
             }
             response.request_focus();
-            self.focus_terminal = false;
+            self.workspace.acknowledge_focus();
         }
-        if response.has_focus() && self.panes.focused == pane {
+        if response.has_focus() && self.workspace.focused_pane() == pane {
             ui.memory_mut(|memory| {
                 memory.set_focus_lock_filter(
                     response.id,
@@ -211,7 +215,8 @@ impl ButtonBuilder {
             );
             return;
         };
-        let tab = &mut self.tabs[index];
+        let focused_pane = self.workspace.focused_pane() == pane;
+        let tab = &mut self.workspace.tabs_mut()[index];
         tab.text_cache
             .prepare(&font, ui.ctx().pixels_per_point(), rows);
         let terminal = &mut tab.terminal;
@@ -247,7 +252,7 @@ impl ButtonBuilder {
             );
         }
         if tab.scrollback == 0 && screen.cursor_visible && terminal.is_running() {
-            let focused = response.has_focus() && self.panes.focused == pane;
+            let focused = response.has_focus() && focused_pane;
             let (now, typing) = ui.input(|input| {
                 (
                     input.time,
@@ -295,7 +300,7 @@ impl ButtonBuilder {
                 );
             }
         }
-        if response.has_focus() && self.panes.focused == pane {
+        if response.has_focus() && focused_pane {
             handle_terminal_input(ui, tab);
         }
     }

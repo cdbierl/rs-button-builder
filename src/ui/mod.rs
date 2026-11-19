@@ -25,9 +25,8 @@ use style::styled_button;
 pub(super) use style::{button_colors, rgb};
 pub(super) use terminal_panel::TerminalTextCache;
 pub(super) use terminal_selection::TerminalSelection;
-pub(super) use terminal_workspace::TerminalPanes;
 
 #[cfg(test)]
-pub(super) use terminal_panel::{TERMINAL_SCROLLBAR_WIDTH, key_bytes};
+pub(super) use super::workspace::Split;
 #[cfg(test)]
-pub(super) use terminal_workspace::Split;
+pub(super) use terminal_panel::{TERMINAL_SCROLLBAR_WIDTH, key_bytes};

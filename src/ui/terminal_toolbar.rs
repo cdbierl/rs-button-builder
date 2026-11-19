@@ -8,8 +8,9 @@ use egui_material3::get_global_color;
 
 impl ButtonBuilder {
     pub(super) fn terminal_toolbar(&mut self, ui: &mut egui::Ui, pane: usize) {
-        let active = self.pane_tab(pane);
-        let running = active.is_some_and(|index| self.tabs[index].terminal.is_running());
+        let active = self.workspace.pane_tab(pane);
+        let running =
+            active.is_some_and(|index| self.workspace.tabs()[index].terminal.is_running());
         let mut copy = false;
         let mut interrupt = false;
         let mut stop = false;
@@ -32,7 +33,7 @@ impl ButtonBuilder {
                         .clicked()
                     {
                         if let Some(index) = active {
-                            self.select_tab(index);
+                            self.workspace.select_tab(index);
                         }
                         self.appearance_open = true;
                     }
@@ -52,16 +53,16 @@ impl ButtonBuilder {
                         .add_enabled(active.is_some(), toolbar_button("Close tab"))
                         .on_hover_text(format!("Close this tab and stop its process ({})", ui.ctx().format_shortcut(&Action::CloseTab.shortcut())))
                         .clicked();
-                    if active.is_some_and(|index| self.tabs[index].scrollback > 0) {
+                    if active.is_some_and(|index| self.workspace.tabs()[index].scrollback > 0) {
                         live = ui.add(toolbar_button("Jump to live")).clicked();
                     }
                 });
             });
         if let Some(index) = active {
             if copy || interrupt || stop || live || close {
-                self.select_tab(index);
+                self.workspace.select_tab(index);
             }
-            let tab = &mut self.tabs[index];
+            let tab = &mut self.workspace.tabs_mut()[index];
             if copy {
                 ui.ctx().copy_text(tab.copy_text());
             }
@@ -76,20 +77,22 @@ impl ButtonBuilder {
                 tab.scroll_fraction = 0.0;
             }
             if close {
-                self.close_tab(index);
+                self.workspace.close_tab(index);
             }
         }
-        let active = self.pane_tab(pane);
+        let active = self.workspace.pane_tab(pane);
         let mut status = active
-            .map(|index| self.tabs[index].terminal.status.as_str())
+            .map(|index| self.workspace.tabs()[index].terminal.status.as_str())
             .unwrap_or("Ready · Click a button to open a terminal tab")
             .to_owned();
-        let log_error = active.and_then(|index| self.tabs[index].terminal.log_error());
+        let log_error = active.and_then(|index| self.workspace.tabs()[index].terminal.log_error());
         if let Some(error) = log_error {
             status.push_str(&format!(" · Log error: {error}"));
         }
         let mut tooltip = status.clone();
-        if let Some(path) = active.and_then(|index| self.tabs[index].terminal.log_path()) {
+        if let Some(path) =
+            active.and_then(|index| self.workspace.tabs()[index].terminal.log_path())
+        {
             tooltip.push_str(&format!("\nLog: {}", path.display()));
         }
         let text = RichText::new(status).size(14.0);

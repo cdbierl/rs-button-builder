@@ -23,8 +23,8 @@ impl ButtonBuilder {
             400.0_f32.min(ctx.content_rect().width() - 64.0)..=480.0,
             |ui| {
                 form(ui, ctx, "appearance_form", |ui| {
-                    let style = match self.active_tab {
-                        Some(index) => &mut self.tabs[index].style,
+                    let style = match self.workspace.active_index() {
+                        Some(index) => &mut self.workspace.tabs_mut()[index].style,
                         None => &mut self.config.terminal,
                     };
                     changed |= font_picker(ui, &mut style.font, &self.fonts);
@@ -112,8 +112,8 @@ impl ButtonBuilder {
                         .clicked()
                     {
                         self.config.terminal = TerminalStyle::default();
-                        if let Some(index) = self.active_tab {
-                            self.tabs[index].style = TerminalStyle::default();
+                        if let Some(index) = self.workspace.active_index() {
+                            self.workspace.tabs_mut()[index].style = TerminalStyle::default();
                         }
                         self.dirty = true;
                     }
@@ -128,7 +128,7 @@ impl ButtonBuilder {
             },
         );
         if changed {
-            if let Some(tab) = self.active() {
+            if let Some(tab) = self.workspace.active() {
                 self.config.terminal = tab.style.clone();
             }
             self.dirty = true;
@@ -144,7 +144,7 @@ impl ButtonBuilder {
             );
         }
         if save {
-            if let Some(tab) = self.active() {
+            if let Some(tab) = self.workspace.active() {
                 self.config.terminal = tab.style.clone();
             }
             self.save();

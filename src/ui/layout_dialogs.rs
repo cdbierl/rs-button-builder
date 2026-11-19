@@ -42,7 +42,7 @@ impl ButtonBuilder {
             480.0..=560.0,
             |ui| {
                 ui.label("Save your changes before starting a new layout?");
-                if self.running() {
+                if self.workspace.running() {
                     ui.small("Running terminals will stay open.");
                 }
                 if let Some(error) = &self.new_layout_error {
@@ -66,7 +66,7 @@ impl ButtonBuilder {
     }
 
     pub(in crate::app) fn config_picker_window(&mut self, ctx: &egui::Context) {
-        let running = self.running();
+        let running = self.workspace.running();
         let unsaved = self.has_unsaved_changes();
         let Some(picker) = &mut self.config_picker else {
             return;

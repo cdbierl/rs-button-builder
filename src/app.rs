@@ -1,13 +1,17 @@
-//! Application state, layout persistence, terminal lifecycle, and frame composition.
+//! Application state, layout persistence, and frame composition.
 
 // UI components are children of app so they can share its private state.
 #[path = "ui/mod.rs"]
 pub(crate) mod ui;
 
+#[path = "workspace.rs"]
+mod workspace;
+
+use workspace::TerminalWorkspace;
+
 use crate::config_picker::ConfigPicker;
-use crate::layout_config::{ButtonConfig, Config, DEFAULT_LAYOUT_NAME, TerminalStyle};
+use crate::layout_config::{ButtonConfig, Config, DEFAULT_LAYOUT_NAME};
 use crate::settings::SettingsStore;
-use crate::terminal::Terminal;
 use crate::theme::ThemeSettings;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
@@ -27,53 +31,6 @@ struct SaveAs {
     create_new_layout: bool,
 }
 
-struct TerminalTab {
-    id: u64,
-    pane: usize,
-    label: String,
-    command: String,
-    button_index: Option<usize>,
-    terminal: Terminal,
-    style: TerminalStyle,
-    scrollback: usize,
-    scroll_fraction: f32,
-    selection: ui::TerminalSelection,
-    text_cache: ui::TerminalTextCache,
-}
-
-impl TerminalTab {
-    fn poll(&mut self) {
-        let previous = self.terminal.screen.scrolled_lines;
-        self.terminal.poll();
-        self.update_view(previous);
-    }
-
-    fn resize(&mut self, cols: usize, rows: usize) {
-        let previous = self.terminal.screen.scrolled_lines;
-        self.terminal.resize(cols, rows);
-        self.update_view(previous);
-    }
-
-    fn update_view(&mut self, previous_scrolled_lines: usize) {
-        self.selection.prepare(&self.terminal.screen);
-        // Output and viewport resizing can both move the viewed text into history.
-        if self.scrollback > 0 {
-            self.scrollback = self.scrollback.saturating_add(
-                self.terminal
-                    .screen
-                    .scrolled_lines
-                    .saturating_sub(previous_scrolled_lines),
-            );
-        }
-    }
-
-    fn copy_text(&self) -> String {
-        self.selection
-            .text(&self.terminal.screen)
-            .unwrap_or_else(|| self.terminal.screen.text())
-    }
-}
-
 pub struct ButtonBuilder {
     config: Config,
     config_path: Option<PathBuf>,
@@ -87,13 +44,7 @@ pub struct ButtonBuilder {
     new_layout_error: Option<String>,
     layout_name_edit: Option<String>,
     focus_layout_name: bool,
-    tabs: Vec<TerminalTab>,
-    panes: ui::TerminalPanes,
-    active_tab: Option<usize>,
-    next_tab_id: u64,
-    next_poll_tab: usize,
-    terminal_wake: crate::terminal::Wake,
-    reveal_active_tab: bool,
+    workspace: TerminalWorkspace,
     editor: Option<Editor>,
     edit_mode: bool,
     dragged_button: Option<usize>,
@@ -103,8 +54,6 @@ pub struct ButtonBuilder {
     notice: String,
     completion_notice: Option<(String, Instant)>,
     error: Option<String>,
-    terminal_size: (usize, usize),
-    focus_terminal: bool,
 }
 
 impl ButtonBuilder {
@@ -112,7 +61,6 @@ impl ButtonBuilder {
         crate::ui::setup(ctx);
         let fonts = crate::fonts::load(ctx);
         let loaded_layout = config_path.is_some();
-        let terminal_ctx = ctx.clone();
         let notice = match &config_path {
             Some(path) => format!("Loaded {}", path.display()),
             None => UNSAVED_LAYOUT_NOTICE.into(),
@@ -130,15 +78,7 @@ impl ButtonBuilder {
             new_layout_error: None,
             layout_name_edit: None,
             focus_layout_name: false,
-            tabs: Vec::new(),
-            panes: ui::TerminalPanes::default(),
-            active_tab: None,
-            next_tab_id: 1,
-            next_poll_tab: 0,
-            terminal_wake: std::sync::Arc::new(move || {
-                terminal_ctx.request_repaint_after(Duration::from_millis(33));
-            }),
-            reveal_active_tab: false,
+            workspace: TerminalWorkspace::new(ctx),
             editor: None,
             edit_mode: false,
             dragged_button: None,
@@ -148,8 +88,6 @@ impl ButtonBuilder {
             notice,
             completion_notice: None,
             error: None,
-            terminal_size: (80, 24),
-            focus_terminal: false,
         };
         if loaded_layout {
             app.start_auto_buttons();
@@ -174,57 +112,6 @@ impl ButtonBuilder {
             log::warn!("{error}");
             self.error = Some(error);
         }
-    }
-
-    fn running(&self) -> bool {
-        self.tabs.iter().any(|tab| tab.terminal.is_running())
-    }
-
-    fn active(&self) -> Option<&TerminalTab> {
-        self.active_tab.and_then(|index| self.tabs.get(index))
-    }
-
-    fn select_tab(&mut self, index: usize) {
-        self.active_tab = Some(index);
-        let tab = &self.tabs[index];
-        self.panes.focused = tab.pane;
-        self.panes.selected[tab.pane] = Some(tab.id);
-        self.reveal_active_tab = true;
-        self.focus_terminal = true;
-    }
-
-    fn close_tab(&mut self, index: usize) {
-        let active_closed = self.active_tab == Some(index);
-        let pane = self.tabs[index].pane;
-        // Dropping a terminal requests termination; reaping happens off the UI thread.
-        self.tabs.remove(index);
-        self.active_tab = match self.active_tab {
-            _ if self.tabs.is_empty() => None,
-            Some(active) if active > index => Some(active - 1),
-            Some(active) if active == index => Some(index.min(self.tabs.len() - 1)),
-            active => active,
-        };
-        if active_closed {
-            if self.panes.split.is_some() {
-                self.active_tab = self
-                    .tabs
-                    .iter()
-                    .enumerate()
-                    .find(|(other, tab)| *other >= index && tab.pane == pane)
-                    .or_else(|| {
-                        self.tabs
-                            .iter()
-                            .enumerate()
-                            .rev()
-                            .find(|(_, tab)| tab.pane == pane)
-                    })
-                    .map(|(index, _)| index)
-                    .or(self.active_tab);
-            }
-            self.focus_terminal = true;
-            self.reveal_active_tab = true;
-        }
-        self.normalize_panes();
     }
 
     fn save(&mut self) {
@@ -314,9 +201,7 @@ impl ButtonBuilder {
         self.appearance_open = false;
         self.edit_mode = false;
         self.dragged_button = None;
-        for tab in &mut self.tabs {
-            tab.button_index = None;
-        }
+        self.workspace.detach_buttons();
         self.dirty = false;
         self.error = None;
         self.remember_layout();
@@ -377,43 +262,15 @@ impl ButtonBuilder {
             self.edit(index);
             return;
         }
-        if let Some(tab) = self
-            .tabs
-            .iter()
-            .position(|tab| tab.button_index == Some(index) && tab.terminal.is_running())
-        {
-            self.select_tab(tab);
+        if self.workspace.focus_running_button(index) {
             return;
         }
-        match Terminal::start(
-            &self.config.buttons[index],
-            self.terminal_size.0,
-            self.terminal_size.1,
-        )
-        .and_then(|mut terminal| {
-            terminal
-                .watch(self.terminal_wake.clone())
-                .map_err(|error| format!("Could not watch terminal: {error}"))?;
-            Ok(terminal)
-        }) {
-            Ok(terminal) => {
+        match self
+            .workspace
+            .start_button(index, &self.config.buttons[index], &self.config.terminal)
+        {
+            Ok(()) => {
                 self.completion_notice = None;
-                let tab = TerminalTab {
-                    id: self.next_tab_id,
-                    pane: self.panes.focused,
-                    label: self.config.buttons[index].label.clone(),
-                    command: self.config.buttons[index].command.clone(),
-                    button_index: Some(index),
-                    terminal,
-                    style: self.config.terminal.clone(),
-                    scrollback: 0,
-                    scroll_fraction: 0.0,
-                    selection: ui::TerminalSelection::default(),
-                    text_cache: ui::TerminalTextCache::default(),
-                };
-                self.next_tab_id += 1;
-                self.tabs.push(tab);
-                self.select_tab(self.tabs.len() - 1);
                 self.error = None;
             }
             Err(error) => self.error = Some(error),
@@ -451,28 +308,11 @@ impl ButtonBuilder {
         {
             self.completion_notice = None;
         }
-        // Share a frame budget and rotate the starting tab so noisy tabs cannot starve others.
-        let deadline = Instant::now() + Duration::from_millis(4);
-        let count = self.tabs.len();
-        for _ in 0..count {
-            if Instant::now() >= deadline {
-                ctx.request_repaint_after(Duration::from_millis(33));
-                break;
-            }
-            let index = self.next_poll_tab % count;
-            self.tabs[index].poll();
-            self.next_poll_tab = (index + 1) % count;
-        }
-        // Remove only after polling has observed success and drained all terminal output.
-        for index in (0..self.tabs.len()).rev() {
-            if self.tabs[index].terminal.should_auto_close() {
-                self.completion_notice = Some((
-                    format!("{} completed successfully", self.tabs[index].label),
-                    Instant::now() + Duration::from_secs(4),
-                ));
-                self.close_tab(index);
-                ctx.request_repaint();
-            }
+        if let Some(label) = self.workspace.poll(ctx) {
+            self.completion_notice = Some((
+                format!("{label} completed successfully"),
+                Instant::now() + Duration::from_secs(4),
+            ));
         }
     }
 
@@ -514,13 +354,7 @@ impl ButtonBuilder {
             )));
             self.title_state = Some((display_name.to_owned(), self.dirty));
         }
-        if self.tabs.iter().any(|tab| tab.terminal.has_pending_work()) {
-            ctx.request_repaint_after(Duration::from_millis(33));
-        }
-        if self.tabs.iter().any(|tab| tab.terminal.needs_poll()) {
-            // Check exits even when descendants retain the PTY; also recover missed wakeups.
-            ctx.request_repaint_after(Duration::from_secs(1));
-        }
+        self.workspace.schedule_repaint(ctx);
         if let Some((_, until)) = self.completion_notice {
             ctx.request_repaint_after(until.saturating_duration_since(Instant::now()));
         }

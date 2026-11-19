@@ -125,8 +125,7 @@ impl ButtonBuilder {
                             .enumerate()
                         {
                             let configured = !button.command.trim().is_empty();
-                            let selected = self
-                                .active()
+                            let selected = self.workspace.active()
                                 .is_some_and(|tab| tab.button_index == Some(index));
                             let caption = if configured {
                                 button.label.clone()
@@ -284,11 +283,7 @@ impl ButtonBuilder {
             label: format!("Button {}", index + 1),
             ..Default::default()
         };
-        for tab in &mut self.tabs {
-            if tab.button_index == Some(index) {
-                tab.button_index = None;
-            }
-        }
+        self.workspace.detach_button(index);
         if self
             .editor
             .as_ref()
@@ -319,9 +314,7 @@ impl ButtonBuilder {
                 index
             }
         };
-        for tab in &mut self.tabs {
-            tab.button_index = tab.button_index.map(moved_index);
-        }
+        self.workspace.swap_button_bindings(source, target);
         if let Some(editor) = &mut self.editor {
             editor.index = moved_index(editor.index);
         }

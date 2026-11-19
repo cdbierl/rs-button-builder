@@ -104,28 +104,12 @@ impl ButtonBuilder {
             }
             Action::Exit => ctx.send_viewport_cmd(egui::ViewportCommand::Close),
             Action::CloseTab => {
-                if let Some(index) = self.active_tab {
-                    self.close_tab(index);
+                if let Some(index) = self.workspace.active_index() {
+                    self.workspace.close_tab(index);
                 }
             }
-            Action::PreviousTab | Action::NextTab => {
-                let indices: Vec<_> = self
-                    .tabs
-                    .iter()
-                    .enumerate()
-                    .filter_map(|(index, tab)| (tab.pane == self.panes.focused).then_some(index))
-                    .collect();
-                if let Some(position) = indices
-                    .iter()
-                    .position(|&index| Some(index) == self.active_tab)
-                {
-                    let next = match action {
-                        Action::PreviousTab => (position + indices.len() - 1) % indices.len(),
-                        _ => (position + 1) % indices.len(),
-                    };
-                    self.select_tab(indices[next]);
-                }
-            }
+            Action::PreviousTab => self.workspace.cycle_tab(false),
+            Action::NextTab => self.workspace.cycle_tab(true),
         }
     }
 }

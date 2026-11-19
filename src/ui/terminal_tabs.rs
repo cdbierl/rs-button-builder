@@ -1,8 +1,8 @@
 //! Scrollable terminal tab strip and previous/next controls.
 
+use super::super::workspace::Split;
 use super::shortcuts::Action;
 use super::style::{contrasting_text, rgb};
-use super::terminal_workspace::Split;
 use super::{Button, outlined_button, text_button};
 use crate::app::ButtonBuilder;
 use egui::{Color32, FontId, RichText, Vec2};
@@ -14,12 +14,13 @@ impl ButtonBuilder {
         let mut split = None;
         let mut move_tab = None;
         let mut merge = false;
-        let active = self.pane_tab(pane);
+        let active = self.workspace.pane_tab(pane);
         let indices: Vec<_> = self
-            .tabs
+            .workspace
+            .tabs()
             .iter()
             .enumerate()
-            .filter_map(|(index, tab)| (tab.pane == pane).then_some(index))
+            .filter_map(|(index, tab)| (tab.pane() == pane).then_some(index))
             .collect();
         let bar_height = 40.0;
         ui.allocate_ui_with_layout(
@@ -56,8 +57,8 @@ impl ButtonBuilder {
                                 ui.spacing_mut().item_spacing.x = 6.0;
                                 ui.spacing_mut().interact_size.y = bar_height;
                                 ui.horizontal(|ui| {
-                                    for (index, tab) in self.tabs.iter().enumerate() {
-                                        if tab.pane != pane { continue; }
+                                    for (index, tab) in self.workspace.tabs().iter().enumerate() {
+                                        if tab.pane() != pane { continue; }
                                         let active = active == Some(index);
                                         let running = tab.terminal.is_running();
                                         let (text, fill) = if active {
@@ -80,7 +81,7 @@ impl ButtonBuilder {
                                                 get_global_color("surfaceContainerLow"),
                                             )
                                         };
-                                        let title = format!("{} · {}", tab.id, tab.label);
+                                        let title = format!("{} · {}", tab.id(), tab.label);
                                         let width = (ui
                                             .painter()
                                             .layout_no_wrap(
@@ -99,7 +100,7 @@ impl ButtonBuilder {
                                             .fill(fill)
                                             .text_color(text);
                                         let response = ui
-                                            .push_id(tab.id, |ui| {
+                                            .push_id(tab.id(), |ui| {
                                                 ui.add_sized([width, 32.0], button)
                                             })
                                             .inner;
@@ -120,11 +121,11 @@ impl ButtonBuilder {
                                                 get_global_color("outline")
                                             },
                                         );
-                                        if active && self.reveal_active_tab && self.panes.focused == pane {
+                                        if active && self.workspace.reveal_requested(pane) {
                                             response.scroll_to_me(Some(egui::Align::Center));
                                         }
                                         response.context_menu(|ui| {
-                                            let can_split = self.panes.split.is_none() && self.tabs.len() >= 2;
+                                            let can_split = self.workspace.split().is_none() && self.workspace.tabs().len() >= 2;
                                             for (label, direction) in [("Split right", Split::Right), ("Split below", Split::Below)] {
                                                 if ui.add_enabled(can_split, text_button(label).small())
                                                     .on_disabled_hover_text("Splitting requires two terminals and supports two panes")
@@ -133,7 +134,7 @@ impl ButtonBuilder {
                                                     ui.close();
                                                 }
                                             }
-                                            if self.panes.split.is_some() {
+                                            if self.workspace.split().is_some() {
                                                 ui.separator();
                                                 if ui.add(text_button("Move to other pane").small()).clicked() {
                                                     move_tab = Some(index);
@@ -169,18 +170,16 @@ impl ButtonBuilder {
                 }
             },
         );
-        if self.panes.focused == pane {
-            self.reveal_active_tab = false;
-        }
+        self.workspace.acknowledge_tab_reveal(pane);
         if let Some(index) = selected {
-            self.select_tab(index);
+            self.workspace.select_tab(index);
         }
         if let Some((index, direction)) = split {
-            self.split_terminal(index, direction);
+            self.workspace.split_terminal(index, direction);
         } else if let Some(index) = move_tab {
-            self.move_terminal(index);
+            self.workspace.move_terminal(index);
         } else if merge {
-            self.merge_terminals();
+            self.workspace.merge_terminals();
         }
     }
 }
