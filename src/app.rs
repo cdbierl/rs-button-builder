@@ -258,11 +258,17 @@ impl ButtonBuilder {
     }
 
     fn launch(&mut self, index: usize) {
-        if self.config.buttons[index].command.trim().is_empty() {
-            self.edit(index);
+        if !self.config.buttons[index].command.trim().is_empty()
+            && self.workspace.focus_running_button(index)
+        {
             return;
         }
-        if self.workspace.focus_running_button(index) {
+        self.launch_new(index);
+    }
+
+    fn launch_new(&mut self, index: usize) {
+        if self.config.buttons[index].command.trim().is_empty() {
+            self.edit(index);
             return;
         }
         match self

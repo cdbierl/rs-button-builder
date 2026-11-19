@@ -1292,6 +1292,88 @@ fn silent_active_success_selects_a_remaining_tab_and_failures_and_output_stay_op
 }
 
 #[test]
+fn ctrl_click_starts_an_independent_terminal_and_normal_click_reuses_running_instances() {
+    let ctx = egui::Context::default();
+    let mut config = Config::default();
+    config.buttons[0] = interactive_button("Alpha");
+    config.buttons[1] = interactive_button("Beta");
+    let mut app = ButtonBuilder::new(&ctx, None, config);
+    app.launch(0);
+    app.launch(1);
+    app.workspace.split_terminal(1, crate::ui::Split::Right);
+
+    let output = frame(&mut app, &ctx, vec![]);
+    click_with_modifiers(
+        &mut app,
+        &ctx,
+        label_center(&output, "Alpha"),
+        egui::Modifiers::CTRL,
+    );
+    assert_eq!(app.workspace.tabs().len(), 3);
+    assert_eq!(app.workspace.active_index(), Some(2));
+    assert_eq!(app.workspace.tabs()[0].pane(), 0);
+    assert_eq!(app.workspace.tabs()[2].pane(), 1);
+    assert_eq!(app.workspace.tabs()[2].button_index, Some(0));
+    assert_ne!(
+        app.workspace.tabs()[0].terminal.status,
+        app.workspace.tabs()[2].terminal.status,
+        "Duplicate tabs must have separate processes"
+    );
+    wait_for_tabs(&mut app, &ctx, |app| {
+        app.workspace
+            .tabs()
+            .iter()
+            .all(|tab| tab.terminal.is_running() && tab.terminal.screen.text().contains("-ready"))
+    });
+
+    for (selected, expected) in [(2, 2), (0, 0), (1, 2)] {
+        app.workspace.select_tab(selected);
+        let output = frame(&mut app, &ctx, vec![]);
+        click(&mut app, &ctx, label_center(&output, "Alpha"));
+        assert_eq!(app.workspace.active_index(), Some(expected));
+        assert_eq!(app.workspace.tabs().len(), 3);
+    }
+    app.workspace.tabs_mut()[2]
+        .terminal
+        .send(b"duplicate-input\r");
+    wait_for_tabs(&mut app, &ctx, |app| {
+        app.workspace.tabs()[2]
+            .terminal
+            .screen
+            .text()
+            .contains("Alpha:duplicate-input")
+    });
+    assert!(
+        !app.workspace.tabs()[0]
+            .terminal
+            .screen
+            .text()
+            .contains("duplicate-input")
+    );
+
+    app.workspace.tabs_mut()[2].terminal.stop();
+    let output = frame(&mut app, &ctx, vec![]);
+    click(&mut app, &ctx, label_center(&output, "Alpha"));
+    assert_eq!(app.workspace.active_index(), Some(0));
+    assert_eq!(app.workspace.tabs().len(), 3);
+
+    app.launch_new(2); // Empty slots still open the editor.
+    assert_eq!(app.editor.as_ref().unwrap().index, 2);
+    assert_eq!(app.workspace.tabs().len(), 3);
+    app.editor = None;
+    app.edit_mode = true;
+    let output = frame(&mut app, &ctx, vec![]);
+    click_with_modifiers(
+        &mut app,
+        &ctx,
+        label_center(&output, "Beta"),
+        egui::Modifiers::CTRL,
+    );
+    assert_eq!(app.editor.as_ref().unwrap().index, 1);
+    assert_eq!(app.workspace.tabs().len(), 3);
+}
+
+#[test]
 fn button_clicks_route_input_and_toolbar_actions_to_the_selected_process() {
     let ctx = egui::Context::default();
     let mut config = Config::default();
@@ -1322,13 +1404,7 @@ fn button_clicks_route_input_and_toolbar_actions_to_the_selected_process() {
         "Clicking a running button focuses its tab"
     );
     let output = frame(&mut app, &ctx, vec![]);
-    // Ctrl no longer changes the click behavior.
-    click_with_modifiers(
-        &mut app,
-        &ctx,
-        label_center(&output, "Beta"),
-        egui::Modifiers::CTRL,
-    );
+    click(&mut app, &ctx, label_center(&output, "Beta"));
     assert_eq!(app.workspace.tabs().len(), 2);
     assert_eq!(app.workspace.active_index(), Some(1));
     assert!(

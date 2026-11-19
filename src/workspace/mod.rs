@@ -358,11 +358,13 @@ impl TerminalWorkspace {
     }
 
     pub(super) fn focus_running_button(&mut self, index: usize) -> bool {
-        if let Some(tab) = self
-            .tabs
-            .iter()
-            .position(|tab| tab.button_index == Some(index) && tab.terminal.is_running())
-        {
+        let matches =
+            |tab: &TerminalTab| tab.button_index == Some(index) && tab.terminal.is_running();
+        let tab = self
+            .active_tab
+            .filter(|&tab| matches(&self.tabs[tab]))
+            .or_else(|| self.tabs.iter().rposition(matches));
+        if let Some(tab) = tab {
             self.select_tab(tab);
             true
         } else {

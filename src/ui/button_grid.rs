@@ -197,7 +197,7 @@ impl ButtonBuilder {
                                 self.dragged_button = Some(index);
                             }
                             if response.clicked() {
-                                clicked = Some(index);
+                                clicked = Some((index, ui.input(|input| input.modifiers.ctrl)));
                             }
                             response.context_menu(|ui| {
                                 if ui.add(text_button("Edit button…").small()).clicked() {
@@ -215,7 +215,7 @@ impl ButtonBuilder {
                             });
                             slots.push((index, response.clone(), ui.painter().clone()));
                             response.on_hover_text(if configured {
-                                format!("{}\nClick to open a terminal or focus this button's running tab\nDrag onto another button to swap positions", button.command)
+                                format!("{}\nClick to open a terminal or focus this button's running tab\nCtrl+click to start a new terminal\nDrag onto another button to swap positions", button.command)
                             } else {
                                 "Click to assign a label and command\nDrag onto another button to swap positions".into()
                             });
@@ -292,9 +292,11 @@ impl ButtonBuilder {
         if let Some(index) = edit {
             self.edit(index);
         }
-        if let Some(index) = clicked {
+        if let Some((index, new_terminal)) = clicked {
             if self.edit_mode {
                 self.edit(index);
+            } else if new_terminal {
+                self.launch_new(index);
             } else {
                 self.launch(index);
             }

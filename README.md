@@ -93,8 +93,11 @@ select a YAML layout file. Dependency versions are recorded in [Cargo.lock](Carg
   empty 3×3 grid and asks how to handle unsaved changes. Existing terminal tabs
   stay open; the new layout's first save asks for a filename.
 - **Manage terminals:** click a button to focus its running terminal, or open a new
-  tab if it has no running terminal in the current layout. Finished tabs and their
-  output are preserved. New tabs use the layout's terminal appearance defaults.
+  tab if it has no running terminal in the current layout. **Ctrl+click** always
+  starts a new terminal in the focused pane. With multiple running instances,
+  a normal click keeps the selected instance or focuses the newest one.
+  Finished tabs and their output are preserved. New tabs use the layout's
+  terminal appearance defaults.
   Running tabs keep collecting output. Click the terminal to
   type; use the tab bar and its arrows to switch sessions.
   Commands that finish successfully without printing meaningful text close their tabs
