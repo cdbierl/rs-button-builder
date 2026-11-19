@@ -77,7 +77,7 @@ impl TerminalTab {
 pub struct ButtonBuilder {
     config: Config,
     config_path: Option<PathBuf>,
-    title_display_name: Option<String>,
+    title_state: Option<(String, bool)>,
     settings: SettingsStore,
     theme: ThemeSettings,
     applied_theme: Option<(ThemeSettings, bool)>,
@@ -120,7 +120,7 @@ impl ButtonBuilder {
         let mut app = Self {
             config,
             config_path,
-            title_display_name: None,
+            title_state: None,
             settings: SettingsStore::default(),
             theme: ThemeSettings::default(),
             applied_theme: Some((ThemeSettings::default(), true)),
@@ -329,6 +329,14 @@ impl ButtonBuilder {
         self.dirty || self.editor.is_some() || self.layout_name_edit.is_some()
     }
 
+    fn layout_display_label(&self) -> String {
+        format!(
+            "{}{}",
+            self.config.display_name(),
+            if self.dirty { " *" } else { "" }
+        )
+    }
+
     fn request_new_layout(&mut self) {
         self.new_layout_error = None;
         if self.has_unsaved_changes() {
@@ -471,6 +479,7 @@ impl ButtonBuilder {
     fn show(&mut self, ctx: &egui::Context) {
         self.sync_theme(ctx);
         self.poll_terminals(ctx);
+        self.handle_shortcuts(ctx);
         egui::TopBottomPanel::bottom("status").show(ctx, |ui| self.footer(ui));
         egui::SidePanel::left("buttons")
             .resizable(true)
@@ -494,11 +503,16 @@ impl ButtonBuilder {
         }
         self.save_as_window(ctx);
         let display_name = self.config.display_name();
-        if self.title_display_name.as_deref() != Some(display_name) {
+        if self
+            .title_state
+            .as_ref()
+            .is_none_or(|(name, dirty)| name != display_name || *dirty != self.dirty)
+        {
             ctx.send_viewport_cmd(egui::ViewportCommand::Title(format!(
-                "Button Builder - {display_name}"
+                "Button Builder - {}",
+                self.layout_display_label()
             )));
-            self.title_display_name = Some(display_name.to_owned());
+            self.title_state = Some((display_name.to_owned(), self.dirty));
         }
         if self.tabs.iter().any(|tab| tab.terminal.has_pending_work()) {
             ctx.request_repaint_after(Duration::from_millis(33));

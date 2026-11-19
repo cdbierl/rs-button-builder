@@ -22,7 +22,7 @@ impl ButtonBuilder {
         let Some(draft) = &mut self.layout_name_edit else {
             if ui
                 .add(
-                    egui::Label::new(RichText::new(self.config.display_name()).heading())
+                    egui::Label::new(RichText::new(self.layout_display_label()).heading())
                         .sense(egui::Sense::click()),
                 )
                 .on_hover_cursor(egui::CursorIcon::PointingHand)

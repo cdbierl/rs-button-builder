@@ -84,9 +84,10 @@ select a YAML layout file. Dependency versions are recorded in [Cargo.lock](Carg
   or press **Escape** to close it.
 - **Customize layouts:** change **Rows** and **Columns**, or click the heading above
   the grid to rename the layout. The window title shows
-  **Button Builder - {display name}**. **New layout** creates an empty 3×3 grid and
-  asks how to handle unsaved changes. Existing terminal tabs stay open; the new
-  layout's first save asks for a filename.
+  **Button Builder - {display name}**. An asterisk after the name in the window
+  title and grid heading marks unsaved layout changes. **New layout** creates an
+  empty 3×3 grid and asks how to handle unsaved changes. Existing terminal tabs
+  stay open; the new layout's first save asks for a filename.
 - **Manage terminals:** click a button to focus its running terminal, or open a new
   tab if it has no running terminal in the current layout. Finished tabs and their
   output are preserved. New tabs use the layout's terminal appearance defaults.
@@ -124,6 +125,25 @@ select a YAML layout file. Dependency versions are recorded in [Cargo.lock](Carg
   local jobs in that terminal session. Pending output is discarded; displayed output
   remains. **Close tab** uses the same forceful cleanup. **Exit** closes all tabs.
   Process cleanup runs off the UI thread, so it does not wait for a stalled child.
+
+## Keyboard shortcuts
+
+| Shortcut | Action |
+| --- | --- |
+| Ctrl+N | New layout (asks about unsaved changes) |
+| Ctrl+O | Load config |
+| Ctrl+S | Save layout |
+| Ctrl+Shift+S | Save layout as |
+| Ctrl+Page Up / Page Down | Previous / next terminal tab in the focused pane, wrapping at either end |
+| Ctrl+Shift+W | Close the active terminal tab and stop its process |
+| Ctrl+Shift+Q | Exit |
+| Ctrl+Shift+C | Copy selected terminal text, or all output |
+| Ctrl+Shift+V | Paste into the focused terminal |
+| Ctrl+C | Interrupt the foreground terminal job |
+
+Layout and tab shortcuts work while the terminal is focused and are reserved by
+the app. They are disabled while a dialog is open. Holding a shortcut does not
+repeat its action. Ctrl+W and Ctrl+Q remain available to terminal programs.
 
 ## Configuration and examples
 

@@ -7,6 +7,7 @@ mod button_editor;
 mod button_grid;
 mod footer;
 mod layout_dialogs;
+mod shortcuts;
 mod style;
 mod terminal_panel;
 mod terminal_selection;

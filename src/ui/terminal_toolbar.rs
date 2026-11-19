@@ -1,5 +1,6 @@
 //! Terminal actions and process/log status.
 
+use super::shortcuts::Action;
 use super::{Button, CORNER_RADIUS, text_button};
 use crate::app::ButtonBuilder;
 use egui::{Color32, RichText, Vec2};
@@ -49,7 +50,7 @@ impl ButtonBuilder {
                         .clicked();
                     close = ui
                         .add_enabled(active.is_some(), toolbar_button("Close tab"))
-                        .on_hover_text("Close this tab and stop its process")
+                        .on_hover_text(format!("Close this tab and stop its process ({})", ui.ctx().format_shortcut(&Action::CloseTab.shortcut())))
                         .clicked();
                     if active.is_some_and(|index| self.tabs[index].scrollback > 0) {
                         live = ui.add(toolbar_button("Jump to live")).clicked();

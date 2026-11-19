@@ -126,6 +126,176 @@ fn frame_with(
     )
 }
 
+fn hotkey(
+    app: &mut ButtonBuilder,
+    ctx: &egui::Context,
+    key: egui::Key,
+    shift: bool,
+    repeat: bool,
+) -> egui::FullOutput {
+    let modifiers = egui::Modifiers {
+        ctrl: true,
+        command: true,
+        shift,
+        ..egui::Modifiers::NONE
+    };
+    let mut events = Vec::new();
+    if !repeat {
+        events.push(egui::Event::Key {
+            key,
+            physical_key: None,
+            pressed: false,
+            repeat: false,
+            modifiers,
+        });
+    }
+    events.push(egui::Event::Key {
+        key,
+        physical_key: None,
+        pressed: true,
+        repeat,
+        modifiers,
+    });
+    frame_with(app, ctx, Vec2::new(1200.0, 760.0), modifiers, events)
+}
+
+#[test]
+fn layout_shortcuts_save_drafts_and_preserve_unsaved_changes_and_dialogs() {
+    let ctx = egui::Context::default();
+    let directory = std::env::temp_dir().join(format!(
+        "rs-button-builder-shortcuts-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    let path = directory.join("layout.yaml");
+    let mut app = ButtonBuilder::new(&ctx, Some(path.clone()), Config::default())
+        .with_settings(SettingsStore::open(directory.join("settings.yaml")));
+    app.layout_name_edit = Some("Saved by shortcut".into());
+    hotkey(&mut app, &ctx, egui::Key::S, false, false);
+    assert_eq!(
+        Config::load_existing(&path).unwrap().display_name(),
+        "Saved by shortcut"
+    );
+    assert!(!app.dirty && app.layout_name_edit.is_none());
+
+    app.config.display_name = "Save as draft".into();
+    app.dirty = true;
+    hotkey(&mut app, &ctx, egui::Key::S, true, false);
+    assert_eq!(
+        app.save_as.as_ref().unwrap().config.display_name(),
+        "Save as draft"
+    );
+    assert_eq!(
+        Config::load_existing(&path).unwrap().display_name(),
+        "Saved by shortcut"
+    );
+    hotkey(&mut app, &ctx, egui::Key::N, false, false);
+    assert!(app.save_as.is_some() && !app.new_layout_requested);
+    app.save_as = None;
+
+    hotkey(&mut app, &ctx, egui::Key::N, false, false);
+    assert!(app.new_layout_requested);
+    assert_eq!(app.config.display_name(), "Save as draft");
+    app.new_layout_requested = false;
+    hotkey(&mut app, &ctx, egui::Key::O, false, false);
+    assert!(app.config_picker.is_some());
+    assert_eq!(app.config.display_name(), "Save as draft");
+    let output = hotkey(&mut app, &ctx, egui::Key::Q, true, false);
+    assert!(
+        !output.viewport_output[&egui::ViewportId::ROOT]
+            .commands
+            .contains(&egui::ViewportCommand::Close)
+    );
+    app.config_picker = None;
+
+    app.edit(0);
+    hotkey(&mut app, &ctx, egui::Key::S, false, false);
+    assert!(app.editor.is_some() && app.dirty);
+    assert_eq!(
+        Config::load_existing(&path).unwrap().display_name(),
+        "Saved by shortcut"
+    );
+    app.editor = None;
+    hotkey(&mut app, &ctx, egui::Key::S, false, false);
+    assert!(!app.dirty);
+    hotkey(&mut app, &ctx, egui::Key::N, false, false);
+    assert!(app.config_path.is_none() && !app.new_layout_requested);
+    assert_eq!(app.config.display_name(), DEFAULT_LAYOUT_NAME);
+    let output = hotkey(&mut app, &ctx, egui::Key::Q, true, false);
+    assert!(
+        output.viewport_output[&egui::ViewportId::ROOT]
+            .commands
+            .contains(&egui::ViewportCommand::Close)
+    );
+}
+
+#[test]
+fn terminal_shortcuts_wrap_within_the_focused_pane_and_consume_repeats() {
+    let ctx = egui::Context::default();
+    let mut config = Config::default();
+    for (index, label) in ["Alpha", "Beta", "Gamma"].into_iter().enumerate() {
+        config.buttons[index] = interactive_button(label);
+    }
+    let mut app = ButtonBuilder::new(&ctx, None, config);
+    for index in 0..3 {
+        app.launch(index);
+    }
+    wait_for_tabs(&mut app, &ctx, |app| {
+        app.tabs
+            .iter()
+            .all(|tab| tab.terminal.screen.text().contains("-ready"))
+    });
+    app.split_terminal(2, crate::ui::Split::Right);
+    app.select_tab(0);
+    frame(&mut app, &ctx, vec![]);
+    hotkey(&mut app, &ctx, egui::Key::PageUp, false, false);
+    assert_eq!(app.active_tab, Some(1));
+    hotkey(&mut app, &ctx, egui::Key::PageDown, false, false);
+    assert_eq!(app.active_tab, Some(0));
+    assert_eq!(app.panes.focused, 0);
+    assert_eq!(app.pane_tab(1), Some(2));
+    assert!(!ctx.input(|input| {
+        input
+            .events
+            .iter()
+            .any(|event| matches!(event, egui::Event::Key { pressed: true, .. }))
+    }));
+
+    app.focus_pane(1);
+    hotkey(&mut app, &ctx, egui::Key::PageDown, false, false);
+    assert_eq!(app.active_tab, Some(2), "A single-tab pane stays selected");
+    hotkey(&mut app, &ctx, egui::Key::W, false, false);
+    assert_eq!(app.tabs.len(), 3, "Ctrl+W belongs to the terminal");
+    hotkey(&mut app, &ctx, egui::Key::W, true, false);
+    assert_eq!(app.tabs.len(), 2);
+    assert!(app.panes.split.is_none());
+    hotkey(&mut app, &ctx, egui::Key::W, true, true);
+    assert_eq!(app.tabs.len(), 2, "Holding Close must not close more tabs");
+    assert!(!ctx.input(|input| {
+        input
+            .events
+            .iter()
+            .any(|event| matches!(event, egui::Event::Key { pressed: true, .. }))
+    }));
+
+    hotkey(&mut app, &ctx, egui::Key::N, false, false);
+    assert_eq!(
+        app.tabs.len(),
+        2,
+        "New layouts preserve existing terminal sessions"
+    );
+    assert!(app.tabs.iter().all(|tab| tab.terminal.is_running()));
+    for _ in 0..2 {
+        hotkey(&mut app, &ctx, egui::Key::W, true, false);
+    }
+    hotkey(&mut app, &ctx, egui::Key::W, true, false);
+    hotkey(&mut app, &ctx, egui::Key::PageUp, false, false);
+    assert!(app.tabs.is_empty() && app.active_tab.is_none());
+}
+
 fn label_center(output: &egui::FullOutput, label: &str) -> egui::Pos2 {
     output
         .shapes
@@ -2324,11 +2494,13 @@ fn layout_heading_edits_cancel_save_and_follow_the_loaded_config() {
         &ctx,
         vec![key(egui::Key::Enter, egui::Modifiers::NONE)],
     );
-    assert_title(&output, "Button Builder - Workstation · Local");
+    assert_title(&output, "Button Builder - Workstation · Local *");
     assert_eq!(app.config.display_name, "Workstation · Local");
     assert!(app.dirty && app.layout_name_edit.is_none());
     assert!(app.tabs.is_empty(), "Renaming must not launch a process");
     let output = frame(&mut app, &ctx, vec![]);
+    label_center(&output, "Workstation · Local *");
+    assert_no_title_change(&output);
     click_app_action(&mut app, &ctx, &output, "Save layout *");
     assert_eq!(
         Config::load_existing(&path).unwrap().display_name,
@@ -2336,6 +2508,15 @@ fn layout_heading_edits_cancel_save_and_follow_the_loaded_config() {
     );
 
     let output = frame(&mut app, &ctx, vec![]);
+    assert_no_title_change(&output);
+    label_center(&output, "Workstation · Local");
+    app.config.resize_grid(4, 3).unwrap();
+    app.dirty = true;
+    let output = frame(&mut app, &ctx, vec![]);
+    assert_title(&output, "Button Builder - Workstation · Local *");
+    label_center(&output, "Workstation · Local *");
+    let output = hotkey(&mut app, &ctx, egui::Key::S, false, false);
+    assert_title(&output, "Button Builder - Workstation · Local");
     click(&mut app, &ctx, label_center(&output, "Workstation · Local"));
     frame(&mut app, &ctx, vec![]);
     replace_name(&mut app, "Cancel this change");

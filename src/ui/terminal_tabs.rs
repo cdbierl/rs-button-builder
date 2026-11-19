@@ -1,5 +1,6 @@
 //! Scrollable terminal tab strip and previous/next controls.
 
+use super::shortcuts::Action;
 use super::style::{contrasting_text, rgb};
 use super::terminal_workspace::Split;
 use super::{Button, outlined_button, text_button};
@@ -31,7 +32,7 @@ impl ButtonBuilder {
                 let previous = active.and_then(|index| indices.iter().copied().take_while(|&other| other < index).last());
                 if ui
                     .add_enabled(previous.is_some(), tab_arrow("‹"))
-                    .on_hover_text("Previous terminal tab")
+                    .on_hover_text(format!("Previous terminal tab ({})", ui.ctx().format_shortcut(&Action::PreviousTab.shortcut())))
                     .clicked()
                 {
                     selected = previous;
@@ -161,7 +162,7 @@ impl ButtonBuilder {
                 let next = active.and_then(|index| indices.iter().copied().find(|&other| other > index));
                 if ui
                     .add_enabled(next.is_some(), tab_arrow("›"))
-                    .on_hover_text("Next terminal tab")
+                    .on_hover_text(format!("Next terminal tab ({})", ui.ctx().format_shortcut(&Action::NextTab.shortcut())))
                     .clicked()
                 {
                     selected = next;
