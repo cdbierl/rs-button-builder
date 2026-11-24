@@ -197,8 +197,9 @@ When `/usr/bin/htop` is installed, tests also check its colors, resizing, and
 keyboard quit.
 Keep changes focused.
 
-Logging uses `RUST_LOG` (default: `info`). Startup loads an optional `.env` file;
-child processes inherit the app's environment, including those values.
+Console logging uses `RUST_LOG` (default: `info`). Process lifecycle and logging
+events use `info`; `RUST_LOG=debug` also shows tab, pane, and display actions.
+Startup loads an optional `.env` file; child processes inherit the app's environment.
 
 ## Known limitations
 

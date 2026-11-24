@@ -148,9 +148,21 @@ impl ButtonBuilder {
                 ui.ctx().copy_text(tab.copy_text());
             }
             if interrupt {
+                log::info!(
+                    "Terminal interrupted: tab={} label={:?} pid={}",
+                    tab.id(),
+                    tab.label,
+                    tab.terminal.pid().unwrap_or_default()
+                );
                 tab.terminal.interrupt();
             }
             if stop {
+                log::info!(
+                    "Terminal stopped: tab={} label={:?} pid={}",
+                    tab.id(),
+                    tab.label,
+                    tab.terminal.pid().unwrap_or_default()
+                );
                 tab.terminal.stop();
             }
             if live {
@@ -158,6 +170,12 @@ impl ButtonBuilder {
                 tab.scroll_fraction = 0.0;
             }
             if close {
+                log::info!(
+                    "Terminal close requested: tab={} label={:?} running={}",
+                    tab.id(),
+                    tab.label,
+                    tab.terminal.is_running()
+                );
                 self.workspace.close_tab(index);
             }
         }

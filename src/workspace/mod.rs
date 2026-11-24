@@ -35,8 +35,19 @@ impl TerminalTab {
     }
 
     fn poll(&mut self) {
+        let was_running = self.terminal.is_running();
+        let pid = self.terminal.pid();
         let previous = self.terminal.screen.scrolled_lines;
         self.terminal.poll();
+        if was_running && !self.terminal.is_running() {
+            log::info!(
+                "Terminal exited: tab={} label={:?} pid={} status={}",
+                self.id,
+                self.label,
+                pid.unwrap_or_default(),
+                self.terminal.status
+            );
+        }
         self.update_view(previous);
     }
 
@@ -47,6 +58,11 @@ impl TerminalTab {
     }
 
     pub(super) fn set_line_wrap(&mut self, enabled: bool) {
+        log::debug!(
+            "Terminal line wrap changed: tab={} label={:?} enabled={enabled}",
+            self.id,
+            self.label
+        );
         self.line_wrap = enabled;
         self.horizontal_scroll = 0.0;
         self.scrollback = 0;
@@ -58,6 +74,11 @@ impl TerminalTab {
     }
 
     pub(super) fn set_display_paused(&mut self, paused: bool) {
+        log::debug!(
+            "Terminal display updates changed: tab={} label={:?} paused={paused}",
+            self.id,
+            self.label
+        );
         self.paused_screen = paused.then(|| self.terminal.screen.clone());
         self.scrollback = 0;
         self.scroll_fraction = 0.0;
@@ -253,6 +274,12 @@ impl TerminalWorkspace {
     pub(super) fn select_tab(&mut self, index: usize) {
         self.active_tab = Some(index);
         let tab = &self.tabs[index];
+        log::debug!(
+            "Terminal selected: tab={} label={:?} pane={}",
+            tab.id,
+            tab.label,
+            tab.pane
+        );
         self.focused_pane = tab.pane;
         self.layout.pane_mut(tab.pane).unwrap().selected = Some(tab.id);
         self.reveal_active_tab = true;
@@ -262,6 +289,13 @@ impl TerminalWorkspace {
     pub(super) fn close_tab(&mut self, index: usize) {
         let active_closed = self.active_tab == Some(index);
         let pane = self.tabs[index].pane;
+        log::debug!(
+            "Terminal closed: tab={} label={:?} pane={} running={}",
+            self.tabs[index].id,
+            self.tabs[index].label,
+            pane,
+            self.tabs[index].terminal.is_running()
+        );
         let pane_order = self.pane_ids();
         // Dropping a terminal requests termination; reaping happens off the UI thread.
         self.tabs.remove(index);
@@ -345,6 +379,10 @@ impl TerminalWorkspace {
         self.next_pane_id += 1;
         self.next_divider_id += 1;
         self.tabs[index].pane = new_pane;
+        log::debug!(
+            "Terminal pane split: tab={} direction={split:?} source_pane={pane} new_pane={new_pane}",
+            self.tabs[index].id
+        );
         self.layout.pane_mut(pane).unwrap().selected = Some(self.tabs[remaining].id);
         self.select_tab(index);
     }
@@ -353,12 +391,21 @@ impl TerminalWorkspace {
         if self.layout.pane(pane).is_none() || self.tabs[index].pane == pane {
             return;
         }
+        let source = self.tabs[index].pane;
+        log::debug!(
+            "Terminal moved: tab={} source_pane={source} destination_pane={pane}",
+            self.tabs[index].id
+        );
         self.tabs[index].pane = pane;
         self.select_tab(index);
         self.normalize_panes();
     }
 
     pub(super) fn merge_terminals(&mut self) {
+        log::debug!(
+            "Terminal panes merged: pane_count={}",
+            self.pane_ids().len()
+        );
         for tab in &mut self.tabs {
             tab.pane = 0;
         }
@@ -407,13 +454,18 @@ impl TerminalWorkspace {
         style: &TerminalStyle,
     ) -> Result<(), String> {
         let mut terminal = Terminal::start(button, self.terminal_size.0, self.terminal_size.1)?;
+        let pid = terminal
+            .pid()
+            .expect("a newly started terminal has a child");
         terminal.screen.preserve_long_lines();
         terminal
             .watch(self.terminal_wake.clone())
             .map_err(|error| format!("Could not watch terminal: {error}"))?;
+        let tab_id = self.next_tab_id;
+        let pane = self.focused_pane;
         self.tabs.push(TerminalTab {
-            id: self.next_tab_id,
-            pane: self.focused_pane,
+            id: tab_id,
+            pane,
             label: button.label.clone(),
             command: button.command.clone(),
             button_index: Some(index),
@@ -427,6 +479,12 @@ impl TerminalWorkspace {
             selection: ui::TerminalSelection::default(),
             text_cache: ui::TerminalTextCache::default(),
         });
+        log::info!(
+            "Terminal started: tab={tab_id} label={:?} button={} pane={pane} pid={pid} logging={}",
+            button.label,
+            index,
+            button.log_output
+        );
         self.next_tab_id += 1;
         self.select_tab(self.tabs.len() - 1);
         Ok(())
@@ -498,6 +556,11 @@ impl TerminalWorkspace {
         // Remove only after polling has observed success and drained all terminal output.
         for index in (0..self.tabs.len()).rev() {
             if !self.tabs[index].display_paused() && self.tabs[index].terminal.should_auto_close() {
+                log::info!(
+                    "Terminal auto-closed after success: tab={} label={:?}",
+                    self.tabs[index].id,
+                    self.tabs[index].label
+                );
                 completed = Some(self.tabs[index].label.clone());
                 self.close_tab(index);
                 ctx.request_repaint();

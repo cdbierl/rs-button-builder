@@ -292,7 +292,14 @@ impl ButtonBuilder {
                 self.completion_notice = None;
                 self.error = None;
             }
-            Err(error) => self.error = Some(error),
+            Err(error) => {
+                log::warn!(
+                    "Could not launch button {} ({:?}): {error}",
+                    index,
+                    self.config.buttons[index].label
+                );
+                self.error = Some(error);
+            }
         }
     }
 

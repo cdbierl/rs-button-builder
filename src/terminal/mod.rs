@@ -179,6 +179,10 @@ impl Terminal {
         self.child.is_some()
     }
 
+    pub fn pid(&self) -> Option<u32> {
+        self.child.as_ref().map(Child::id)
+    }
+
     pub(crate) fn watch(&mut self, wake: Wake) -> io::Result<()> {
         if let Some(master) = &self.master {
             self.watcher = Some(watcher::Watcher::new(master, wake.clone())?);

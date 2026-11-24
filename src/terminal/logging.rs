@@ -117,7 +117,10 @@ impl OutputLog {
     pub fn poll(&mut self) {
         loop {
             match self.updates.try_recv() {
-                Ok(Update::Opened(path)) => self.path = Some(path),
+                Ok(Update::Opened(path)) => {
+                    log::info!("Terminal output log opened: {}", path.display());
+                    self.path = Some(path);
+                }
                 Ok(Update::Error(error)) => self.error = Some(error),
                 Ok(Update::Finished) => self.finished = true,
                 Err(mpsc::TryRecvError::Empty) => break,
