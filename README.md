@@ -97,6 +97,7 @@ stopped commands, and terminal or logging errors remain open.
 | Ctrl+O | Load config |
 | Ctrl+E | Toggle layout editing (does not save changes) |
 | Ctrl+B | Show or hide the button panel |
+| Ctrl+F11 | Toggle fullscreen |
 | Ctrl+S | Save layout |
 | Ctrl+Shift+S | Save layout as |
 | Ctrl+Page Up / Page Down | Previous / next terminal tab in the focused pane, wrapping at either end |

@@ -10,6 +10,7 @@ pub(super) enum Action {
     LoadConfig,
     EditLayout,
     ToggleButtons,
+    ToggleFullscreen,
     SaveLayout,
     SaveLayoutAs,
     Exit,
@@ -25,6 +26,7 @@ impl Action {
             Self::LoadConfig => (Modifiers::COMMAND, Key::O),
             Self::EditLayout => (Modifiers::COMMAND, Key::E),
             Self::ToggleButtons => (Modifiers::COMMAND, Key::B),
+            Self::ToggleFullscreen => (Modifiers::COMMAND, Key::F11),
             Self::SaveLayout => (Modifiers::COMMAND, Key::S),
             Self::SaveLayoutAs => (Modifiers::COMMAND | Modifiers::SHIFT, Key::S),
             Self::Exit => (Modifiers::COMMAND | Modifiers::SHIFT, Key::Q),
@@ -56,6 +58,7 @@ impl ButtonBuilder {
                     Action::LoadConfig,
                     Action::EditLayout,
                     Action::ToggleButtons,
+                    Action::ToggleFullscreen,
                     Action::SaveLayout,
                     Action::SaveLayoutAs,
                     Action::Exit,
@@ -106,6 +109,10 @@ impl ButtonBuilder {
                 self.dragged_button = None;
             }
             Action::ToggleButtons => self.buttons_panel_visible = !self.buttons_panel_visible,
+            Action::ToggleFullscreen => {
+                self.fullscreen = !self.fullscreen;
+                ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(self.fullscreen));
+            }
             Action::SaveLayout => self.save(),
             Action::SaveLayoutAs => {
                 self.apply_layout_name();

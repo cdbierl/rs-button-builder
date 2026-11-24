@@ -69,6 +69,43 @@ fn footer_toggle_hides_buttons_and_expands_the_terminal_workspace() {
 }
 
 #[test]
+fn control_f11_toggles_fullscreen_without_repeating() {
+    let ctx = egui::Context::default();
+    let mut app = ButtonBuilder::new(&ctx, None, Config::default());
+
+    let output = hotkey(&mut app, &ctx, egui::Key::F11, false, false);
+    assert!(app.fullscreen);
+    assert!(
+        output
+            .viewport_output
+            .values()
+            .flat_map(|output| &output.commands)
+            .any(|command| matches!(command, egui::ViewportCommand::Fullscreen(true)))
+    );
+
+    let output = hotkey(&mut app, &ctx, egui::Key::F11, false, true);
+    assert!(app.fullscreen);
+    assert!(
+        output
+            .viewport_output
+            .values()
+            .flat_map(|output| &output.commands)
+            .all(|command| !matches!(command, egui::ViewportCommand::Fullscreen(_))),
+        "Holding Ctrl+F11 must not repeatedly toggle fullscreen"
+    );
+
+    let output = hotkey(&mut app, &ctx, egui::Key::F11, false, false);
+    assert!(!app.fullscreen);
+    assert!(
+        output
+            .viewport_output
+            .values()
+            .flat_map(|output| &output.commands)
+            .any(|command| matches!(command, egui::ViewportCommand::Fullscreen(false)))
+    );
+}
+
+#[test]
 fn ctrl_click_starts_an_independent_terminal_and_normal_click_reuses_running_instances() {
     let ctx = egui::Context::default();
     let mut config = Config::default();
