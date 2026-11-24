@@ -17,6 +17,9 @@ use std::time::{Duration, Instant};
 use ui::LayoutFilePicker;
 
 const UNSAVED_LAYOUT_NOTICE: &str = "Unsaved layout · Load a config or save a new layout";
+const DEFAULT_BUTTON_PANEL_WIDTH: f32 = 330.0;
+const MIN_BUTTON_PANEL_WIDTH: f32 = 290.0;
+const MAX_BUTTON_PANEL_WIDTH: f32 = 500.0;
 
 struct Editor {
     index: usize,
@@ -337,8 +340,8 @@ impl ButtonBuilder {
         egui::TopBottomPanel::bottom("status").show(ctx, |ui| self.footer(ui));
         egui::SidePanel::left("buttons")
             .resizable(true)
-            .default_width(330.0)
-            .width_range(290.0..=500.0)
+            .default_width(DEFAULT_BUTTON_PANEL_WIDTH)
+            .width_range(MIN_BUTTON_PANEL_WIDTH..=MAX_BUTTON_PANEL_WIDTH)
             .show(ctx, |ui| {
                 self.buttons_panel(ui);
             });
