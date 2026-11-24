@@ -10,6 +10,8 @@ use egui_material3::get_global_color;
 
 // The bundled Material Symbols font includes `new_window`; the crate's name map predates it.
 const EMPTY_BUTTON_ICON: char = '\u{f710}';
+const TOOLTIP_COMMAND_LINES: usize = 4;
+const TOOLTIP_COMMAND_COLUMNS: usize = 72;
 
 fn empty_button_icon_font() -> egui::FontId {
     egui::FontId::new(
@@ -214,9 +216,15 @@ impl ButtonBuilder {
                             });
                             slots.push((index, response.clone(), ui.painter().clone()));
                             response.on_hover_text(if configured && !self.edit_mode {
-                                format!("{}\nClick to run or focus; Ctrl+click for a new terminal\nDrag to swap buttons", button.command)
+                                format!(
+                                    "{}\nClick to run or focus; Ctrl+click for a new terminal\nDrag to swap buttons",
+                                    tooltip_command(&button.command)
+                                )
                             } else if configured {
-                                format!("{}\nClick to edit\nDrag to swap buttons", button.command)
+                                format!(
+                                    "{}\nClick to edit\nDrag to swap buttons",
+                                    tooltip_command(&button.command)
+                                )
                             } else {
                                 "Click to configure\nDrag to swap buttons".into()
                             });
@@ -345,5 +353,45 @@ impl ButtonBuilder {
             editor.index = moved_index(editor.index);
         }
         self.dirty = true;
+    }
+}
+
+fn tooltip_command(command: &str) -> String {
+    let lines: Vec<_> = command.lines().collect();
+    let mut summary = lines
+        .iter()
+        .take(TOOLTIP_COMMAND_LINES)
+        .map(|line| {
+            let mut text: String = line.chars().take(TOOLTIP_COMMAND_COLUMNS).collect();
+            if line.chars().count() > TOOLTIP_COMMAND_COLUMNS {
+                text.push('…');
+            }
+            text
+        })
+        .collect::<Vec<_>>();
+    if lines.len() > TOOLTIP_COMMAND_LINES {
+        summary.push("…".into());
+    }
+    summary.join("\n")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tooltip_commands_use_ellipses_for_long_lines_and_scripts() {
+        let long_line = "界".repeat(TOOLTIP_COMMAND_COLUMNS + 1);
+        let summary = tooltip_command(&long_line);
+        assert_eq!(summary.chars().count(), TOOLTIP_COMMAND_COLUMNS + 1);
+        assert!(summary.ends_with('…'));
+
+        let script = (0..=TOOLTIP_COMMAND_LINES)
+            .map(|line| format!("line {line}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let summary = tooltip_command(&script);
+        assert_eq!(summary.lines().count(), TOOLTIP_COMMAND_LINES + 1);
+        assert!(summary.ends_with('…'));
     }
 }

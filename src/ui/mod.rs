@@ -13,6 +13,7 @@ mod shortcuts;
 mod style;
 mod terminal_panel;
 mod terminal_scrollbar;
+mod terminal_search;
 mod terminal_selection;
 mod terminal_tabs;
 mod terminal_toolbar;
@@ -30,6 +31,7 @@ pub(crate) use style::{
 use style::styled_button;
 pub(super) use style::{button_colors, rgb};
 pub(super) use terminal_panel::TerminalTextCache;
+pub(super) use terminal_search::TerminalSearch;
 pub(super) use terminal_selection::TerminalSelection;
 
 fn clipped_available_width(ui: &egui::Ui) -> f32 {

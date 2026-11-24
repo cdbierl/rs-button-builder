@@ -49,6 +49,70 @@ fn single_terminal_content_has_right_edge_clearance() {
 }
 
 #[test]
+fn control_f_finds_terminal_text_and_restores_live_updates_when_closed() {
+    let ctx = egui::Context::default();
+    let mut config = Config::default();
+    config.buttons[0] = interactive_button("Search");
+    let mut app = ButtonBuilder::new(&ctx, None, config);
+    app.launch(0);
+    app.workspace.tabs_mut()[0]
+        .terminal
+        .screen
+        .feed(b"\x1b[2J\x1b[Hfirst needle\r\nsecond needle");
+
+    let output = hotkey(&mut app, &ctx, egui::Key::F, false, false);
+    assert!(app.workspace.tabs()[0].search.open);
+    assert!(app.workspace.tabs()[0].display_paused());
+    label_center(&output, "Find");
+
+    frame(&mut app, &ctx, vec![]);
+    let output = frame(&mut app, &ctx, vec![egui::Event::Text("needle".into())]);
+    label_center(&output, "1 of 2");
+    assert!(output.shapes.iter().any(|shape| matches!(
+        &shape.shape,
+        egui::Shape::Rect(rect) if rect.fill == get_global_color("primary")
+    )));
+
+    let output = frame(
+        &mut app,
+        &ctx,
+        vec![egui::Event::Key {
+            key: egui::Key::Enter,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        }],
+    );
+    label_center(&output, "2 of 2");
+
+    let output = frame(
+        &mut app,
+        &ctx,
+        vec![egui::Event::Key {
+            key: egui::Key::Escape,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        }],
+    );
+    assert!(!app.workspace.tabs()[0].search.open);
+    assert!(!app.workspace.tabs()[0].display_paused());
+    assert!(output.shapes.iter().all(
+        |shape| !matches!(&shape.shape, egui::Shape::Text(text) if text.galley.job.text == "Find")
+    ));
+
+    app.workspace.tabs_mut()[0].set_display_paused(true);
+    app.workspace.tabs_mut()[0].open_search();
+    app.workspace.tabs_mut()[0].close_search();
+    assert!(
+        app.workspace.tabs()[0].display_paused(),
+        "Closing find must preserve a pre-existing display pause"
+    );
+}
+
+#[test]
 fn pausing_freezes_only_the_terminal_view_while_output_processing_continues() {
     let ctx = egui::Context::default();
     let mut config = Config::default();

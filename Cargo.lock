@@ -2805,6 +2805,7 @@ dependencies = [
  "fontdb",
  "libc",
  "log",
+ "regex",
  "serde",
  "serde_yaml_ng",
  "shlex",

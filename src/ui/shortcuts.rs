@@ -11,6 +11,7 @@ pub(super) enum Action {
     EditLayout,
     ToggleButtons,
     ToggleFullscreen,
+    FindTerminal,
     SaveLayout,
     SaveLayoutAs,
     Exit,
@@ -27,6 +28,7 @@ impl Action {
             Self::EditLayout => (Modifiers::COMMAND, Key::E),
             Self::ToggleButtons => (Modifiers::COMMAND, Key::B),
             Self::ToggleFullscreen => (Modifiers::COMMAND, Key::F11),
+            Self::FindTerminal => (Modifiers::COMMAND, Key::F),
             Self::SaveLayout => (Modifiers::COMMAND, Key::S),
             Self::SaveLayoutAs => (Modifiers::COMMAND | Modifiers::SHIFT, Key::S),
             Self::Exit => (Modifiers::COMMAND | Modifiers::SHIFT, Key::Q),
@@ -59,6 +61,7 @@ impl ButtonBuilder {
                     Action::EditLayout,
                     Action::ToggleButtons,
                     Action::ToggleFullscreen,
+                    Action::FindTerminal,
                     Action::SaveLayout,
                     Action::SaveLayoutAs,
                     Action::Exit,
@@ -113,6 +116,7 @@ impl ButtonBuilder {
                 self.fullscreen = !self.fullscreen;
                 ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(self.fullscreen));
             }
+            Action::FindTerminal => self.workspace.open_search(),
             Action::SaveLayout => self.save(),
             Action::SaveLayoutAs => {
                 self.apply_layout_name();

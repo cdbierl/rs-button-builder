@@ -1,6 +1,7 @@
 //! Terminal viewport rendering, scrollback, resizing, and keyboard input.
 
 use super::terminal_scrollbar::{Scrollbar, TERMINAL_SCROLLBAR_WIDTH};
+use super::terminal_search::{SearchAction, SearchMatch};
 use super::terminal_selection::SelectionViewport;
 use super::terminal_viewport::TerminalViewport;
 use super::{CORNER_RADIUS, rgb};
@@ -180,10 +181,29 @@ impl ButtonBuilder {
             egui::Sense::click_and_drag(),
         );
         let mut scrollbar_interacted = false;
+        let mut close_search = false;
         if let Some(index) = active {
             let tab = &mut self.workspace.tabs_mut()[index];
             let screen = tab.paused_screen.as_ref().unwrap_or(&tab.terminal.screen);
             let view = TerminalViewport::new(screen, tab.line_wrap, cols, rows);
+            let search_action = tab
+                .search
+                .show(ui.ctx(), response.id.with("find"), rect, screen);
+            match search_action {
+                SearchAction::None => {}
+                SearchAction::Close => close_search = true,
+                SearchAction::Navigate(found) => {
+                    if let Some((scrollback, horizontal_scroll)) =
+                        match_position(&view, &found, rows, cols, char_width, tab.horizontal_scroll)
+                    {
+                        tab.scrollback = scrollback;
+                        tab.scroll_fraction = 0.0;
+                        if let Some(horizontal_scroll) = horizontal_scroll {
+                            tab.horizontal_scroll = horizontal_scroll;
+                        }
+                    }
+                }
+            }
             if pane_hovered && !control_scroll {
                 let delta = ui.input(|input| input.smooth_scroll_delta);
                 tab.scroll_fraction += delta.y / line_height;
@@ -249,7 +269,9 @@ impl ButtonBuilder {
             response.request_focus();
             self.workspace.acknowledge_focus();
         }
-        if response.has_focus() && self.workspace.focused_pane() == pane {
+        let focused_pane = self.workspace.focused_pane() == pane;
+        let search_open = active.is_some_and(|index| self.workspace.tabs()[index].search.open);
+        if response.has_focus() && focused_pane {
             ui.memory_mut(|memory| {
                 memory.set_focus_lock_filter(
                     response.id,
@@ -261,6 +283,8 @@ impl ButtonBuilder {
                     },
                 )
             });
+        }
+        if focused_pane && (response.has_focus() || search_open) {
             painter.rect_stroke(
                 rect,
                 CORNER_RADIUS,
@@ -279,7 +303,6 @@ impl ButtonBuilder {
             );
             return;
         };
-        let focused_pane = self.workspace.focused_pane() == pane;
         let tab = &mut self.workspace.tabs_mut()[index];
         tab.text_cache.prepare(&painter, &font, rows, dark);
         let display_paused = tab.display_paused();
@@ -296,6 +319,20 @@ impl ButtonBuilder {
             }
             let end = (first + cols + 2).min(row.end_col);
             let selected = tab.selection.columns(row.logical_row, row.line);
+            let found: Vec<_> = tab
+                .search
+                .matches
+                .iter()
+                .enumerate()
+                .filter(|(_, found)| tab.search.open && found.row == row.logical_row)
+                .map(|(index, found)| {
+                    (
+                        found.columns.start.saturating_sub(first)
+                            ..found.columns.end.saturating_sub(first),
+                        tab.search.current == Some(index),
+                    )
+                })
+                .collect();
             paint_line(
                 &painter,
                 base_origin
@@ -310,6 +347,7 @@ impl ButtonBuilder {
                 end - first,
                 &colors,
                 selected.start.saturating_sub(first)..selected.end.saturating_sub(first),
+                &found,
                 ui.visuals().selection,
                 &mut tab.text_cache.rows[visible_row],
             );
@@ -393,6 +431,9 @@ impl ButtonBuilder {
         if response.has_focus() && focused_pane {
             handle_terminal_input(ui, tab);
         }
+        if close_search {
+            tab.close_search();
+        }
     }
 }
 
@@ -458,6 +499,31 @@ fn terminal_font(style: &TerminalStyle, fonts: &[String]) -> FontId {
     FontId::new(style.font_size, family)
 }
 
+fn match_position(
+    view: &TerminalViewport<'_>,
+    found: &SearchMatch,
+    visible_rows: usize,
+    visible_cols: usize,
+    char_width: f32,
+    horizontal_scroll: f32,
+) -> Option<(usize, Option<f32>)> {
+    let row = view.rows.iter().position(|row| {
+        row.logical_row == found.row
+            && found.columns.start < row.end_col.max(row.first_col + 1)
+            && found.columns.end > row.first_col
+    })?;
+    let start = row.saturating_sub(visible_rows / 2);
+    let column = found.columns.start;
+    let horizontal = if column < (horizontal_scroll / char_width) as usize
+        || column >= (horizontal_scroll / char_width) as usize + visible_cols
+    {
+        Some(column.saturating_sub(2) as f32 * char_width)
+    } else {
+        None
+    };
+    Some((view.live_start.saturating_sub(start), horizontal))
+}
+
 #[allow(clippy::too_many_arguments)]
 fn paint_line(
     painter: &egui::Painter,
@@ -469,6 +535,7 @@ fn paint_line(
     cols: usize,
     colors: &Palette,
     selected: std::ops::Range<usize>,
+    found: &[(std::ops::Range<usize>, bool)],
     selection_style: egui::style::Selection,
     cache: &mut Vec<Arc<egui::Galley>>,
 ) {
@@ -478,9 +545,11 @@ fn paint_line(
         let style = line[start].style;
         let mut end = start + 1;
         let is_selected = selected.contains(&start);
+        let found_state = search_state(found, start);
         while end < line.len().min(cols)
             && line[end].style == style
             && selected.contains(&end) == is_selected
+            && search_state(found, end) == found_state
         {
             end += 1;
         }
@@ -496,6 +565,17 @@ fn paint_line(
         if is_selected {
             background = selection_style.bg_fill;
             foreground = selection_style.stroke.color;
+        } else if let Some(active) = found_state {
+            background = get_global_color(if active {
+                "primary"
+            } else {
+                "primaryContainer"
+            });
+            foreground = get_global_color(if active {
+                "onPrimary"
+            } else {
+                "onPrimaryContainer"
+            });
         }
         let position = origin + Vec2::new(start as f32 * char_width, 0.0);
         let width = (end - start) as f32 * char_width;
@@ -535,6 +615,12 @@ fn paint_line(
         run += 1;
     }
     cache.truncate(run);
+}
+
+fn search_state(found: &[(std::ops::Range<usize>, bool)], column: usize) -> Option<bool> {
+    found
+        .iter()
+        .find_map(|(range, active)| range.contains(&column).then_some(*active))
 }
 
 pub(in crate::app) fn key_bytes(

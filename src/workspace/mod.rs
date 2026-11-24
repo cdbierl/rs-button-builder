@@ -20,6 +20,7 @@ pub(super) struct TerminalTab {
     pub(super) scroll_fraction: f32,
     pub(super) line_wrap: bool,
     pub(super) paused_screen: Option<Screen>,
+    pub(super) search: ui::TerminalSearch,
     pub(super) horizontal_scroll: f32,
     pub(super) selection: ui::TerminalSelection,
     pub(super) text_cache: ui::TerminalTextCache,
@@ -73,7 +74,51 @@ impl TerminalTab {
         self.paused_screen.is_some()
     }
 
+    pub(super) fn open_search(&mut self) {
+        if !self.search.open {
+            self.search.resume_on_close = !self.display_paused();
+            if self.search.resume_on_close {
+                self.paused_screen = Some(self.terminal.screen.clone());
+                self.scrollback = 0;
+                self.scroll_fraction = 0.0;
+                self.selection.clear();
+            }
+            self.search.open = true;
+            let screen = self.paused_screen.as_ref().unwrap_or(&self.terminal.screen);
+            self.search.rebuild(screen);
+            log::debug!(
+                "Terminal find opened: tab={} label={:?}",
+                self.id,
+                self.label
+            );
+        }
+        self.search.request_focus = true;
+    }
+
+    pub(super) fn close_search(&mut self) {
+        if !self.search.open {
+            return;
+        }
+        self.search.open = false;
+        self.search.request_focus = false;
+        if self.search.resume_on_close {
+            self.paused_screen = None;
+            self.scrollback = 0;
+            self.scroll_fraction = 0.0;
+        }
+        self.search.resume_on_close = false;
+        log::debug!(
+            "Terminal find closed: tab={} label={:?}",
+            self.id,
+            self.label
+        );
+    }
+
     pub(super) fn set_display_paused(&mut self, paused: bool) {
+        if self.search.open && !paused {
+            self.search.resume_on_close = false;
+            self.search.open = false;
+        }
         log::debug!(
             "Terminal display updates changed: tab={} label={:?} paused={paused}",
             self.id,
@@ -487,6 +532,7 @@ impl TerminalWorkspace {
             scroll_fraction: 0.0,
             line_wrap: false,
             paused_screen: None,
+            search: ui::TerminalSearch::default(),
             horizontal_scroll: 0.0,
             selection: ui::TerminalSelection::default(),
             text_cache: ui::TerminalTextCache::default(),
@@ -547,6 +593,13 @@ impl TerminalWorkspace {
                 (position + indices.len() - 1) % indices.len()
             };
             self.select_tab(indices[next]);
+        }
+    }
+
+    pub(super) fn open_search(&mut self) {
+        if let Some(index) = self.active_tab {
+            self.tabs[index].open_search();
+            self.focus_terminal = false;
         }
     }
 

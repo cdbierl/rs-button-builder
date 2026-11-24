@@ -75,7 +75,8 @@ select a YAML layout file. Dependency versions are recorded in [Cargo.lock](Carg
 - **Use terminals:** click a terminal to type. The toolbar controls appearance,
   interrupt, stop, close, jump to live output, pause display updates, copy, and line
   wrapping. Drag selected text to copy it automatically. Ctrl+mouse wheel changes
-  the terminal font size.
+  the terminal font size. Ctrl+F pauses the display and opens find with case-sensitive
+  and regular-expression options.
 - **Split terminals:** right-click a tab and choose **Split right** or **Split below**.
   Panes can be split repeatedly in either direction. Drag dividers to resize them,
   move tabs between panes, or choose **Merge all panes**. Pane layouts are not saved.
@@ -98,6 +99,7 @@ stopped commands, and terminal or logging errors remain open.
 | Ctrl+E | Toggle layout editing (does not save changes) |
 | Ctrl+B | Show or hide the button panel |
 | Ctrl+F11 | Toggle fullscreen |
+| Ctrl+F | Find in the active terminal |
 | Ctrl+S | Save layout |
 | Ctrl+Shift+S | Save layout as |
 | Ctrl+Page Up / Page Down | Previous / next terminal tab in the focused pane, wrapping at either end |
@@ -107,7 +109,7 @@ stopped commands, and terminal or logging errors remain open.
 | Ctrl+Shift+V | Paste into the focused terminal |
 | Ctrl+C | Interrupt the foreground terminal job |
 
-Layout and tab shortcuts work while the terminal is focused and are reserved by
+Application shortcuts work while the terminal is focused and are reserved by
 the app. They are disabled while a dialog is open. Holding a shortcut does not
 repeat its action. Ctrl+W and Ctrl+Q remain available to terminal programs.
 
