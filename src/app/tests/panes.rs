@@ -286,6 +286,29 @@ fn terminal_split_right_preserves_sessions_and_routes_focus_input_and_tabs() {
 }
 
 #[test]
+fn terminal_tab_context_menu_closes_its_tab() {
+    let ctx = egui::Context::default();
+    let mut config = Config::default();
+    config.buttons[0] = interactive_button("Alpha");
+    config.buttons[1] = interactive_button("Beta");
+    let mut app = ButtonBuilder::new(&ctx, None, config);
+    app.launch(0);
+    app.launch(1);
+
+    let menu = open_tab_menu(&mut app, &ctx, "1 · Alpha");
+    let close = label_center(&menu, "Close tab");
+    let split = label_center(&menu, "Split below");
+    assert!(
+        close.y > split.y,
+        "Close tab should be the final context-menu action"
+    );
+    click(&mut app, &ctx, close);
+
+    assert_eq!(app.workspace.tabs().len(), 1);
+    assert_eq!(app.workspace.tabs()[0].label, "Beta");
+}
+
+#[test]
 fn terminal_split_below_divider_resizes_each_pane_and_supports_minimum_window() {
     let ctx = egui::Context::default();
     let mut config = Config::default();

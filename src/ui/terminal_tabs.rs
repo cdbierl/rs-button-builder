@@ -256,6 +256,10 @@ impl ButtonBuilder {
                 action = Some(PaneAction::Merge);
             }
         }
+        ui.separator();
+        if ui.add(text_button("Close tab").small()).clicked() {
+            action = Some(PaneAction::Close { tab: tab.id() });
+        }
         action
     }
 }

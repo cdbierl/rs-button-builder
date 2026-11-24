@@ -122,6 +122,7 @@ pub(super) enum PaneAction {
     Split { tab: u64, direction: Split },
     Move { tab: u64, pane: usize },
     Merge,
+    Close { tab: u64 },
 }
 
 pub(super) struct TerminalWorkspace {
@@ -224,6 +225,17 @@ impl TerminalWorkspace {
                     }
                 }
                 PaneAction::Merge => self.merge_terminals(),
+                PaneAction::Close { tab } => {
+                    if let Some(index) = self.tabs.iter().position(|terminal| terminal.id == tab) {
+                        log::info!(
+                            "Terminal close requested from tab menu: tab={} label={:?} running={}",
+                            tab,
+                            self.tabs[index].label,
+                            self.tabs[index].terminal.is_running()
+                        );
+                        self.close_tab(index);
+                    }
+                }
             }
         }
         changed
