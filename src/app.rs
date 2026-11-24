@@ -50,6 +50,7 @@ pub struct ButtonBuilder {
     workspace: TerminalWorkspace,
     editor: Option<Editor>,
     edit_mode: bool,
+    buttons_panel_visible: bool,
     dragged_button: Option<usize>,
     appearance_open: bool,
     fonts: Vec<String>,
@@ -84,6 +85,7 @@ impl ButtonBuilder {
             workspace: TerminalWorkspace::new(ctx),
             editor: None,
             edit_mode: false,
+            buttons_panel_visible: true,
             dragged_button: None,
             appearance_open: false,
             fonts,
@@ -338,13 +340,15 @@ impl ButtonBuilder {
         self.poll_terminals(ctx);
         self.handle_shortcuts(ctx);
         egui::TopBottomPanel::bottom("status").show(ctx, |ui| self.footer(ui));
-        egui::SidePanel::left("buttons")
-            .resizable(true)
-            .default_width(DEFAULT_BUTTON_PANEL_WIDTH)
-            .width_range(MIN_BUTTON_PANEL_WIDTH..=MAX_BUTTON_PANEL_WIDTH)
-            .show(ctx, |ui| {
-                self.buttons_panel(ui);
-            });
+        if self.buttons_panel_visible {
+            egui::SidePanel::left("buttons")
+                .resizable(true)
+                .default_width(DEFAULT_BUTTON_PANEL_WIDTH)
+                .width_range(MIN_BUTTON_PANEL_WIDTH..=MAX_BUTTON_PANEL_WIDTH)
+                .show(ctx, |ui| {
+                    self.buttons_panel(ui);
+                });
+        }
         egui::CentralPanel::default().show(ctx, |ui| self.terminal_workspace(ui));
         if self.save_as.is_none() && !self.new_layout_requested {
             self.editor_window(ctx);

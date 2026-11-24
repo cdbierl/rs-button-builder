@@ -199,7 +199,7 @@ fn line_wrap_and_horizontal_scrolling_are_per_tab_and_do_not_change_configuratio
         &shape.shape,
         egui::Shape::Rect(rect)
             if rect.rect.contains(wrap)
-                && rect.fill == get_global_color("secondaryContainer")
+                && rect.fill == get_global_color("primaryContainer")
     )));
     assert_eq!(app.workspace.tabs()[0].horizontal_scroll, 0.0);
     assert_eq!(app.workspace.tabs()[0].terminal.screen.cols, cols);
@@ -1702,22 +1702,28 @@ fn many_tabs_scroll_and_keep_toolbar_controls_visible_at_minimum_size() {
         "Arrows must stay outside the scrolling tabs"
     );
     assert!(right.x < size.x && (left.y - right.y).abs() < 1.0);
-    let (right_button, clip) = output
-        .shapes
-        .iter()
-        .find_map(|shape| match &shape.shape {
+    let pager_button = |center| {
+        output.shapes.iter().find_map(|shape| match &shape.shape {
             egui::Shape::Rect(rect)
                 if rect.stroke.width > 0.0
-                    && rect.rect.contains(right)
+                    && rect.rect.contains(center)
                     && (rect.rect.width() - 32.0).abs() < 1.0 =>
             {
                 Some((rect.rect, shape.clip_rect))
             }
             _ => None,
         })
-        .expect("The next-tab button should have an outline");
+    };
+    let (left_button, left_clip) =
+        pager_button(left).expect("The previous-tab button should have an outline");
+    let (right_button, right_clip) =
+        pager_button(right).expect("The next-tab button should have an outline");
     assert!(
-        clip.right() - right_button.right() >= 1.0,
+        left_button.left() - left_clip.left() >= 1.0,
+        "The previous-tab outline needs room inside the pane clip"
+    );
+    assert!(
+        right_clip.right() - right_button.right() >= 1.0,
         "The next-tab outline needs room inside the pane clip"
     );
     for glyph in ["‹", "›"] {

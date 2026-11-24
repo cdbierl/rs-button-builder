@@ -1,5 +1,5 @@
 //! Status messages and a compact application theme picker.
-use super::{rgb, style::apply_theme, text_button};
+use super::{rgb, shortcuts::Action, style::apply_theme, text_button};
 use crate::app::ButtonBuilder;
 use crate::theme::{Accent, Appearance};
 use egui::{Align, FontId, RichText, Vec2};
@@ -27,6 +27,35 @@ impl ButtonBuilder {
             self.theme_picker(ui);
             ui.with_layout(egui::Layout::left_to_right(Align::Center), |ui| {
                 self.app_menu(ui);
+                let tooltip = if self.buttons_panel_visible {
+                    "Hide buttons"
+                } else {
+                    "Show buttons"
+                };
+                let tooltip = format!(
+                    "{tooltip} ({})",
+                    ui.ctx().format_shortcut(&Action::ToggleButtons.shortcut())
+                );
+                let mut button = text_button(symbol("apps"))
+                    .small()
+                    .min_size(Vec2::new(36.0, 28.0));
+                if self.buttons_panel_visible {
+                    button = button
+                        .fill(get_global_color("primaryContainer"))
+                        .text_color(get_global_color("onPrimaryContainer"));
+                }
+                let response = ui.add(button).on_hover_text(tooltip);
+                response.widget_info(|| {
+                    egui::WidgetInfo::selected(
+                        egui::WidgetType::Button,
+                        true,
+                        self.buttons_panel_visible,
+                        "Buttons panel",
+                    )
+                });
+                if response.clicked() {
+                    self.perform_action(ui.ctx(), Action::ToggleButtons);
+                }
                 ui.separator();
                 let (message, color) = if let Some(error) = &self.error {
                     (error.as_str(), get_global_color("error"))

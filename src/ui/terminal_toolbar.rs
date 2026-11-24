@@ -195,8 +195,8 @@ fn toggle_button(caption: impl Into<egui::WidgetText>, selected: bool) -> Button
     let button = toolbar_button(caption);
     if selected {
         button
-            .fill(get_global_color("secondaryContainer"))
-            .text_color(get_global_color("onSecondaryContainer"))
+            .fill(get_global_color("primaryContainer"))
+            .text_color(get_global_color("onPrimaryContainer"))
     } else {
         button
     }

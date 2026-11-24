@@ -35,8 +35,7 @@ impl ButtonBuilder {
             egui::Layout::left_to_right(egui::Align::Center),
             |ui| {
                 ui.set_min_height(bar_height);
-                ui.strong("Terminal");
-                ui.add_space(6.0);
+                ui.add_space(TAB_BAR_EDGE_INSET);
                 let previous = active.and_then(|index| {
                     indices
                         .iter()

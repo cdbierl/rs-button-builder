@@ -1,6 +1,72 @@
 //! Application buttons tests.
 
+use super::super::MIN_BUTTON_PANEL_WIDTH;
 use super::*;
+
+#[test]
+fn footer_toggle_hides_buttons_and_expands_the_terminal_workspace() {
+    let ctx = egui::Context::default();
+    let mut config = Config::default();
+    config.buttons[0].label = "Panel button".into();
+    config.buttons[0].command = "/bin/cat".into();
+    let mut app = ButtonBuilder::new(&ctx, None, config);
+    let toolbar_width = |output: &egui::FullOutput| {
+        output
+            .shapes
+            .iter()
+            .filter_map(|shape| match &shape.shape {
+                egui::Shape::Rect(rect)
+                    if rect.fill == get_global_color("surfaceContainerLow")
+                        && rect.rect.height() < 50.0
+                        && rect.rect.width() > 500.0 =>
+                {
+                    Some(rect.rect.width())
+                }
+                _ => None,
+            })
+            .fold(0.0_f32, f32::max)
+    };
+
+    let output = frame(&mut app, &ctx, vec![]);
+    label_center(&output, "Panel button");
+    let shown_width = toolbar_width(&output);
+    let apps = symbol_center(&output, "apps");
+    assert!(output.shapes.iter().any(|shape| matches!(
+        &shape.shape,
+        egui::Shape::Rect(rect)
+            if rect.rect.contains(apps)
+                && rect.fill == get_global_color("primaryContainer")
+    )));
+    click(&mut app, &ctx, apps);
+
+    let output = frame(&mut app, &ctx, vec![]);
+    assert!(!app.buttons_panel_visible);
+    assert!(
+        output.shapes.iter().all(
+            |shape| !matches!(&shape.shape, egui::Shape::Text(text) if text.galley.job.text == "Panel button")
+        ),
+        "The button grid should be absent while collapsed"
+    );
+    assert!(
+        toolbar_width(&output) > shown_width + MIN_BUTTON_PANEL_WIDTH,
+        "Collapsing the button panel should release its width to the terminal workspace"
+    );
+
+    click(&mut app, &ctx, symbol_center(&output, "apps"));
+    let output = frame(&mut app, &ctx, vec![]);
+    assert!(app.buttons_panel_visible);
+    label_center(&output, "Panel button");
+
+    hotkey(&mut app, &ctx, egui::Key::B, false, false);
+    assert!(!app.buttons_panel_visible);
+    hotkey(&mut app, &ctx, egui::Key::B, false, true);
+    assert!(
+        !app.buttons_panel_visible,
+        "Holding Ctrl+B must not repeatedly toggle the button panel"
+    );
+    hotkey(&mut app, &ctx, egui::Key::B, false, false);
+    assert!(app.buttons_panel_visible);
+}
 
 #[test]
 fn ctrl_click_starts_an_independent_terminal_and_normal_click_reuses_running_instances() {

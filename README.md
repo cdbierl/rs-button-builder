@@ -4,10 +4,6 @@ A Linux desktop app for launching commands from a configurable button grid,
 with interactive terminal tabs. Built with Rust 2024, egui, and egui-material3.
 The Cargo package and executable are named `rs_button_builder` (version `0.1.0`).
 
-![Button Builder GUI with a command grid, three terminal tabs, and JSON output](docs/images/button-builder.png)
-
-GUI preview with generated sample output.
-
 ## Features
 
 - Named YAML layouts with configurable grid dimensions, button labels, actions, and colors.
@@ -69,80 +65,29 @@ select a YAML layout file. Dependency versions are recorded in [Cargo.lock](Carg
 
 ## Usage
 
-- **Configure buttons:** right-click a button and choose **Edit button…**, click an
-  unassigned button, or choose **Edit layout** from the footer menu and click a
-  button. Set its label, executable, arguments,
-  working directory, and colors.
-  Empty slots show a muted **new window** icon. **Shell script (/bin/sh)** runs the complete
-  command through `/bin/sh`.
-- **Clear a button:** right-click it and choose **Reset** to restore an empty
-  slot with its default label and colors. Use **Save layout** to keep the reset.
-- **Reposition buttons:** drag a button onto another slot to swap their positions.
-  Dragging works during normal use and while editing. Drop outside the grid or press
-  **Escape** to cancel. Use **Save layout** to keep the new positions.
-- **Layout actions:** click **Button Builder** in the bottom-left footer to open
-  the application menu. It opens upward with **New layout**, **Load config…**,
-  **Recent layouts**, **Edit layout**, **Save layout**, **Save layout as…**, and
-  **Exit**. The recent-layout submenu keeps up to eight previously selected YAML
-  files and includes **Clear recent layouts**. Choose an action, click outside, or
-  press **Escape** to close it.
-- **Customize layouts:** choose **Edit layout** to show the layout name and grid
-  controls above the buttons. Change **Rows** and **Columns**, or click the name
-  to rename the layout. Clicking a button opens its editor while this mode is active.
-  **Done** hides the controls and restores normal button clicks; use **Save layout**
-  to save your changes. The window title shows
-  **Button Builder - {display name}**. An asterisk after the name in the window
-  title, footer menu, and editing panel marks unsaved layout changes. **New layout** creates an
-  empty 3×3 grid and asks how to handle unsaved changes. Existing terminal tabs
-  stay open; the new layout's first save asks for a filename.
-- **Manage terminals:** click a button to focus its running terminal, or open a new
-  tab if it has no running terminal in the current layout. **Ctrl+click** on a
-  configured button starts a new terminal in the focused pane. In edit mode,
-  both clicks open the button editor. With multiple running instances,
-  a normal click keeps the selected instance or focuses the newest one.
-  Finished tabs and their output are preserved unless they close automatically
-  as described below. New tabs use the layout's
-  terminal appearance defaults.
-  Running tabs keep collecting output. Click the terminal to
-  type; use the tab bar and its arrows to switch sessions. Long lines remain
-  unwrapped by default and can be viewed with the horizontal scrollbar. Enable
-  **Line wrap** in the toolbar to reflow the selected tab; this choice is not saved.
-  Commands that finish successfully without printing meaningful text close their tabs
-  automatically and show a brief success notice. Enable **Close on success** for a
-  button to also close successful runs that printed output. Failures, interrupted
-  or stopped commands, and terminal or logging errors keep their tabs.
-- **Arrange terminals:** right-click a terminal tab and choose **Split right** or
-  **Split below** to move it into a new pane. Any pane can be split again, mixing
-  horizontal and vertical arrangements. Splitting requires another tab in the
-  source pane and enough room for both panes. Each pane has its own tabs; drag
-  its adjoining divider to resize it. Click a pane to focus it; new terminals
-  open there, and clicking a running button focuses its existing pane.
-  **Move to pane** lists destinations by their selected terminal.
-  **Merge all panes** restores one tab strip. Closing or moving the last tab out
-  of a pane removes only that section and preserves the remaining splits.
-  Pane arrangements are not persisted across app restarts.
-  See the [nested pane preview](docs/images/terminal-panes.png) with generated output.
-- **Copy terminal text:** click and drag to highlight text; releasing the mouse
-  automatically copies it to the clipboard. **Copy** or **Ctrl+Shift+C** copies the
-  selection, or all output when nothing is selected. Click in the terminal to clear
-  the selection. **Ctrl+C** still interrupts the process.
-- **Adjust appearance:** **Appearance** changes the selected tab's font and colors
-  and the defaults for new tabs. **Use theme colors** clears custom terminal colors
-  so the tab follows the footer theme, while keeping its font settings.
-  **Ctrl+mouse wheel** over the terminal adjusts its
-  font size (8–32 pt); plain scrolling or dragging the right-hand scrollbar moves
-  through output history. Drag to the bottom or click **Jump to live** to follow new output.
-  **Refresh fonts** discovers installed monospace fonts.
-- **Choose a UI theme:** the palette control at the right of the footer opens
-  Light, Dark, and System modes plus five accent colors. Changes apply immediately
-  and are saved in app settings. Terminals use matching light or dark colors,
-  including existing output and scrollback. Explicit custom button and terminal
-  colors are preserved. System mode follows the desktop appearance when available.
-- **Stop processes:** **Ctrl+C** sends `SIGINT` to the foreground job, allowing it
-  to clean up; programs can ignore this signal. **Stop** sends `SIGKILL` and ends
-  local jobs in that terminal session. Pending output is discarded; displayed output
-  remains. **Close tab** uses the same forceful cleanup. **Exit** closes all tabs.
-  Process cleanup runs off the UI thread, so it does not wait for a stalled child.
+- **Configure and arrange buttons:** click an empty slot or right-click a button to
+  edit it. Drag buttons to swap positions; right-click and choose **Reset** to clear
+  one. Use **Edit layout** to rename the layout or change its rows and columns. The
+  footer apps button collapses the button panel to make more room for terminals.
+- **Run commands:** click a configured button to start it or focus its running tab.
+  Ctrl+click starts another instance. Buttons support direct programs, `/bin/sh`
+  scripts, working directories, colors, auto start, logging, and close on success.
+- **Use terminals:** click a terminal to type. The toolbar controls appearance,
+  interrupt, stop, close, jump to live output, pause display updates, copy, and line
+  wrapping. Drag selected text to copy it automatically. Ctrl+mouse wheel changes
+  the terminal font size.
+- **Split terminals:** right-click a tab and choose **Split right** or **Split below**.
+  Panes can be split repeatedly in either direction. Drag dividers to resize them,
+  move tabs between panes, or choose **Merge all panes**. Pane layouts are not saved.
+- **Save and load layouts:** open the footer menu for new, recent, load, edit, save,
+  save as, and exit actions. An asterisk marks unsaved changes in the title and menu.
+- **Change the theme:** use the footer palette for Light, Dark, System, and five
+  accent colors. Theme changes apply to existing terminals unless they use explicit
+  custom colors.
+
+Successful commands with no meaningful output close automatically. **Close on
+success** closes any command that exits with status 0. Failures, interrupted or
+stopped commands, and terminal or logging errors remain open.
 
 ## Keyboard shortcuts
 
@@ -151,6 +96,7 @@ select a YAML layout file. Dependency versions are recorded in [Cargo.lock](Carg
 | Ctrl+N | New layout (asks about unsaved changes) |
 | Ctrl+O | Load config |
 | Ctrl+E | Toggle layout editing (does not save changes) |
+| Ctrl+B | Show or hide the button panel |
 | Ctrl+S | Save layout |
 | Ctrl+Shift+S | Save layout as |
 | Ctrl+Page Up / Page Down | Previous / next terminal tab in the focused pane, wrapping at either end |
@@ -166,24 +112,14 @@ repeat its action. Ctrl+W and Ctrl+Q remain available to terminal programs.
 
 ## Configuration and examples
 
-Without `--file`, the app reopens the last successfully loaded or saved layout.
-App settings live in `~/.config/rs_button_builder/settings.yaml`, or
-`$XDG_CONFIG_HOME/rs_button_builder/settings.yaml` when that variable contains an
-absolute path. Settings store the UI theme, last layout, and recent-layout list
-separately from button layouts. Remembered layout paths are absolute, so startup works from another
-working directory.
+Without `--file`, the app reopens the last loaded or saved layout. Settings are
+stored in `$XDG_CONFIG_HOME/rs_button_builder/settings.yaml`, or
+`~/.config/rs_button_builder/settings.yaml`. They contain the theme, last layout,
+and recent layouts. Button layouts remain separate YAML files.
 
-On first launch, the app starts with an
-[empty, unsaved grid](docs/images/unsaved-layout.png). A missing or invalid remembered
-layout also opens an empty grid and displays an error. An explicit `--file` overrides
-the remembered layout; a missing or invalid explicit file reports an error and exits.
-Creating a new unsaved layout keeps the last file remembered until the new layout
-is saved. Unsaved edits and running processes are not restored.
-**Load config…** selects a layout and makes it the destination for subsequent saves.
-**Save layout**, **Save button**, and **Save appearance** write to that file;
-without a selected file, they open a save dialog. Unsaved changes are not
-automatically saved on exit.
-When a save filename has no extension, `.yaml` is added automatically.
+On first launch, the app opens an empty layout.
+**Load config…** selects an existing layout. Save actions reuse the selected file;
+**Save layout as…** chooses another. Unsaved changes are not saved on exit.
 
 A minimal layout:
 
@@ -197,73 +133,32 @@ buttons:
     arguments: -d 1
 ```
 
-See [example layouts](examples/README.md) for system monitoring, JSON pipelines,
-terminal demos, and following `/var/log/syslog`. Copy an example before customizing
-it to preserve the original. JSON examples require `/usr/bin/jq`; log following
-requires read access to the log file.
-
-Button and terminal colors use `fg_color` and `bg_color`, with RGB arrays such as
-`[35, 105, 75]`. Omit terminal color fields (or use `null`) to follow the theme.
-Existing layouts with explicit terminal colors keep them until cleared using
-**Appearance → Use theme colors**. Standard ANSI colors adapt to the terminal
-background; extended colors (indices 16–255) and explicit RGB output stay exact.
+See [example layouts](examples/README.md) for more configurations. Button and
+terminal colors use optional `[r, g, b]` arrays in `fg_color` and `bg_color`.
+Omitting terminal colors makes them follow the current theme.
 
 ### Button run options
 
-Enable **Auto start** in a button's edit dialog, or set `auto_start: true` in its
-YAML definition, to open that button in a terminal tab whenever the layout file
-is loaded. Each enabled, visible button opens in its own tab. Auto start is
-unchecked by default and does not run when merely saving a layout.
+- `auto_start: true` starts the button when its layout loads.
+- `close_on_success: true` closes its terminal after exit status 0.
+- `log_output: true` writes its output to a per-run text log.
 
-Enable **Close on success** in a button's edit dialog, or set `close_on_success: true`
-in its YAML definition, to close its terminal after exit status 0 regardless of
-output. It is unchecked by default; unchecked buttons still close on silent success.
-Changes apply to new runs, including auto start. Closing waits for pending output
-and log writes to finish; enabled output logs are preserved. Without logging,
-closing discards the displayed output.
+These options are also available in the button editor and apply to new runs.
 
 ### Terminal output logs
 
-Logs default to `~/Documents/ButtonBuilder/logs`. Set `BUTTON_BUILDER_LOG_DIR`
-in your environment or in a `.env` file in the app's working directory or a
-parent directory to override that location (see [.env.example](.env.example)):
+Logs default to `~/Documents/ButtonBuilder/logs`. Set
+`BUTTON_BUILDER_LOG_DIR` in the environment or `.env` to override the location:
 
 ```dotenv
 BUTTON_BUILDER_LOG_DIR=./logs
 ```
 
-Enable **Log output** in a button's edit dialog, or set `log_output: true` in that
-button's YAML definition. It is unchecked by default, including when loading
-older layouts without this field. Changes apply to newly launched processes.
-
-Each opted-in process that produces output gets its own log, for example
-`logs/run_top/20261117_183100.log`. Button labels become lowercase directory names
-with underscores replacing spaces and punctuation. Directories are created as
-needed; runs started in the same second get a numeric filename suffix to avoid
-overwriting earlier logs. Relative paths resolve from the app's working directory.
-Log files and directories are created on the first meaningful text: a parsed,
-non-whitespace character with a display width. Whitespace, zero-width Unicode
-characters alone, and terminal controls (colors, cursor movement, title changes,
-etc.) never create a log, regardless of the exit status. The terminal parser
-handles sequences split across reads. Text counts even if later erased or reset;
-malformed UTF-8 counts as visible replacement text. Successful tabs close only
-after all output and log writes are drained. Up to 64 KiB of leading whitespace
-is retained before the first meaningful text.
-
-Logs capture plain UTF-8 text from stdout and stderr independently of the
-2,000-row scrollback limit. ANSI colors, cursor movement, title changes, and
-other terminal controls are removed. CRLF becomes a normal line break, and
-carriage-return screen updates are written as separate lines so earlier progress
-states remain readable. Malformed UTF-8 is written with replacement characters.
-Hover over the terminal status to see its log path. Write errors appear in that
-status. Logging requires the button's opt-in and either `HOME` or an explicit
-directory override.
-
-Writes run off the UI thread with bounded queues. If storage falls behind, process
-output pauses until writes catch up; Stop and Close tab remain available. Stopping
-or closing a tab finishes logging output already read from the process, while
-discarding unread output as usual. Exit allows queued writes to finish, with a
-two-second timeout if storage stalls. Log files and `.env` are excluded from Git.
+Logs are created only after meaningful text appears. Each run receives a timestamped
+file under a directory derived from the button label. Logs contain plain UTF-8 text;
+ANSI formatting and terminal controls are removed. Logging runs off the UI thread
+and continues while pane updates are paused. Hover over terminal status text to see
+its log path or an error.
 
 ## Development
 
@@ -300,7 +195,7 @@ raw terminal mode, continuous output, and cleanup of background jobs. The log-fo
 test uses a temporary log file.
 When `/usr/bin/htop` is installed, tests also check its colors, resizing, and
 keyboard quit.
-Keep changes focused and include updated GUI screenshots when changing the interface.
+Keep changes focused.
 
 Logging uses `RUST_LOG` (default: `info`). Startup loads an optional `.env` file;
 child processes inherit the app's environment, including those values.
