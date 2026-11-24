@@ -7,11 +7,12 @@ mod watcher;
 use crate::layout_config::ButtonConfig;
 use screen::Screen;
 use std::collections::VecDeque;
+use std::ffi::OsString;
 use std::fs::File;
 use std::io::{self, Read, Write};
 use std::os::fd::{AsRawFd, FromRawFd};
 use std::os::unix::process::{CommandExt, ExitStatusExt};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitStatus, Stdio};
 use std::sync::{Arc, OnceLock, mpsc};
 use std::time::{Duration, Instant};
@@ -50,11 +51,24 @@ fn winsize(cols: usize, rows: usize) -> libc::winsize {
     }
 }
 
+fn log_directory(override_path: Option<OsString>, home: Option<OsString>) -> Option<PathBuf> {
+    override_path
+        .filter(|path| !path.is_empty())
+        .map(PathBuf::from)
+        .or_else(|| {
+            home.filter(|path| !path.is_empty())
+                .map(PathBuf::from)
+                .map(|home| home.join("Documents/ButtonBuilder/logs"))
+        })
+}
+
 impl Terminal {
     pub fn start(button: &ButtonConfig, cols: usize, rows: usize) -> Result<Self, String> {
-        let directory =
-            std::env::var_os("BUTTON_BUILDER_LOG_DIR").filter(|value| !value.is_empty());
-        Self::start_with_log_dir(button, cols, rows, directory.as_deref().map(Path::new))
+        let directory = log_directory(
+            std::env::var_os("BUTTON_BUILDER_LOG_DIR"),
+            std::env::var_os("HOME"),
+        );
+        Self::start_with_log_dir(button, cols, rows, directory.as_deref())
     }
 
     fn start_with_log_dir(

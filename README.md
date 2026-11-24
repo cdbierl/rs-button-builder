@@ -224,8 +224,9 @@ closing discards the displayed output.
 
 ### Terminal output logs
 
-Set `BUTTON_BUILDER_LOG_DIR` in your environment or in a `.env` file in the app's
-working directory or a parent directory (see [.env.example](.env.example)):
+Logs default to `~/Documents/ButtonBuilder/logs`. Set `BUTTON_BUILDER_LOG_DIR`
+in your environment or in a `.env` file in the app's working directory or a
+parent directory to override that location (see [.env.example](.env.example)):
 
 ```dotenv
 BUTTON_BUILDER_LOG_DIR=./logs
@@ -255,7 +256,8 @@ other terminal controls are removed. CRLF becomes a normal line break, and
 carriage-return screen updates are written as separate lines so earlier progress
 states remain readable. Malformed UTF-8 is written with replacement characters.
 Hover over the terminal status to see its log path. Write errors appear in that
-status. Logging requires both the button's opt-in and a nonempty directory setting.
+status. Logging requires the button's opt-in and either `HOME` or an explicit
+directory override.
 
 Writes run off the UI thread with bounded queues. If storage falls behind, process
 output pauses until writes catch up; Stop and Close tab remain available. Stopping

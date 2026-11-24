@@ -40,6 +40,26 @@ fn log_directory(name: &str) -> std::path::PathBuf {
 }
 
 #[test]
+fn log_directory_uses_an_explicit_override_or_the_user_documents_folder() {
+    assert_eq!(
+        super::log_directory(
+            Some("/tmp/button-logs".into()),
+            Some("/home/example".into())
+        ),
+        Some("/tmp/button-logs".into())
+    );
+    assert_eq!(
+        super::log_directory(None, Some("/home/example".into())),
+        Some("/home/example/Documents/ButtonBuilder/logs".into())
+    );
+    assert_eq!(
+        super::log_directory(Some("".into()), Some("/home/example".into())),
+        Some("/home/example/Documents/ButtonBuilder/logs".into())
+    );
+    assert_eq!(super::log_directory(None, None), None);
+}
+
+#[test]
 fn close_on_success_waits_for_output_and_preserves_logs() {
     for close_on_success in [false, true] {
         for exit_code in [0, 1] {
