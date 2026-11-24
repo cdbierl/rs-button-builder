@@ -12,15 +12,6 @@ impl<'a> Checkbox<'a> {
     pub(crate) fn new(checked: &'a mut bool, text: &'a str) -> Self {
         Self { checked, text }
     }
-
-    pub(crate) fn width(ui: &egui::Ui, text: &str) -> f32 {
-        const BOX_AND_SPACING: f32 = 22.0;
-        BOX_AND_SPACING
-            + ui.painter()
-                .layout_no_wrap(text.into(), body_font(ui), Color32::WHITE)
-                .size()
-                .x
-    }
 }
 
 impl Widget for Checkbox<'_> {

@@ -6,7 +6,7 @@ use egui_material3::get_global_color;
 
 pub(super) const DIVIDER_WIDTH: f32 = 8.0;
 pub(super) const MIN_PANE_SIZE: Vec2 = Vec2::new(240.0, 220.0);
-pub(super) const PANE_PADDING: f32 = 12.0;
+pub(super) const PANE_PADDING: f32 = 10.0;
 
 struct Divider {
     id: usize,
@@ -178,12 +178,13 @@ impl ButtonBuilder {
             } else {
                 0.0
             };
+            let content = region.shrink(padding);
             let mut child = ui.new_child(
                 UiBuilder::new()
                     .id_salt(("terminal_region", pane))
-                    .max_rect(region.shrink(padding)),
+                    .max_rect(content),
             );
-            child.set_clip_rect(ui.clip_rect().intersect(region));
+            child.set_clip_rect(ui.clip_rect().intersect(content));
             if child.rect_contains_pointer(region)
                 && child.input(|input| input.pointer.any_pressed())
             {

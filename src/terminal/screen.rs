@@ -34,6 +34,7 @@ impl Cell {
     }
 }
 
+#[derive(Clone)]
 struct Buffer {
     lines: Vec<Vec<Cell>>,
     x: usize,
@@ -83,7 +84,7 @@ impl Buffer {
     }
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 enum Parser {
     #[default]
     Ground,
@@ -96,6 +97,7 @@ enum Parser {
     Charset(u8),
 }
 
+#[derive(Clone)]
 pub struct Screen {
     pub cols: usize,
     pub rows: usize,

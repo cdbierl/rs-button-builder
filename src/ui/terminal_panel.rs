@@ -55,13 +55,17 @@ impl ButtonBuilder {
         self.terminal_toolbar(ui, pane);
         let active = self.workspace.pane_tab(pane);
         ui.add_space(4.0);
-        let size = ui.available_size().max(Vec2::splat(1.0));
+        let available = ui.available_size();
+        let size = Vec2::new(super::clipped_available_width(ui), available.y.max(1.0));
         let id = active.map(|index| self.workspace.tabs()[index].id());
-        let (response, painter) = ui
+        let (response, _) = ui
             .push_id(("terminal_pane", id), |ui| {
                 ui.allocate_painter(size, egui::Sense::click())
             })
             .inner;
+        // Leave antialiasing room around the focus stroke instead of clipping it to
+        // the allocated terminal rectangle.
+        let painter = ui.painter().with_clip_rect(ui.clip_rect());
         let control_scroll = ui.input(|input| {
             input.modifiers.ctrl
                 || input.events.iter().any(|event| {
@@ -133,9 +137,10 @@ impl ButtonBuilder {
                 )
             });
             let tab_cols = ((content_width / width) as usize).clamp(2, 500);
+            let screen = tab.screen();
             let horizontal = !tab.line_wrap
-                && !tab.terminal.screen.is_alternate()
-                && TerminalViewport::content_width(&tab.terminal.screen) > tab_cols;
+                && !screen.is_alternate()
+                && TerminalViewport::content_width(screen) > tab_cols;
             let gutter = if horizontal {
                 TERMINAL_SCROLLBAR_WIDTH
             } else {
@@ -148,9 +153,10 @@ impl ButtonBuilder {
         }
         let horizontal = active.is_some_and(|index| {
             let tab = &self.workspace.tabs()[index];
+            let screen = tab.screen();
             !tab.line_wrap
-                && !tab.terminal.screen.is_alternate()
-                && TerminalViewport::content_width(&tab.terminal.screen) > cols
+                && !screen.is_alternate()
+                && TerminalViewport::content_width(screen) > cols
         });
         let horizontal_gutter = if horizontal {
             TERMINAL_SCROLLBAR_WIDTH
@@ -176,7 +182,8 @@ impl ButtonBuilder {
         let mut scrollbar_interacted = false;
         if let Some(index) = active {
             let tab = &mut self.workspace.tabs_mut()[index];
-            let view = TerminalViewport::new(&tab.terminal.screen, tab.line_wrap, cols, rows);
+            let screen = tab.paused_screen.as_ref().unwrap_or(&tab.terminal.screen);
+            let view = TerminalViewport::new(screen, tab.line_wrap, cols, rows);
             if pane_hovered && !control_scroll {
                 let delta = ui.input(|input| input.smooth_scroll_delta);
                 tab.scroll_fraction += delta.y / line_height;
@@ -228,7 +235,7 @@ impl ButtonBuilder {
                 horizontal_scroll: tab.horizontal_scroll,
             };
             tab.selection
-                .interact(ui, &selection_response, &viewport, &tab.terminal.screen);
+                .interact(ui, &selection_response, &viewport, screen);
         }
         if response.clicked()
             || selection_response.clicked()
@@ -275,8 +282,8 @@ impl ButtonBuilder {
         let focused_pane = self.workspace.focused_pane() == pane;
         let tab = &mut self.workspace.tabs_mut()[index];
         tab.text_cache.prepare(&painter, &font, rows, dark);
-        let terminal = &mut tab.terminal;
-        let screen = &terminal.screen;
+        let display_paused = tab.display_paused();
+        let screen = tab.paused_screen.as_ref().unwrap_or(&tab.terminal.screen);
         let view = TerminalViewport::new(screen, tab.line_wrap, cols, rows);
         for (visible_row, row) in view.visible(tab.scrollback, rows).iter().enumerate() {
             if row.first_col >= row.line.len() {
@@ -308,8 +315,9 @@ impl ButtonBuilder {
             );
         }
         if tab.scrollback == 0
+            && !display_paused
             && screen.cursor_visible
-            && terminal.is_running()
+            && tab.terminal.is_running()
             && view.cursor.0 >= view.live_start
             && view.cursor.0 < view.live_start + rows
         {

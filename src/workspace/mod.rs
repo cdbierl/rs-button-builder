@@ -4,7 +4,7 @@ mod panes;
 
 use super::ui;
 use crate::layout_config::{ButtonConfig, TerminalStyle};
-use crate::terminal::{Terminal, Wake};
+use crate::terminal::{Terminal, Wake, screen::Screen};
 pub(super) use panes::PaneNode;
 use std::time::{Duration, Instant};
 
@@ -19,6 +19,7 @@ pub(super) struct TerminalTab {
     pub(super) scrollback: usize,
     pub(super) scroll_fraction: f32,
     pub(super) line_wrap: bool,
+    pub(super) paused_screen: Option<Screen>,
     pub(super) horizontal_scroll: f32,
     pub(super) selection: ui::TerminalSelection,
     pub(super) text_cache: ui::TerminalTextCache,
@@ -52,7 +53,25 @@ impl TerminalTab {
         self.selection.clear();
     }
 
+    pub(super) fn display_paused(&self) -> bool {
+        self.paused_screen.is_some()
+    }
+
+    pub(super) fn set_display_paused(&mut self, paused: bool) {
+        self.paused_screen = paused.then(|| self.terminal.screen.clone());
+        self.scrollback = 0;
+        self.scroll_fraction = 0.0;
+        self.selection.clear();
+    }
+
+    pub(super) fn screen(&self) -> &Screen {
+        self.paused_screen.as_ref().unwrap_or(&self.terminal.screen)
+    }
+
     fn update_view(&mut self, previous_scrolled_lines: usize) {
+        if self.display_paused() {
+            return;
+        }
         self.selection.prepare(&self.terminal.screen);
         // Output and viewport resizing can both move the viewed text into history.
         if self.scrollback > 0 {
@@ -67,8 +86,8 @@ impl TerminalTab {
 
     pub(super) fn copy_text(&self) -> String {
         self.selection
-            .text(&self.terminal.screen)
-            .unwrap_or_else(|| self.terminal.screen.text())
+            .text(self.screen())
+            .unwrap_or_else(|| self.screen().text())
     }
 }
 
@@ -403,6 +422,7 @@ impl TerminalWorkspace {
             scrollback: 0,
             scroll_fraction: 0.0,
             line_wrap: false,
+            paused_screen: None,
             horizontal_scroll: 0.0,
             selection: ui::TerminalSelection::default(),
             text_cache: ui::TerminalTextCache::default(),
@@ -477,7 +497,7 @@ impl TerminalWorkspace {
         let mut completed = None;
         // Remove only after polling has observed success and drained all terminal output.
         for index in (0..self.tabs.len()).rev() {
-            if self.tabs[index].terminal.should_auto_close() {
+            if !self.tabs[index].display_paused() && self.tabs[index].terminal.should_auto_close() {
                 completed = Some(self.tabs[index].label.clone());
                 self.close_tab(index);
                 ctx.request_repaint();

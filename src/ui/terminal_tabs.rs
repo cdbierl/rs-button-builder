@@ -9,6 +9,8 @@ use crate::app::ButtonBuilder;
 use egui::{Color32, FontId, RichText, Vec2};
 use egui_material3::get_global_color;
 
+const TAB_BAR_EDGE_INSET: f32 = 2.0;
+
 impl ButtonBuilder {
     pub(super) fn terminal_tabs(&mut self, ui: &mut egui::Ui, pane: usize) {
         let mut selected = None;
@@ -52,8 +54,11 @@ impl ButtonBuilder {
                 {
                     selected = previous;
                 }
-                let strip_width =
-                    (ui.available_width() - 32.0 - ui.spacing().item_spacing.x).max(1.0);
+                let strip_width = (ui.available_width()
+                    - 32.0
+                    - ui.spacing().item_spacing.x
+                    - TAB_BAR_EDGE_INSET)
+                    .max(1.0);
                 let resized = ui.data_mut(|data| {
                     let id = ui.id().with("terminal_tabs_width");
                     let previous = data.get_temp::<f32>(id);
@@ -186,6 +191,7 @@ impl ButtonBuilder {
                 {
                     selected = next;
                 }
+                ui.add_space(TAB_BAR_EDGE_INSET);
             },
         );
         self.workspace.acknowledge_tab_reveal(pane);

@@ -3,6 +3,117 @@
 use super::*;
 
 #[test]
+fn single_terminal_content_has_right_edge_clearance() {
+    let ctx = egui::Context::default();
+    let mut config = Config::default();
+    config.buttons[0] = interactive_button("Terminal");
+    let mut app = ButtonBuilder::new(&ctx, None, config);
+    app.launch(0);
+    let output = frame(&mut app, &ctx, vec![]);
+    let (border, clip) = output
+        .shapes
+        .iter()
+        .find_map(|shape| match &shape.shape {
+            egui::Shape::Rect(rect)
+                if rect.stroke.color == get_global_color("primary")
+                    && rect.stroke.width == 1.0
+                    && rect.rect.width() > 500.0 =>
+            {
+                Some((rect.rect, shape.clip_rect))
+            }
+            _ => None,
+        })
+        .expect("The focused terminal should paint its border");
+    assert!(
+        clip.right() - border.right() >= 2.0,
+        "The terminal focus border needs clearance from the right clip edge"
+    );
+    let (toolbar, clip) = output
+        .shapes
+        .iter()
+        .find_map(|shape| match &shape.shape {
+            egui::Shape::Rect(rect)
+                if rect.fill == get_global_color("surfaceContainerLow")
+                    && rect.rect.width() > 500.0
+                    && rect.rect.height() < 50.0 =>
+            {
+                Some((rect.rect, shape.clip_rect))
+            }
+            _ => None,
+        })
+        .expect("The terminal toolbar should paint its background");
+    assert!(
+        clip.right() - toolbar.right() >= 2.0,
+        "The terminal toolbar needs clearance from the right clip edge"
+    );
+}
+
+#[test]
+fn pausing_freezes_only_the_terminal_view_while_output_processing_continues() {
+    let ctx = egui::Context::default();
+    let mut config = Config::default();
+    config.buttons[0] = ButtonConfig {
+        label: "Staged output".into(),
+        command: "printf 'first update\\n'; sleep 0.2; printf 'second update\\n'".into(),
+        shell: true,
+        close_on_success: true,
+        ..Default::default()
+    };
+    let mut app = ButtonBuilder::new(&ctx, None, config);
+    app.launch(0);
+    wait_for_tabs(&mut app, &ctx, |app| {
+        app.workspace.tabs()[0]
+            .terminal
+            .screen
+            .text()
+            .contains("first update")
+    });
+    let original_config = serde_yaml_ng::to_string(&app.config).unwrap();
+
+    let output = frame(&mut app, &ctx, vec![]);
+    let pause = egui_material3::material_symbol::material_symbol_text("pause");
+    click(&mut app, &ctx, label_center(&output, &pause));
+    assert!(app.workspace.tabs()[0].display_paused());
+
+    wait_for_tabs(&mut app, &ctx, |app| {
+        app.workspace.tabs()[0]
+            .terminal
+            .screen
+            .text()
+            .contains("second update")
+    });
+    assert!(
+        !app.workspace.tabs()[0]
+            .screen()
+            .text()
+            .contains("second update"),
+        "The frozen view must not change while the live terminal keeps processing output"
+    );
+    assert_eq!(
+        app.workspace.tabs().len(),
+        1,
+        "A paused view must suppress close-on-success until it is resumed"
+    );
+
+    let output = frame(&mut app, &ctx, vec![]);
+    let resume = egui_material3::material_symbol::material_symbol_text("play_arrow");
+    click(&mut app, &ctx, label_center(&output, &resume));
+    assert!(!app.workspace.tabs()[0].display_paused());
+    assert!(
+        app.workspace.tabs()[0]
+            .screen()
+            .text()
+            .contains("second update"),
+        "Resuming must catch the pane up to the live terminal"
+    );
+    assert!(!app.dirty);
+    assert_eq!(
+        serde_yaml_ng::to_string(&app.config).unwrap(),
+        original_config
+    );
+}
+
+#[test]
 fn line_wrap_and_horizontal_scrolling_are_per_tab_and_do_not_change_configuration() {
     let ctx = egui::Context::default();
     let mut config = Config::default();
@@ -76,9 +187,20 @@ fn line_wrap_and_horizontal_scrolling_are_per_tab_and_do_not_change_configuratio
     );
 
     let output = frame(&mut app, &ctx, vec![]);
-    click(&mut app, &ctx, label_center(&output, "Line wrap"));
-    let output = frame(&mut app, &ctx, vec![]);
+    click(&mut app, &ctx, symbol_center(&output, "wrap_text"));
+    let output = frame(
+        &mut app,
+        &ctx,
+        vec![egui::Event::PointerMoved(egui::Pos2::ZERO)],
+    );
     assert!(app.workspace.tabs()[0].line_wrap);
+    let wrap = symbol_center(&output, "wrap_text");
+    assert!(output.shapes.iter().any(|shape| matches!(
+        &shape.shape,
+        egui::Shape::Rect(rect)
+            if rect.rect.contains(wrap)
+                && rect.fill == get_global_color("secondaryContainer")
+    )));
     assert_eq!(app.workspace.tabs()[0].horizontal_scroll, 0.0);
     assert_eq!(app.workspace.tabs()[0].terminal.screen.cols, cols);
     assert!(output.shapes.iter().any(|shape| matches!(&shape.shape, egui::Shape::Text(text) if text.galley.job.text.contains("right"))));
@@ -87,7 +209,7 @@ fn line_wrap_and_horizontal_scrolling_are_per_tab_and_do_not_change_configuratio
     assert!(!app.workspace.tabs()[1].line_wrap);
     app.workspace.select_tab(0);
     let output = frame(&mut app, &ctx, vec![]);
-    click(&mut app, &ctx, label_center(&output, "Line wrap"));
+    click(&mut app, &ctx, symbol_center(&output, "wrap_text"));
     assert!(!app.workspace.tabs()[0].line_wrap);
     assert!(
         app.workspace.tabs()[0]
@@ -495,7 +617,7 @@ fn noisy_processes_can_be_interrupted_stopped_closed_and_run_alongside_new_tabs(
         "The flood deliberately ignores SIGINT"
     );
     let output = frame(&mut app, &ctx, vec![]);
-    click(&mut app, &ctx, label_center(&output, "Stop"));
+    click(&mut app, &ctx, symbol_center(&output, "stop_circle"));
     assert_eq!(app.workspace.tabs()[0].terminal.status, "Stopped");
     assert!(!app.workspace.tabs()[0].terminal.needs_poll());
     assert!(app.workspace.tabs()[1].terminal.is_running());
@@ -511,7 +633,7 @@ fn noisy_processes_can_be_interrupted_stopped_closed_and_run_alongside_new_tabs(
         .parse()
         .unwrap();
     let output = frame(&mut app, &ctx, vec![]);
-    click(&mut app, &ctx, label_center(&output, "Close tab"));
+    click(&mut app, &ctx, symbol_center(&output, "close"));
     assert_eq!(app.workspace.tabs().len(), 2);
     assert_eq!(app.workspace.tabs()[1].label, "Quiet");
     assert_eq!(app.workspace.tabs()[0].terminal.status, "Stopped");
@@ -620,7 +742,7 @@ fn terminal_drag_selects_highlights_and_copies_on_release() {
             )),
         "Selection must retain terminal keyboard focus"
     );
-    let copy_pos = label_center(&copied, "Copy");
+    let copy_pos = symbol_center(&copied, "content_copy");
     frame(
         &mut app,
         &ctx,
@@ -1194,10 +1316,7 @@ fn control_wheel_requires_hovering_terminal_and_respects_font_limits() {
     );
     frame(&mut app, &ctx, vec![]);
     let output = frame(&mut app, &ctx, vec![]);
-    for pos in [
-        egui::pos2(100.0, 300.0),
-        label_center(&output, "Appearance"),
-    ] {
+    for pos in [egui::pos2(100.0, 300.0), symbol_center(&output, "tune")] {
         wheel(
             &mut app,
             &ctx,
@@ -1318,7 +1437,7 @@ fn tabs_preserve_appearance_history_and_resize_inactive_processes() {
     let output = frame(&mut app, &ctx, vec![]);
     let history_anchor =
         app.workspace.tabs()[0].terminal.screen.history.len() - app.workspace.tabs()[0].scrollback;
-    click(&mut app, &ctx, label_center(&output, "Appearance"));
+    click(&mut app, &ctx, symbol_center(&output, "tune"));
     let output = frame(&mut app, &ctx, vec![]);
     let pos = label_center(&output, "22.0 pt");
     // The numeric field is editable through keyboard input.
@@ -1367,7 +1486,7 @@ fn tabs_preserve_appearance_history_and_resize_inactive_processes() {
     let first_rows = app.workspace.tabs()[0].terminal.screen.rows;
     app.workspace.select_tab(1);
     let second_output = frame(&mut app, &ctx, vec![]);
-    assert!(!second_output.shapes.iter().any(|shape| matches!(&shape.shape, egui::Shape::Text(text) if text.galley.job.text == "Jump to live")));
+    symbol_center(&second_output, "vertical_align_bottom");
     assert_eq!(
         app.workspace.tabs()[0].terminal.screen.history.len() - app.workspace.tabs()[0].scrollback,
         history_anchor
@@ -1389,15 +1508,30 @@ fn tabs_preserve_appearance_history_and_resize_inactive_processes() {
     );
     app.workspace.select_tab(0);
     let output = frame(&mut app, &ctx, vec![]);
+    let jump = symbol_center(&output, "vertical_align_bottom");
+    let copy = symbol_center(&output, "content_copy");
+    let pause = symbol_center(&output, "pause");
+    let line_wrap = symbol_center(&output, "wrap_text");
+    assert!(
+        jump.x < pause.x
+            && pause.x < copy.x
+            && copy.x < line_wrap.x
+            && (jump.y - line_wrap.y).abs() < 1.0,
+        "Display controls should read as Jump, Pause, Copy, Line wrap"
+    );
     let output = frame(
         &mut app,
         &ctx,
-        vec![egui::Event::PointerMoved(label_center(
+        vec![egui::Event::PointerMoved(symbol_center(
             &output,
-            "Jump to live",
+            "vertical_align_bottom",
         ))],
     );
-    click(&mut app, &ctx, label_center(&output, "Jump to live"));
+    click(
+        &mut app,
+        &ctx,
+        symbol_center(&output, "vertical_align_bottom"),
+    );
     assert_eq!(app.workspace.tabs()[0].scrollback, 0);
     assert_eq!(app.workspace.tabs()[0].scroll_fraction, 0.0);
     app.launch(2);
@@ -1527,12 +1661,40 @@ fn many_tabs_scroll_and_keep_toolbar_controls_visible_at_minimum_size() {
             .contains(label.0.pos + label.0.galley.rect.center().to_vec2()),
         "The newly selected tab must scroll into view"
     );
-    for action in ["Appearance", "Copy", "Ctrl+C", "Stop", "Close tab"] {
-        let pos = label_center(&output, action);
+    for action in ["tune", "content_copy", "stop_circle", "close"] {
+        let glyph = egui_material3::material_symbol::material_symbol_text(action);
+        let pos = label_center(&output, &glyph);
         assert!(pos.x < size.x && pos.y < size.y);
         assert!(output.shapes.iter().any(|shape| shape.clip_rect.contains(pos)
-            && matches!(&shape.shape, egui::Shape::Text(text) if text.galley.job.text == action)));
+            && matches!(&shape.shape, egui::Shape::Text(text) if text.galley.job.text == glyph)));
     }
+    let interrupt = label_center(&output, "Ctrl+C");
+    assert!(interrupt.x < size.x && interrupt.y < size.y);
+    let appearance = symbol_center(&output, "tune");
+    let stop = symbol_center(&output, "stop_circle");
+    let close = symbol_center(&output, "close");
+    assert!(
+        appearance.x < interrupt.x
+            && interrupt.x < stop.x
+            && stop.x < close.x
+            && (appearance.y - interrupt.y).abs() < 1.0
+            && (interrupt.y - stop.y).abs() < 1.0
+            && (stop.y - close.y).abs() < 1.0,
+        "Process controls should read as Appearance, Interrupt, Stop, Close"
+    );
+    let copy = symbol_center(&output, "content_copy");
+    let pause = symbol_center(&output, "pause");
+    let line_wrap = symbol_center(&output, "wrap_text");
+    let jump = symbol_center(&output, "vertical_align_bottom");
+    assert!(
+        jump.x < pause.x
+            && pause.x < copy.x
+            && copy.x < line_wrap.x
+            && (jump.y - pause.y).abs() < 1.0
+            && (copy.y - pause.y).abs() < 1.0
+            && (copy.y - line_wrap.y).abs() < 1.0,
+        "Display controls should stay grouped as Jump, Pause, Copy, Line wrap"
+    );
     let left = label_center(&output, "‹");
     let right = label_center(&output, "›");
     assert!(
@@ -1540,6 +1702,24 @@ fn many_tabs_scroll_and_keep_toolbar_controls_visible_at_minimum_size() {
         "Arrows must stay outside the scrolling tabs"
     );
     assert!(right.x < size.x && (left.y - right.y).abs() < 1.0);
+    let (right_button, clip) = output
+        .shapes
+        .iter()
+        .find_map(|shape| match &shape.shape {
+            egui::Shape::Rect(rect)
+                if rect.stroke.width > 0.0
+                    && rect.rect.contains(right)
+                    && (rect.rect.width() - 32.0).abs() < 1.0 =>
+            {
+                Some((rect.rect, shape.clip_rect))
+            }
+            _ => None,
+        })
+        .expect("The next-tab button should have an outline");
+    assert!(
+        clip.right() - right_button.right() >= 1.0,
+        "The next-tab outline needs room inside the pane clip"
+    );
     for glyph in ["‹", "›"] {
         assert_eq!(output.shapes.iter().filter(|shape|
             matches!(&shape.shape, egui::Shape::Text(text) if text.galley.job.text == glyph)

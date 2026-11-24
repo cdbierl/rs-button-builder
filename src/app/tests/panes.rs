@@ -148,6 +148,51 @@ fn terminal_split_right_preserves_sessions_and_routes_focus_input_and_tabs() {
     );
     frame(&mut app, &ctx, vec![]);
     let output = frame(&mut app, &ctx, vec![]);
+    let pane_edge = output
+        .shapes
+        .iter()
+        .filter_map(|shape| match &shape.shape {
+            egui::Shape::Rect(rect)
+                if rect.stroke.width == 2.0 && rect.stroke.color == get_global_color("primary") =>
+            {
+                Some(rect.rect.right())
+            }
+            _ => None,
+        })
+        .next()
+        .expect("The focused split pane should have an outline");
+    let toolbar_edge = output
+        .shapes
+        .iter()
+        .filter_map(|shape| match &shape.shape {
+            egui::Shape::Rect(rect)
+                if rect.fill == get_global_color("surfaceContainerLow")
+                    && rect.rect.width() > 300.0
+                    && rect.rect.height() < 50.0 =>
+            {
+                Some(rect.rect.right())
+            }
+            _ => None,
+        })
+        .max_by(f32::total_cmp)
+        .expect("The right split should paint its toolbar");
+    let terminal_edge = output
+        .shapes
+        .iter()
+        .filter_map(|shape| match &shape.shape {
+            egui::Shape::Rect(rect)
+                if rect.stroke.width == 1.0 && rect.stroke.color == get_global_color("primary") =>
+            {
+                Some(rect.rect.right())
+            }
+            _ => None,
+        })
+        .max_by(f32::total_cmp)
+        .expect("The focused terminal should have an outline");
+    assert!(
+        pane_edge - toolbar_edge >= 10.0 && pane_edge - terminal_edge >= 10.0,
+        "Split-pane toolbar and terminal need their right inner padding"
+    );
     let alpha = terminal_output_position(&output, "Alpha-ready");
     let beta = terminal_output_position(&output, "Beta-ready");
     assert!(alpha.x < beta.x && (alpha.y - beta.y).abs() < 1.0);
@@ -444,6 +489,30 @@ fn nested_terminal_splits_resize_route_input_and_collapse_only_empty_sections() 
     assert!(positions[1].y < positions[3].y);
     for size in [Vec2::new(850.0, 500.0), Vec2::new(1200.0, 760.0)] {
         let output = frame_with(&mut app, &ctx, size, egui::Modifiers::NONE, vec![]);
+        let count = |label: &str| {
+            output
+                .shapes
+                .iter()
+                .filter(|shape| matches!(&shape.shape, egui::Shape::Text(text) if text.galley.job.text == label))
+                .count()
+        };
+        let jump = egui_material3::material_symbol::material_symbol_text("vertical_align_bottom");
+        let pause = egui_material3::material_symbol::material_symbol_text("pause");
+        let copy = egui_material3::material_symbol::material_symbol_text("content_copy");
+        let wrap = egui_material3::material_symbol::material_symbol_text("wrap_text");
+        if size.x == 850.0 {
+            assert_eq!(
+                (count(&jump), count(&pause), count(&copy), count(&wrap)),
+                (0, 4, 0, 0),
+                "Narrow panes should keep only the highest-priority display control"
+            );
+        } else {
+            assert_eq!(
+                (count(&jump), count(&pause), count(&copy), count(&wrap)),
+                (4, 4, 4, 4),
+                "Wide panes should show every display control"
+            );
+        }
         for label in ["Alpha", "Beta", "Gamma", "Delta"] {
             let prefix = format!("{label}-ready");
             let position = terminal_output_position(&output, &prefix);

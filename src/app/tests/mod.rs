@@ -100,6 +100,13 @@ fn label_center(output: &egui::FullOutput, label: &str) -> egui::Pos2 {
         .unwrap_or_else(|| panic!("Missing UI label: {label}"))
 }
 
+fn symbol_center(output: &egui::FullOutput, name: &str) -> egui::Pos2 {
+    label_center(
+        output,
+        &egui_material3::material_symbol::material_symbol_text(name),
+    )
+}
+
 fn click_app_action(
     app: &mut ButtonBuilder,
     ctx: &egui::Context,

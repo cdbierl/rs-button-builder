@@ -177,7 +177,7 @@ fn button_clicks_route_input_and_toolbar_actions_to_the_selected_process() {
     click(&mut app, &ctx, label_center(&output, "1 · Alpha"));
     assert_eq!(app.workspace.active_index(), Some(0));
     let output = frame(&mut app, &ctx, vec![]);
-    let copy_pos = label_center(&output, "Copy");
+    let copy_pos = symbol_center(&output, "content_copy");
     frame(
         &mut app,
         &ctx,
@@ -231,7 +231,7 @@ fn button_clicks_route_input_and_toolbar_actions_to_the_selected_process() {
     assert_eq!(app.workspace.tabs()[2].id(), 3);
     assert!(app.workspace.tabs()[2].terminal.is_running());
     let output = frame(&mut app, &ctx, vec![]);
-    click(&mut app, &ctx, label_center(&output, "Stop"));
+    click(&mut app, &ctx, symbol_center(&output, "stop_circle"));
     assert!(!app.workspace.tabs()[0].terminal.is_running());
     assert!(app.workspace.tabs()[1].terminal.is_running());
     assert_eq!(app.workspace.tabs()[2].terminal.status, "Stopped");
@@ -250,7 +250,7 @@ fn button_clicks_route_input_and_toolbar_actions_to_the_selected_process() {
         .parse()
         .unwrap();
     let output = frame(&mut app, &ctx, vec![]);
-    click(&mut app, &ctx, label_center(&output, "Close tab"));
+    click(&mut app, &ctx, symbol_center(&output, "close"));
     assert_eq!(app.workspace.tabs().len(), 2);
     assert_eq!(app.workspace.active_index(), Some(1));
     // Reaping is asynchronous; wait for the worker while the UI keeps rendering.
@@ -265,10 +265,10 @@ fn button_clicks_route_input_and_toolbar_actions_to_the_selected_process() {
         Some(libc::ESRCH)
     );
     let output = frame(&mut app, &ctx, vec![]);
-    click(&mut app, &ctx, label_center(&output, "Close tab"));
+    click(&mut app, &ctx, symbol_center(&output, "close"));
     assert_eq!(app.workspace.tabs().len(), 1);
     let output = frame(&mut app, &ctx, vec![]);
-    click(&mut app, &ctx, label_center(&output, "Close tab"));
+    click(&mut app, &ctx, symbol_center(&output, "close"));
     assert!(app.workspace.tabs().is_empty() && app.workspace.active_index().is_none());
     let output = frame(&mut app, &ctx, vec![]);
     click(&mut app, &ctx, label_center(&output, "Alpha"));

@@ -30,6 +30,14 @@ pub(super) use style::{button_colors, rgb};
 pub(super) use terminal_panel::TerminalTextCache;
 pub(super) use terminal_selection::TerminalSelection;
 
+fn clipped_available_width(ui: &egui::Ui) -> f32 {
+    const EDGE_CLEARANCE: f32 = 2.0;
+
+    ui.available_width()
+        .min(ui.clip_rect().right() - ui.next_widget_position().x - EDGE_CLEARANCE)
+        .max(1.0)
+}
+
 #[cfg(test)]
 pub(super) use terminal_panel::key_bytes;
 #[cfg(test)]
