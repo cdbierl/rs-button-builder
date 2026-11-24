@@ -115,12 +115,12 @@ fn footer_recent_layouts_load_guard_unsaved_changes_and_can_be_cleared() {
     click(&mut app, &ctx, label_center(&recent, "First.yaml"));
     assert_eq!(app.config_path.as_ref(), Some(&second));
     assert_eq!(
-        app.config_picker
+        app.layout_file_picker
             .as_ref()
             .map(|picker| picker.path.as_str()),
         Some(first.to_string_lossy().as_ref())
     );
-    app.config_picker = None;
+    app.layout_file_picker = None;
     app.dirty = false;
 
     let recent = open_recent_menu(&mut app, &ctx);
@@ -230,7 +230,7 @@ fn layout_shortcuts_save_drafts_and_preserve_unsaved_changes_and_dialogs() {
     assert_eq!(app.config.display_name(), "Save as draft");
     app.new_layout_requested = false;
     hotkey(&mut app, &ctx, egui::Key::O, false, false);
-    assert!(app.config_picker.is_some());
+    assert!(app.layout_file_picker.is_some());
     assert_eq!(app.config.display_name(), "Save as draft");
     let output = hotkey(&mut app, &ctx, egui::Key::Q, true, false);
     assert!(
@@ -238,7 +238,7 @@ fn layout_shortcuts_save_drafts_and_preserve_unsaved_changes_and_dialogs() {
             .commands
             .contains(&egui::ViewportCommand::Close)
     );
-    app.config_picker = None;
+    app.layout_file_picker = None;
 
     app.edit(0);
     hotkey(&mut app, &ctx, egui::Key::E, false, false);
@@ -592,8 +592,8 @@ fn dialog_footers_stay_compact_in_tall_windows() {
         app.editor = None;
         app.new_layout_requested = title == "Create a new layout?";
         app.save_as = if title == "Save buttons config" {
-            let mut picker = ConfigPicker::save(None);
-            picker.path = std::env::temp_dir()
+            let mut file_picker = LayoutFilePicker::save(None);
+            file_picker.path = std::env::temp_dir()
                 .join(format!(
                     "rs-button-builder-footer-save-{}.yaml",
                     std::process::id()
@@ -601,7 +601,7 @@ fn dialog_footers_stay_compact_in_tall_windows() {
                 .display()
                 .to_string();
             Some(SaveAs {
-                picker,
+                file_picker,
                 config: app.config.clone(),
                 close_editor: false,
                 create_new_layout: false,
@@ -610,8 +610,8 @@ fn dialog_footers_stay_compact_in_tall_windows() {
             None
         };
         app.appearance_open = title == "Terminal appearance";
-        app.config_picker = if title == "Load buttons config" {
-            Some(ConfigPicker::new(app.config_path.as_deref()))
+        app.layout_file_picker = if title == "Load buttons config" {
+            Some(LayoutFilePicker::new(app.config_path.as_deref()))
         } else {
             None
         };
@@ -722,7 +722,7 @@ fn footer_save_as_preserves_the_original_and_changes_destination_only_after_savi
 
     let output = frame(&mut app, &ctx, vec![]);
     click_app_action(&mut app, &ctx, &output, "Save layout as…");
-    app.save_as.as_mut().unwrap().picker.path = copy.display().to_string();
+    app.save_as.as_mut().unwrap().file_picker.path = copy.display().to_string();
     let output = frame(&mut app, &ctx, vec![]);
     click(&mut app, &ctx, label_center(&output, "Save config"));
     assert!(app.save_as.is_none() && !app.dirty);
@@ -865,7 +865,7 @@ fn footer_app_menu_clears_the_layout_and_preserves_running_terminals() {
     );
     app.save();
     assert!(
-        app.save_as.as_ref().unwrap().picker.path.is_empty(),
+        app.save_as.as_ref().unwrap().file_picker.path.is_empty(),
         "New layouts need their own save destination"
     );
 }
@@ -965,21 +965,21 @@ fn new_layout_waits_for_a_successful_first_save_and_preserves_button_edits() {
     let output = frame(&mut app, &ctx, vec![]);
     click(&mut app, &ctx, label_center(&output, "Save and create"));
     assert!(app.save_as.as_ref().unwrap().create_new_layout);
-    assert!(app.save_as.as_ref().unwrap().picker.path.is_empty());
+    assert!(app.save_as.as_ref().unwrap().file_picker.path.is_empty());
     let output = frame(&mut app, &ctx, vec![]);
     click(&mut app, &ctx, label_center(&output, "Cancel"));
     assert!(app.new_layout_requested && app.config_path.is_none() && app.dirty);
     assert_eq!(app.editor.as_ref().unwrap().button.label, "Draft button");
     let output = frame(&mut app, &ctx, vec![]);
     click(&mut app, &ctx, label_center(&output, "Save and create"));
-    app.save_as.as_mut().unwrap().picker.path =
+    app.save_as.as_mut().unwrap().file_picker.path =
         directory.join("missing/layout.yaml").display().to_string();
     let output = frame(&mut app, &ctx, vec![]);
     click(&mut app, &ctx, label_center(&output, "Save config"));
-    assert!(app.save_as.as_ref().unwrap().picker.error.is_some());
+    assert!(app.save_as.as_ref().unwrap().file_picker.error.is_some());
     assert_eq!(app.config.display_name, "Save this layout");
     assert!(app.config_path.is_none() && app.editor.is_some() && app.dirty);
-    app.save_as.as_mut().unwrap().picker.path = saved_path.display().to_string();
+    app.save_as.as_mut().unwrap().file_picker.path = saved_path.display().to_string();
     let output = frame(&mut app, &ctx, vec![]);
     click(&mut app, &ctx, label_center(&output, "Save config"));
     assert!(app.save_as.is_none() && app.editor.is_none() && !app.new_layout_requested);
@@ -1021,7 +1021,7 @@ fn unsaved_layout_requires_a_filename_and_then_reuses_the_selected_file() {
     frame(&mut app, &ctx, vec![]);
     let output = frame(&mut app, &ctx, vec![]);
     click_app_action(&mut app, &ctx, &output, "Save layout…");
-    assert!(app.save_as.as_ref().unwrap().picker.path.is_empty());
+    assert!(app.save_as.as_ref().unwrap().file_picker.path.is_empty());
     let output = frame(&mut app, &ctx, vec![]);
     click(&mut app, &ctx, label_center(&output, "Save config"));
     assert!(app.save_as.is_some() && app.config_path.is_none());
@@ -1103,27 +1103,27 @@ fn loading_without_a_config_can_save_the_unsaved_layout_before_replacing_it() {
     frame(&mut app, &ctx, vec![]);
     let output = frame(&mut app, &ctx, vec![]);
     click_app_action(&mut app, &ctx, &output, "Load config…");
-    assert!(app.config_picker.as_ref().unwrap().path.is_empty());
+    assert!(app.layout_file_picker.as_ref().unwrap().path.is_empty());
     let output = frame(&mut app, &ctx, vec![]);
     click(&mut app, &ctx, label_center(&output, "Cancel"));
-    assert!(app.config_picker.is_none() && app.config_path.is_none());
+    assert!(app.layout_file_picker.is_none() && app.config_path.is_none());
     app.config.resize_grid(1, 2).unwrap();
     app.dirty = true;
     let output = frame(&mut app, &ctx, vec![]);
     click_app_action(&mut app, &ctx, &output, "Load config…");
-    app.config_picker.as_mut().unwrap().path = loaded.display().to_string();
+    app.layout_file_picker.as_mut().unwrap().path = loaded.display().to_string();
     let output = frame(&mut app, &ctx, vec![]);
     click(
         &mut app,
         &ctx,
         label_center(&output, "Save current layout first"),
     );
-    assert!(app.save_as.is_some() && app.config_picker.is_some());
+    assert!(app.save_as.is_some() && app.layout_file_picker.is_some());
     let output = frame(&mut app, &ctx, vec![]);
     click(&mut app, &ctx, label_center(&output, "Cancel"));
     assert!(app.save_as.is_none() && app.dirty && app.config_path.is_none());
     assert_eq!(
-        app.config_picker.as_ref().unwrap().path,
+        app.layout_file_picker.as_ref().unwrap().path,
         loaded.display().to_string()
     );
     let output = frame(&mut app, &ctx, vec![]);
@@ -1132,18 +1132,18 @@ fn loading_without_a_config_can_save_the_unsaved_layout_before_replacing_it() {
         &ctx,
         label_center(&output, "Save current layout first"),
     );
-    app.save_as.as_mut().unwrap().picker.path = saved.display().to_string();
+    app.save_as.as_mut().unwrap().file_picker.path = saved.display().to_string();
     let output = frame(&mut app, &ctx, vec![]);
     click(&mut app, &ctx, label_center(&output, "Save config"));
     assert_eq!(app.config_path.as_ref(), Some(&saved));
-    assert!(!app.dirty && app.config_picker.is_some());
+    assert!(!app.dirty && app.layout_file_picker.is_some());
     let output = frame(&mut app, &ctx, vec![]);
     click(
         &mut app,
         &ctx,
         label_center(&output, "Load selected config"),
     );
-    assert!(app.config_picker.is_none() && !app.dirty);
+    assert!(app.layout_file_picker.is_none() && !app.dirty);
     assert_eq!(app.config_path.as_ref(), Some(&loaded));
     assert_eq!(app.config.display_name, "Selected layout");
     assert_eq!(
@@ -1164,11 +1164,11 @@ fn chooser_loads_an_example_only_after_unsaved_changes_are_replaced() {
     frame(&mut app, &ctx, vec![]);
     let output = frame(&mut app, &ctx, vec![]);
     click_app_action(&mut app, &ctx, &output, "Load config…");
-    assert!(app.config_picker.is_some());
+    assert!(app.layout_file_picker.is_some());
     frame(&mut app, &ctx, vec![]);
     let output = frame(&mut app, &ctx, vec![]);
     click(&mut app, &ctx, label_center(&output, "Examples"));
-    assert!(app.config_picker.as_ref().unwrap().path.is_empty());
+    assert!(app.layout_file_picker.as_ref().unwrap().path.is_empty());
     frame(&mut app, &ctx, vec![]);
     let output = frame(&mut app, &ctx, vec![]);
     click(&mut app, &ctx, label_center(&output, "json-streams.yaml"));
@@ -1192,7 +1192,7 @@ fn chooser_loads_an_example_only_after_unsaved_changes_are_replaced() {
         &ctx,
         label_center(&output, "Load selected config"),
     );
-    assert!(app.config_picker.is_none());
+    assert!(app.layout_file_picker.is_none());
     assert!(!app.dirty);
     assert_eq!((app.config.rows, app.config.columns), (2, 3));
     assert_eq!(app.config.buttons[0].label, "Pretty JSON");

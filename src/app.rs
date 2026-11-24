@@ -9,12 +9,12 @@ mod workspace;
 
 use workspace::TerminalWorkspace;
 
-use crate::config_picker::ConfigPicker;
 use crate::layout_config::{ButtonConfig, Config, DEFAULT_LAYOUT_NAME};
 use crate::settings::SettingsStore;
 use crate::theme::ThemeSettings;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
+use ui::LayoutFilePicker;
 
 const UNSAVED_LAYOUT_NOTICE: &str = "Unsaved layout · Load a config or save a new layout";
 
@@ -25,7 +25,7 @@ struct Editor {
 }
 
 struct SaveAs {
-    picker: ConfigPicker,
+    file_picker: LayoutFilePicker,
     config: Config,
     close_editor: bool,
     create_new_layout: bool,
@@ -38,7 +38,7 @@ pub struct ButtonBuilder {
     settings: SettingsStore,
     theme: ThemeSettings,
     applied_theme: Option<(ThemeSettings, bool)>,
-    config_picker: Option<ConfigPicker>,
+    layout_file_picker: Option<LayoutFilePicker>,
     save_as: Option<SaveAs>,
     new_layout_requested: bool,
     new_layout_error: Option<String>,
@@ -72,7 +72,7 @@ impl ButtonBuilder {
             settings: SettingsStore::default(),
             theme: ThemeSettings::default(),
             applied_theme: Some((ThemeSettings::default(), true)),
-            config_picker: None,
+            layout_file_picker: None,
             save_as: None,
             new_layout_requested: false,
             new_layout_error: None,
@@ -127,7 +127,7 @@ impl ButtonBuilder {
             self.finish_save(config, path.clone(), close_editor);
         } else {
             self.save_as = Some(SaveAs {
-                picker: ConfigPicker::save(None),
+                file_picker: LayoutFilePicker::save(None),
                 config,
                 close_editor,
                 create_new_layout: false,
@@ -146,7 +146,7 @@ impl ButtonBuilder {
         if close_editor {
             self.editor = None;
         }
-        if let Some(picker) = &mut self.config_picker {
+        if let Some(picker) = &mut self.layout_file_picker {
             picker.error = None;
         }
         self.remember_layout();
@@ -185,7 +185,7 @@ impl ButtonBuilder {
 
     fn request_load_config(&mut self, path: PathBuf) {
         if self.has_unsaved_changes() {
-            self.config_picker = Some(ConfigPicker::new(Some(&path)));
+            self.layout_file_picker = Some(LayoutFilePicker::new(Some(&path)));
         } else if let Err(error) = self.load_config(path) {
             self.error = Some(error);
         }
@@ -199,7 +199,7 @@ impl ButtonBuilder {
             None => UNSAVED_LAYOUT_NOTICE.into(),
         };
         self.config_path = path;
-        self.config_picker = None;
+        self.layout_file_picker = None;
         self.save_as = None;
         self.new_layout_requested = false;
         self.new_layout_error = None;
@@ -350,7 +350,7 @@ impl ButtonBuilder {
             self.appearance_window(ctx);
         }
         if self.save_as.is_none() && !self.new_layout_requested {
-            self.config_picker_window(ctx);
+            self.layout_file_picker_window(ctx);
         }
         if self.save_as.is_none() {
             self.new_layout_window(ctx);

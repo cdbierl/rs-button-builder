@@ -1,6 +1,5 @@
 mod app;
 mod cli;
-mod config_picker;
 mod fonts;
 mod layout_config;
 mod settings;

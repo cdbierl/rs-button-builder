@@ -1,11 +1,10 @@
 //! Shared helpers for application interaction tests.
 
 use super::{ButtonBuilder, SaveAs};
-use crate::config_picker::ConfigPicker;
 use crate::layout_config::{ButtonConfig, Config, DEFAULT_LAYOUT_NAME};
 use crate::settings::SettingsStore;
 use crate::terminal::Terminal;
-use crate::ui::{TERMINAL_SCROLLBAR_WIDTH, button_colors, key_bytes, rgb};
+use crate::ui::{LayoutFilePicker, TERMINAL_SCROLLBAR_WIDTH, button_colors, key_bytes, rgb};
 use egui::{Color32, FontFamily, Vec2};
 use egui_material3::get_global_color;
 use std::path::PathBuf;

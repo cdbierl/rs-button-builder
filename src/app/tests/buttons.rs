@@ -650,7 +650,7 @@ fn first_button_save_preserves_its_draft_on_cancel_and_error_and_confirms_overwr
     assert!(app.config.buttons[0].command.is_empty() && app.config_path.is_none());
     let output = frame(&mut app, &ctx, vec![]);
     click(&mut app, &ctx, label_center(&output, "Save button"));
-    app.save_as.as_mut().unwrap().picker.path =
+    app.save_as.as_mut().unwrap().file_picker.path =
         directory.join("missing/layout.yaml").display().to_string();
     let output = frame(&mut app, &ctx, vec![]);
     click(&mut app, &ctx, label_center(&output, "Save config"));
@@ -658,7 +658,7 @@ fn first_button_save_preserves_its_draft_on_cancel_and_error_and_confirms_overwr
         app.save_as
             .as_ref()
             .unwrap()
-            .picker
+            .file_picker
             .error
             .as_ref()
             .unwrap()
@@ -666,7 +666,8 @@ fn first_button_save_preserves_its_draft_on_cancel_and_error_and_confirms_overwr
     );
     assert!(app.config_path.is_none() && app.editor.is_some());
     assert!(app.config.buttons[0].command.is_empty());
-    app.save_as.as_mut().unwrap().picker.path = existing.with_extension("").display().to_string();
+    app.save_as.as_mut().unwrap().file_picker.path =
+        existing.with_extension("").display().to_string();
     let output = frame(&mut app, &ctx, vec![]);
     click(&mut app, &ctx, label_center(&output, "Save config"));
     assert!(app.save_as.is_some());

@@ -317,11 +317,11 @@ fn material_font_selection_and_validation_keep_the_dialog_usable() {
     app.editor = None;
     for appearance in [true, false] {
         app.appearance_open = appearance;
-        app.config_picker = if appearance {
+        app.layout_file_picker = if appearance {
             None
         } else {
             app.dirty = true;
-            Some(ConfigPicker::new(app.config_path.as_deref()))
+            Some(LayoutFilePicker::new(app.config_path.as_deref()))
         };
         for _ in 0..3 {
             output = ctx.run(

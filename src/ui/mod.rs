@@ -8,6 +8,7 @@ mod button_grid;
 mod checkbox;
 mod footer;
 mod layout_dialogs;
+mod layout_file_picker;
 mod shortcuts;
 mod style;
 mod terminal_panel;
@@ -20,6 +21,7 @@ mod terminal_workspace;
 
 pub(crate) use button::Button;
 pub(crate) use checkbox::Checkbox;
+pub(crate) use layout_file_picker::{Action as LayoutFileAction, LayoutFilePicker};
 pub(crate) use style::{
     CORNER_RADIUS, dialog, dialog_footer, filled_button, font_picker, form, outlined_button, setup,
     text_button, text_input,

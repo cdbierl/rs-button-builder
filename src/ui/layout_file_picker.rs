@@ -1,4 +1,6 @@
-use crate::ui::{Checkbox, filled_button, outlined_button, text_button};
+//! Layout file picker.
+
+use super::{Checkbox, filled_button, outlined_button, text_button};
 use egui_material3::get_global_color;
 use std::path::{Path, PathBuf};
 
@@ -22,7 +24,7 @@ enum Mode {
     Save,
 }
 
-pub struct ConfigPicker {
+pub struct LayoutFilePicker {
     mode: Mode,
     directory: PathBuf,
     pub path: String,
@@ -32,7 +34,7 @@ pub struct ConfigPicker {
     overwrite_existing: bool,
 }
 
-impl ConfigPicker {
+impl LayoutFilePicker {
     pub fn new(current: Option<&Path>) -> Self {
         Self::with_mode(current, Mode::Load)
     }
@@ -144,9 +146,9 @@ impl ConfigPicker {
         let dialog = crate::ui::dialog(
             ctx,
             if saving {
-                "config_save_picker"
+                "layout_file_save_picker"
             } else {
-                "config_picker"
+                "layout_file_picker"
             },
             if saving {
                 "Save buttons config"
@@ -155,7 +157,7 @@ impl ConfigPicker {
             },
             500.0_f32.min(ctx.content_rect().width() - 64.0)..=640.0,
             |ui| {
-                crate::ui::form(ui, ctx, "config_picker_form", |ui| {
+                crate::ui::form(ui, ctx, "layout_file_picker_form", |ui| {
                     ui.label("Config file (.yaml or .yml)");
                     let response =
                         ui.add(crate::ui::text_input(&mut self.path).hint_text(if saving {
@@ -320,8 +322,8 @@ mod tests {
         ));
         std::fs::create_dir(&directory).unwrap();
         let current = directory.join("selected.yaml");
-        let mut save = ConfigPicker::save(Some(&current));
-        let mut load = ConfigPicker::new(Some(&current));
+        let mut save = LayoutFilePicker::save(Some(&current));
+        let mut load = LayoutFilePicker::new(Some(&current));
         for (input, expected) in [
             ("targeting", "targeting.yaml"),
             ("nested/My buttons", "nested/My buttons.yaml"),

@@ -1,8 +1,10 @@
 //! Layout loading, saving, and unsaved-change confirmation dialogs.
 
-use super::{dialog, dialog_footer, filled_button, outlined_button, text_button};
+use super::{
+    LayoutFileAction as FileAction, dialog, dialog_footer, filled_button, outlined_button,
+    text_button,
+};
 use crate::app::ButtonBuilder;
-use crate::config_picker::Action as PickerAction;
 use egui::Color32;
 
 impl ButtonBuilder {
@@ -10,8 +12,8 @@ impl ButtonBuilder {
         let Some(mut save_as) = self.save_as.take() else {
             return;
         };
-        match save_as.picker.show(ctx, false, false) {
-            PickerAction::Save(path) => match save_as.config.save(&path) {
+        match save_as.file_picker.show(ctx, false, false) {
+            FileAction::Save(path) => match save_as.config.save(&path) {
                 Ok(()) => {
                     self.finish_save(save_as.config, path, save_as.close_editor);
                     if save_as.create_new_layout {
@@ -19,11 +21,11 @@ impl ButtonBuilder {
                     }
                 }
                 Err(error) => {
-                    save_as.picker.error = Some(error);
+                    save_as.file_picker.error = Some(error);
                     self.save_as = Some(save_as);
                 }
             },
-            PickerAction::Cancel => {}
+            FileAction::Cancel => {}
             _ => self.save_as = Some(save_as),
         }
     }
@@ -65,29 +67,29 @@ impl ButtonBuilder {
         }
     }
 
-    pub(in crate::app) fn config_picker_window(&mut self, ctx: &egui::Context) {
+    pub(in crate::app) fn layout_file_picker_window(&mut self, ctx: &egui::Context) {
         let running = self.workspace.running();
         let unsaved = self.has_unsaved_changes();
-        let Some(picker) = &mut self.config_picker else {
+        let Some(picker) = &mut self.layout_file_picker else {
             return;
         };
         match picker.show(ctx, unsaved, running) {
-            PickerAction::Load(path) => match self.load_config(path) {
-                Ok(()) => self.config_picker = None,
+            FileAction::Load(path) => match self.load_config(path) {
+                Ok(()) => self.layout_file_picker = None,
                 Err(error) => {
-                    if let Some(picker) = &mut self.config_picker {
+                    if let Some(picker) = &mut self.layout_file_picker {
                         picker.error = Some(error);
                     }
                 }
             },
-            PickerAction::SaveCurrent => {
+            FileAction::SaveCurrent => {
                 self.save();
-                if let Some(picker) = &mut self.config_picker {
+                if let Some(picker) = &mut self.layout_file_picker {
                     picker.error = self.error.clone();
                 }
             }
-            PickerAction::Cancel => self.config_picker = None,
-            PickerAction::None | PickerAction::Save(_) => {}
+            FileAction::Cancel => self.layout_file_picker = None,
+            FileAction::None | FileAction::Save(_) => {}
         }
     }
 }

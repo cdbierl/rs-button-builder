@@ -1,7 +1,7 @@
 //! Primary actions shared by menus and keyboard shortcuts.
 
+use super::LayoutFilePicker;
 use crate::app::{ButtonBuilder, SaveAs};
-use crate::config_picker::ConfigPicker;
 use egui::{Key, KeyboardShortcut, Modifiers};
 
 #[derive(Clone, Copy)]
@@ -80,7 +80,7 @@ impl ButtonBuilder {
         for action in actions {
             if self.editor.is_none()
                 && !self.appearance_open
-                && self.config_picker.is_none()
+                && self.layout_file_picker.is_none()
                 && self.save_as.is_none()
                 && !self.new_layout_requested
             {
@@ -93,7 +93,7 @@ impl ButtonBuilder {
         match action {
             Action::NewLayout => self.request_new_layout(),
             Action::LoadConfig => {
-                self.config_picker = Some(ConfigPicker::new(self.config_path.as_deref()));
+                self.layout_file_picker = Some(LayoutFilePicker::new(self.config_path.as_deref()));
             }
             Action::EditLayout => {
                 if self.edit_mode {
@@ -106,7 +106,7 @@ impl ButtonBuilder {
             Action::SaveLayoutAs => {
                 self.apply_layout_name();
                 self.save_as = Some(SaveAs {
-                    picker: ConfigPicker::save(self.config_path.as_deref()),
+                    file_picker: LayoutFilePicker::save(self.config_path.as_deref()),
                     config: self.config.clone(),
                     close_editor: false,
                     create_new_layout: false,

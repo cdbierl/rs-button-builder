@@ -273,10 +273,11 @@ two-second timeout if storage stalls. Log files and `.env` are excluded from Git
 | `src/workspace/panes.rs` | Nested pane layout, divider proportions, and collapsing empty sections. |
 | `src/ui/` | Footer menu, button grid/editor, layout dialogs, appearance, terminal rendering, and shared styling. |
 | `src/app/tests/` | Layout, button, terminal, pane, and theme tests with shared UI interaction helpers. |
-| `src/layout_config.rs`, `src/config_picker.rs` | YAML persistence and layout selection. |
+| `src/layout_config.rs` | YAML schema, validation, loading, and saving. |
 | `src/settings.rs` | App preferences and startup layout restoration. |
 | `src/theme.rs` | UI appearance modes, accent colors, and terminal theme defaults. |
 | `src/terminal/` | Pseudo-terminal processes, input, and screen rendering. |
+| `src/terminal/logging/` | Streaming conversion of terminal output to plain-text logs. |
 | `src/terminal/tests.rs` | Terminal process, output, and logging tests. |
 | `src/fonts.rs` | Bundled icons and local font discovery. |
 
