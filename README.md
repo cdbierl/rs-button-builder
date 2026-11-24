@@ -4,6 +4,17 @@ A Linux desktop app for launching commands from a configurable button grid,
 with interactive terminal tabs. Built with Rust 2024, egui, and egui-material3.
 The Cargo package and executable are named `rs_button_builder` (version `0.1.0`).
 
+## Why Button Builder?
+
+Button Builder turns a stable, repeated command-line workflow into a reusable
+control panel. Named, color-coded buttons launch known commands without requiring
+users to remember or edit them, while terminal tabs, split panes, automatic startup,
+logging, and process controls keep related tasks together.
+
+A standard terminal or multiplexer such as tmux remains more flexible for general
+shell work. Button Builder is most useful for demos, testing, monitoring, service
+workflows, and teams that want consistent commands exposed through a focused UI.
+
 ## Features
 
 - Named YAML layouts with configurable grid dimensions, button labels, actions, and colors.
