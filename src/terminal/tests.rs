@@ -164,7 +164,7 @@ fn incomplete_utf8_at_eof_is_visible_and_logged() {
     assert!(terminal.screen.text().contains('\u{fffd}'));
     assert_eq!(
         std::fs::read(terminal.log_path().unwrap()).unwrap(),
-        b"\xe2\x82"
+        "\u{fffd}".as_bytes()
     );
 }
 
@@ -184,7 +184,7 @@ fn logging_waits_for_first_output_and_preserves_first_and_last_chunks() {
     wait_for(&mut terminal, |t| {
         t.log_path()
             .and_then(|path| std::fs::read(path).ok())
-            .is_some_and(|bytes| bytes == b"\r\x1b[2K\x1b[3Dfirst chunk")
+            .is_some_and(|bytes| bytes == b"first chunk")
     });
     assert!(terminal.is_running());
     terminal.send(b"\n");
@@ -193,7 +193,7 @@ fn logging_waits_for_first_output_and_preserves_first_and_last_chunks() {
     assert!(!terminal.should_auto_close());
     assert_eq!(
         std::fs::read(terminal.log_path().unwrap()).unwrap(),
-        b"\r\x1b[2K\x1b[3Dfirst chunklast chunk"
+        b"first chunklast chunk"
     );
 }
 
@@ -224,7 +224,7 @@ fn final_output_after_exit_and_a_cleared_screen_are_never_silent() {
     assert!(!terminal.should_auto_close());
     assert_eq!(
         std::fs::read(terminal.log_path().unwrap()).unwrap(),
-        b"final output\x1b[2J\x1b[H"
+        b"final output"
     );
 }
 
@@ -292,7 +292,7 @@ fn logging_requires_both_button_opt_in_and_a_directory() {
 }
 
 #[test]
-fn logs_preserve_all_output_after_scrollback_eviction_and_screen_redraws() {
+fn logs_preserve_plain_text_after_scrollback_eviction_and_screen_redraws() {
     let directory = log_directory("full-output");
     let button = ButtonConfig {
         label: "JSON / Events Stream".into(),
@@ -318,7 +318,8 @@ fn logs_preserve_all_output_after_scrollback_eviction_and_screen_redraws() {
     );
     assert!(saved.starts_with("line:0001\n"));
     assert!(saved.contains("line:2300\n"));
-    assert!(saved.contains("\x1b[?1049h\x1b[31mtransient λ\x1b[0m\rrewritten\n\x1b[?1049l"));
+    assert!(saved.contains("transient λ\nrewritten\n"));
+    assert!(!saved.contains('\x1b'));
     assert!(saved.ends_with("stderr output\n"));
 }
 

@@ -246,11 +246,14 @@ characters alone, and terminal controls (colors, cursor movement, title changes,
 etc.) never create a log, regardless of the exit status. The terminal parser
 handles sequences split across reads. Text counts even if later erased or reset;
 malformed UTF-8 counts as visible replacement text. Successful tabs close only
-after all output and log writes are drained. Up to 64 KiB of preceding terminal
-controls are retained to preserve startup styling.
+after all output and log writes are drained. Up to 64 KiB of leading whitespace
+is retained before the first meaningful text.
 
-Logs capture the original terminal output stream, including stdout, stderr, ANSI
-colors, and screen updates, independently of the 2,000-row scrollback limit.
+Logs capture plain UTF-8 text from stdout and stderr independently of the
+2,000-row scrollback limit. ANSI colors, cursor movement, title changes, and
+other terminal controls are removed. CRLF becomes a normal line break, and
+carriage-return screen updates are written as separate lines so earlier progress
+states remain readable. Malformed UTF-8 is written with replacement characters.
 Hover over the terminal status to see its log path. Write errors appear in that
 status. Logging requires both the button's opt-in and a nonempty directory setting.
 
