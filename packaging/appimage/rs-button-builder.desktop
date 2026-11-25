@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Button Builder
+Comment=Turn repeatable Linux commands into a visual terminal workspace
+Exec=rs_button_builder
+Icon=rs-button-builder
+Terminal=false
+Categories=Utility;
+Keywords=terminal;commands;launcher;buttons;workspace;

@@ -74,6 +74,24 @@ cargo run --locked -- --help
 select a YAML layout file. Dependency versions are recorded in [Cargo.lock](Cargo.lock);
 `--locked` preserves those versions.
 
+### Build an AppImage
+
+Run:
+
+```sh
+./scripts/build-appimage.sh
+```
+
+The script uses `APPIMAGETOOL` or an `appimagetool` on `PATH` when available.
+Otherwise, it downloads the official `appimagetool` 1.9.1 release to
+`/tmp/rs-button-builder-appimage`, verifies its pinned SHA-256 digest, and reuses
+that temporary cached copy. This remote executable should still be checked for
+malware before use. Set `APPIMAGETOOL` to use a pre-verified local copy.
+
+The script builds with Cargo's locked release dependencies and writes the AppImage
+to `dist/`. The package targets the current CPU architecture and retains the release
+binary's glibc and Linux compatibility requirements.
+
 ## Usage
 
 - **Configure and arrange buttons:** click an empty slot or right-click a button to

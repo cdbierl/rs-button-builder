@@ -5,6 +5,7 @@
 # Cargo build output
 /target/
 /debug/
+/dist/
 # rustfmt backup files
 **/*.rs.bk
 
