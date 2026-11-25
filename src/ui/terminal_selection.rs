@@ -1,7 +1,7 @@
 //! Cell-based terminal selection, anchored to retained output rows.
 
 use super::terminal_viewport::VisualRow;
-use crate::terminal::screen::{Cell, Screen};
+use crate::terminal::screen::{Cell, Screen, line_width};
 use egui::{PointerButton, Pos2, Rect};
 use std::ops::Range;
 
@@ -27,10 +27,14 @@ pub(super) struct SelectionViewport<'a> {
 }
 
 impl SelectionViewport<'_> {
-    fn position(&self, pointer: Pos2) -> Position {
+    fn row(&self, pointer: Pos2) -> &VisualRow<'_> {
         let index = (((pointer.y - self.rect.top()) / self.line_height).floor() as usize)
             .min(self.rows.len() - 1);
-        let row = &self.rows[index];
+        &self.rows[index]
+    }
+
+    fn position(&self, pointer: Pos2) -> Position {
+        let row = self.row(pointer);
         let col = row.first_col
             + (((pointer.x - self.rect.left()).max(0.0) + self.horizontal_scroll) / self.char_width)
                 .round() as usize;
@@ -73,7 +77,30 @@ impl TerminalSelection {
         if response.hovered() || response.dragged_by(PointerButton::Primary) {
             ui.ctx().set_cursor_icon(egui::CursorIcon::Text);
         }
-        if response.clicked_by(PointerButton::Primary) {
+        let click = response.interact_pointer_pos();
+        if response.triple_clicked_by(PointerButton::Primary)
+            && let Some(pointer) = click
+        {
+            let row = viewport.row(pointer);
+            let end = row.end_col.min(line_width(row.line));
+            self.endpoints = (row.first_col < end).then_some((
+                Position {
+                    row: row.logical_row,
+                    col: row.first_col,
+                },
+                Position {
+                    row: row.logical_row,
+                    col: end,
+                },
+            ));
+            self.copy(ui, screen);
+        } else if response.double_clicked_by(PointerButton::Primary)
+            && let Some(pointer) = click
+        {
+            let position = viewport.position(pointer);
+            self.endpoints = word_range(position, viewport.row(pointer).line);
+            self.copy(ui, screen);
+        } else if response.clicked_by(PointerButton::Primary) {
             self.clear();
         }
         if response.drag_started_by(PointerButton::Primary)
@@ -89,9 +116,13 @@ impl TerminalSelection {
         {
             *head = viewport.position(pointer);
         }
-        if response.drag_stopped_by(PointerButton::Primary)
-            && let Some(text) = self.text(screen)
-        {
+        if response.drag_stopped_by(PointerButton::Primary) {
+            self.copy(ui, screen);
+        }
+    }
+
+    fn copy(&self, ui: &egui::Ui, screen: &Screen) {
+        if let Some(text) = self.text(screen) {
             ui.ctx().copy_text(text);
         }
     }
@@ -166,6 +197,55 @@ fn first_retained_row(screen: &Screen) -> usize {
     live_row(screen).saturating_sub(screen.history.len())
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum CellClass {
+    Word,
+    Punctuation,
+    Whitespace,
+}
+
+fn word_range(position: Position, line: &[Cell]) -> Option<(Position, Position)> {
+    let width = line_width(line);
+    if position.col >= width {
+        return None;
+    }
+    let mut column = position.col;
+    while column > 0 && line[column].continuation {
+        column -= 1;
+    }
+    let class = cell_class(&line[column]);
+    if class == CellClass::Whitespace {
+        return None;
+    }
+    let mut start = column;
+    while start > 0 && cell_class(&line[start - 1]) == class {
+        start -= 1;
+    }
+    let mut end = column + 1;
+    while end < width && (line[end].continuation || cell_class(&line[end]) == class) {
+        end += 1;
+    }
+    Some((
+        Position {
+            row: position.row,
+            col: start,
+        },
+        Position {
+            row: position.row,
+            col: end,
+        },
+    ))
+}
+
+fn cell_class(cell: &Cell) -> CellClass {
+    match cell.text.chars().next() {
+        Some(character) if character.is_alphanumeric() || character == '_' => CellClass::Word,
+        Some(character) if character.is_whitespace() => CellClass::Whitespace,
+        Some(_) => CellClass::Punctuation,
+        None => CellClass::Whitespace,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -215,6 +295,33 @@ mod tests {
             select(&screen, (0, 3), (0, 4)).text(&screen).as_deref(),
             Some("e\u{301}")
         );
+    }
+
+    #[test]
+    fn word_selection_uses_unicode_word_and_punctuation_boundaries() {
+        let mut screen = Screen::new(24, 2);
+        screen.feed("alpha_2/界.log  next".as_bytes());
+        let line = screen.line(0);
+        for (column, expected) in [
+            (2, Some("alpha_2")),
+            (7, Some("/")),
+            (8, Some("界")),
+            (10, Some(".")),
+            (11, Some("log")),
+            (15, None),
+        ] {
+            let endpoints = word_range(
+                Position {
+                    row: 0,
+                    col: column,
+                },
+                line,
+            );
+            let mut selection = TerminalSelection::default();
+            selection.prepare(&screen);
+            selection.endpoints = endpoints;
+            assert_eq!(selection.text(&screen).as_deref(), expected);
+        }
     }
 
     #[test]

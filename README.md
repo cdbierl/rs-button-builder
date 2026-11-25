@@ -85,9 +85,10 @@ select a YAML layout file. Dependency versions are recorded in [Cargo.lock](Carg
   scripts, working directories, colors, auto start, logging, and close on success.
 - **Use terminals:** click a terminal to type. The toolbar controls appearance,
   interrupt, stop, close, jump to live output, pause display updates, copy, and line
-  wrapping. Drag selected text to copy it automatically. Ctrl+mouse wheel changes
-  the terminal font size. Ctrl+F pauses the display and opens find with case-sensitive
-  and regular-expression options.
+  wrapping. Drag to select text, double-click a token, or triple-click a line; each
+  selection copies automatically. Ctrl+mouse wheel changes the terminal font size.
+  Ctrl+F pauses the display and opens find with case-sensitive and regular-expression
+  options.
 - **Split terminals:** right-click a tab and choose **Split right** or **Split below**.
   Panes can be split repeatedly in either direction. Drag dividers to resize them,
   move tabs between panes, or choose **Merge all panes**. Pane layouts are not saved.
@@ -111,6 +112,7 @@ stopped commands, and terminal or logging errors remain open.
 | Ctrl+B | Show or hide the button panel |
 | Ctrl+F11 | Toggle fullscreen |
 | Ctrl+F | Find in the active terminal |
+| Ctrl+G / Ctrl+Shift+G | Next / previous match while terminal find is open |
 | Ctrl+S | Save layout |
 | Ctrl+Shift+S | Save layout as |
 | Ctrl+Page Up / Page Down | Previous / next terminal tab in the focused pane, wrapping at either end |

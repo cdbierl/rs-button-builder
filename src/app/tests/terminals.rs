@@ -73,18 +73,10 @@ fn control_f_finds_terminal_text_and_restores_live_updates_when_closed() {
         egui::Shape::Rect(rect) if rect.fill == get_global_color("primary")
     )));
 
-    let output = frame(
-        &mut app,
-        &ctx,
-        vec![egui::Event::Key {
-            key: egui::Key::Enter,
-            physical_key: None,
-            pressed: true,
-            repeat: false,
-            modifiers: egui::Modifiers::NONE,
-        }],
-    );
+    let output = hotkey(&mut app, &ctx, egui::Key::G, false, false);
     label_center(&output, "2 of 2");
+    let output = hotkey(&mut app, &ctx, egui::Key::G, true, false);
+    label_center(&output, "1 of 2");
 
     let output = frame(
         &mut app,
@@ -709,7 +701,7 @@ fn noisy_processes_can_be_interrupted_stopped_closed_and_run_alongside_new_tabs(
 }
 
 #[test]
-fn terminal_drag_selects_highlights_and_copies_on_release() {
+fn terminal_mouse_selection_copies_words_lines_and_dragged_ranges() {
     let ctx = egui::Context::default();
     let mut config = Config::default();
     config.buttons[0] = interactive_button("Alpha");
@@ -755,6 +747,28 @@ fn terminal_drag_selects_highlights_and_copies_on_release() {
         pressed,
         modifiers: egui::Modifiers::NONE,
     };
+    let word = cell(0, 7);
+    let mut multi_click = || {
+        frame(
+            &mut app,
+            &ctx,
+            vec![egui::Event::PointerMoved(word), press(word, true)],
+        );
+        frame(&mut app, &ctx, vec![press(word, false)])
+    };
+    multi_click();
+    let copied = multi_click();
+    assert!(
+        copied.platform_output.commands.iter().any(
+            |command| matches!(command, egui::OutputCommand::CopyText(text) if text == "bravo")
+        )
+    );
+    let copied = multi_click();
+    assert!(copied.platform_output.commands.iter().any(
+        |command| matches!(command, egui::OutputCommand::CopyText(text) if text == "alpha bravo")
+    ));
+    drop(multi_click);
+
     for (anchor, head) in [(start, end), (end, start)] {
         frame(
             &mut app,
@@ -823,6 +837,9 @@ fn terminal_drag_selects_highlights_and_copies_on_release() {
             )),
         "The toolbar should copy selected text"
     );
+    for _ in 0..40 {
+        frame(&mut app, &ctx, vec![]);
+    }
     click(&mut app, &ctx, start);
     assert!(
         app.workspace.tabs()[0]

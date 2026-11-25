@@ -76,6 +76,8 @@ impl TerminalTab {
 
     pub(super) fn open_search(&mut self) {
         if !self.search.open {
+            let selection = self.selection.text(self.screen());
+            self.search.prefill_selection(selection.as_deref());
             self.search.resume_on_close = !self.display_paused();
             if self.search.resume_on_close {
                 self.paused_screen = Some(self.terminal.screen.clone());

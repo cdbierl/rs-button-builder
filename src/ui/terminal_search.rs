@@ -7,6 +7,7 @@ use egui_material3::get_global_color;
 use regex::RegexBuilder;
 use std::ops::Range;
 
+const MAX_SELECTION_QUERY_CHARS: usize = 120;
 const DROP_DOWN_HEIGHT: f32 = 40.0;
 const DROP_DOWN_TIME: f32 = 0.14;
 const DROP_DOWN_HORIZONTAL_MARGIN: f32 = 16.0;
@@ -39,6 +40,19 @@ pub(super) enum SearchAction {
 }
 
 impl TerminalSearch {
+    pub(in crate::app) fn prefill_selection(&mut self, selection: Option<&str>) {
+        let Some(selection) = selection.filter(|text| {
+            !text.contains('\r')
+                && !text.contains('\n')
+                && text.chars().count() <= MAX_SELECTION_QUERY_CHARS
+        }) else {
+            return;
+        };
+        self.query = selection.to_owned();
+        self.regex = false;
+        self.current = Some(0);
+    }
+
     pub(in crate::app) fn rebuild(&mut self, screen: &Screen) {
         self.matches.clear();
         self.error = None;
@@ -141,7 +155,23 @@ impl TerminalSearch {
             pane.center().x - width / 2.0,
             pane.top() + DROP_DOWN_TOP_INSET - DROP_DOWN_HEIGHT * (1.0 - openness),
         );
-        let mut action = SearchAction::None;
+        let previous = ctx.input_mut(|input| {
+            input.consume_shortcut(&egui::KeyboardShortcut::new(
+                egui::Modifiers::COMMAND | egui::Modifiers::SHIFT,
+                egui::Key::G,
+            ))
+        });
+        let next = ctx.input_mut(|input| {
+            input.consume_shortcut(&egui::KeyboardShortcut::new(
+                egui::Modifiers::COMMAND,
+                egui::Key::G,
+            ))
+        });
+        let mut action = if previous || next {
+            self.navigate(previous)
+        } else {
+            SearchAction::None
+        };
         egui::Area::new(id)
             .order(egui::Order::Foreground)
             .fixed_pos(position)
@@ -240,7 +270,7 @@ impl TerminalSearch {
                             if show_navigation
                                 && ui
                                     .add(icon_button("arrow_upward"))
-                                    .on_hover_text("Previous match (Shift+Enter)")
+                                    .on_hover_text("Previous match (Shift+Enter or Ctrl+Shift+G)")
                                     .clicked()
                             {
                                 action = self.navigate(true);
@@ -248,7 +278,7 @@ impl TerminalSearch {
                             if show_navigation
                                 && ui
                                     .add(icon_button("arrow_downward"))
-                                    .on_hover_text("Next match (Enter)")
+                                    .on_hover_text("Next match (Enter or Ctrl+G)")
                                     .clicked()
                             {
                                 action = self.navigate(false);
@@ -320,6 +350,25 @@ fn icon_button(name: &str) -> super::Button {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn selection_prefill_is_short_plain_single_line_text() {
+        let mut search = TerminalSearch {
+            query: "preserved".into(),
+            regex: true,
+            ..Default::default()
+        };
+        search.prefill_selection(Some("selected text"));
+        assert_eq!(search.query, "selected text");
+        assert!(!search.regex);
+
+        search.prefill_selection(Some("multiple\nlines"));
+        assert_eq!(search.query, "selected text");
+        search.prefill_selection(Some(&"x".repeat(MAX_SELECTION_QUERY_CHARS + 1)));
+        assert_eq!(search.query, "selected text");
+        search.prefill_selection(None);
+        assert_eq!(search.query, "selected text");
+    }
 
     #[test]
     fn plain_regex_and_case_searches_map_to_terminal_cells() {
