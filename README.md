@@ -178,6 +178,9 @@ its log path or an error.
 
 ## Development
 
+See [DEVELOPMENT.md](DEVELOPMENT.md) for architecture, terminal internals,
+performance constraints, testing strategy, and common maintenance workflows.
+
 | Source | Responsibility |
 | --- | --- |
 | `src/main.rs`, `src/cli.rs` | Startup, arguments, logging, and `.env` loading. |
