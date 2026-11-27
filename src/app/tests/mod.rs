@@ -291,12 +291,34 @@ fn wait_for_tabs(
 }
 
 fn primary_pointer(pos: egui::Pos2, pressed: bool) -> egui::Event {
+    pointer(pos, egui::PointerButton::Primary, pressed)
+}
+
+fn pointer(pos: egui::Pos2, button: egui::PointerButton, pressed: bool) -> egui::Event {
     egui::Event::PointerButton {
         pos,
-        button: egui::PointerButton::Primary,
+        button,
         pressed,
         modifiers: egui::Modifiers::NONE,
     }
+}
+
+fn pointer_click(
+    app: &mut ButtonBuilder,
+    ctx: &egui::Context,
+    pos: egui::Pos2,
+    button: egui::PointerButton,
+) -> [egui::FullOutput; 2] {
+    [true, false].map(|pressed| {
+        frame(
+            app,
+            ctx,
+            vec![
+                egui::Event::PointerMoved(pos),
+                pointer(pos, button, pressed),
+            ],
+        )
+    })
 }
 
 fn start_button_drag(

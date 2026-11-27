@@ -741,20 +741,14 @@ fn terminal_mouse_selection_copies_words_lines_and_dragged_ranges() {
     };
     let start = cell(0, 6);
     let end = cell(1, 7);
-    let press = |pos, pressed| egui::Event::PointerButton {
-        pos,
-        button: egui::PointerButton::Primary,
-        pressed,
-        modifiers: egui::Modifiers::NONE,
-    };
     let word = cell(0, 7);
     let mut multi_click = || {
         frame(
             &mut app,
             &ctx,
-            vec![egui::Event::PointerMoved(word), press(word, true)],
+            vec![egui::Event::PointerMoved(word), primary_pointer(word, true)],
         );
-        frame(&mut app, &ctx, vec![press(word, false)])
+        frame(&mut app, &ctx, vec![primary_pointer(word, false)])
     };
     multi_click();
     let copied = multi_click();
@@ -773,7 +767,10 @@ fn terminal_mouse_selection_copies_words_lines_and_dragged_ranges() {
         frame(
             &mut app,
             &ctx,
-            vec![egui::Event::PointerMoved(anchor), press(anchor, true)],
+            vec![
+                egui::Event::PointerMoved(anchor),
+                primary_pointer(anchor, true),
+            ],
         );
         let dragging = frame(&mut app, &ctx, vec![egui::Event::PointerMoved(head)]);
         assert!(
@@ -792,7 +789,7 @@ fn terminal_mouse_selection_copies_words_lines_and_dragged_ranges() {
             )),
             "Selected cells should have a visible background"
         );
-        let released = frame(&mut app, &ctx, vec![press(head, false)]);
+        let released = frame(&mut app, &ctx, vec![primary_pointer(head, false)]);
         assert!(
             released
                 .platform_output
@@ -820,14 +817,16 @@ fn terminal_mouse_selection_copies_words_lines_and_dragged_ranges() {
             )),
         "Selection must retain terminal keyboard focus"
     );
-
     let copy_pos = symbol_center(&copied, "content_copy");
     frame(
         &mut app,
         &ctx,
-        vec![egui::Event::PointerMoved(copy_pos), press(copy_pos, true)],
+        vec![
+            egui::Event::PointerMoved(copy_pos),
+            primary_pointer(copy_pos, true),
+        ],
     );
-    let copied = frame(&mut app, &ctx, vec![press(copy_pos, false)]);
+    let copied = frame(&mut app, &ctx, vec![primary_pointer(copy_pos, false)]);
     assert!(
         copied
             .platform_output
@@ -838,25 +837,13 @@ fn terminal_mouse_selection_copies_words_lines_and_dragged_ranges() {
             )),
         "The toolbar should copy selected text"
     );
-    let mut requested_paste = false;
-    for pressed in [true, false] {
-        let output = frame(
-            &mut app,
-            &ctx,
-            vec![
-                egui::Event::PointerMoved(word),
-                egui::Event::PointerButton {
-                    pos: word,
-                    button: egui::PointerButton::Middle,
-                    pressed,
-                    modifiers: egui::Modifiers::NONE,
-                },
-            ],
-        );
-        requested_paste |= output.viewport_output[&egui::ViewportId::ROOT]
-            .commands
-            .contains(&egui::ViewportCommand::RequestPaste);
-    }
+    let requested_paste = pointer_click(&mut app, &ctx, word, egui::PointerButton::Middle)
+        .iter()
+        .any(|output| {
+            output.viewport_output[&egui::ViewportId::ROOT]
+                .commands
+                .contains(&egui::ViewportCommand::RequestPaste)
+        });
     assert!(requested_paste);
     frame(
         &mut app,
@@ -909,10 +896,13 @@ fn terminal_mouse_selection_copies_words_lines_and_dragged_ranges() {
     frame(
         &mut app,
         &ctx,
-        vec![egui::Event::PointerMoved(start), press(start, true)],
+        vec![
+            egui::Event::PointerMoved(start),
+            primary_pointer(start, true),
+        ],
     );
     frame(&mut app, &ctx, vec![egui::Event::PointerMoved(end)]);
-    frame(&mut app, &ctx, vec![press(end, false)]);
+    frame(&mut app, &ctx, vec![primary_pointer(end, false)]);
     frame(&mut app, &ctx, vec![egui::Event::Text("typed\n".into())]);
     assert!(
         app.workspace.tabs()[0]
@@ -930,10 +920,13 @@ fn terminal_mouse_selection_copies_words_lines_and_dragged_ranges() {
     frame(
         &mut app,
         &ctx,
-        vec![egui::Event::PointerMoved(start), press(start, true)],
+        vec![
+            egui::Event::PointerMoved(start),
+            primary_pointer(start, true),
+        ],
     );
     frame(&mut app, &ctx, vec![egui::Event::PointerMoved(end)]);
-    frame(&mut app, &ctx, vec![press(end, false)]);
+    frame(&mut app, &ctx, vec![primary_pointer(end, false)]);
     let interrupted = frame_with(
         &mut app,
         &ctx,

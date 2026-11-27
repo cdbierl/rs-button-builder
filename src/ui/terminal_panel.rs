@@ -180,7 +180,8 @@ impl ButtonBuilder {
             response.id.with("selection"),
             egui::Sense::click_and_drag(),
         );
-        let middle_paste = response.middle_clicked() || selection_response.middle_clicked();
+        let middle_paste =
+            active.is_some() && (response.middle_clicked() || selection_response.middle_clicked());
         let mut scrollbar_interacted = false;
         let mut close_search = false;
         if let Some(index) = active {
@@ -258,11 +259,6 @@ impl ButtonBuilder {
             tab.selection
                 .interact(ui, &selection_response, &viewport, screen);
         }
-        if middle_paste && active.is_some() {
-            response.request_focus();
-            ui.ctx()
-                .send_viewport_cmd(egui::ViewportCommand::RequestPaste);
-        }
         if response.clicked()
             || selection_response.clicked()
             || selection_response.drag_started()
@@ -275,6 +271,10 @@ impl ButtonBuilder {
             }
             response.request_focus();
             self.workspace.acknowledge_focus();
+        }
+        if middle_paste {
+            ui.ctx()
+                .send_viewport_cmd(egui::ViewportCommand::RequestPaste);
         }
         let focused_pane = self.workspace.focused_pane() == pane;
         let search_open = active.is_some_and(|index| self.workspace.tabs()[index].search.open);

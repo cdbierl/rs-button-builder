@@ -35,12 +35,6 @@ fn text_fields_offer_mouse_clipboard_actions() {
         .min_by(|left, right| left.center().y.total_cmp(&right.center().y))
         .expect("missing editable label");
     let field = field_rect.center();
-    let pointer = |pos, button, pressed| egui::Event::PointerButton {
-        pos,
-        button,
-        pressed,
-        modifiers: egui::Modifiers::NONE,
-    };
     let selection_start = egui::pos2(field_rect.left() + 1.0, field.y);
     let selection_end = egui::pos2(field_rect.right() - 1.0, field.y);
     frame(
@@ -66,34 +60,18 @@ fn text_fields_offer_mouse_clipboard_actions() {
             if text.contains("Mouse clipboard target"))
     ));
 
-    for pressed in [true, false] {
-        frame(
-            &mut app,
-            &ctx,
-            vec![
-                egui::Event::PointerMoved(field),
-                pointer(field, egui::PointerButton::Secondary, pressed),
-            ],
-        );
-    }
+    pointer_click(&mut app, &ctx, field, egui::PointerButton::Secondary);
     let menu = frame(&mut app, &ctx, vec![]);
     label_center(&menu, "Cut");
     let copy = label_center(&menu, "Copy");
     label_center(&menu, "Paste");
-    let mut requested_copy = false;
-    for pressed in [true, false] {
-        let output = frame(
-            &mut app,
-            &ctx,
-            vec![
-                egui::Event::PointerMoved(copy),
-                pointer(copy, egui::PointerButton::Primary, pressed),
-            ],
-        );
-        requested_copy |= output.viewport_output[&egui::ViewportId::ROOT]
-            .commands
-            .contains(&egui::ViewportCommand::RequestCopy);
-    }
+    let requested_copy = pointer_click(&mut app, &ctx, copy, egui::PointerButton::Primary)
+        .iter()
+        .any(|output| {
+            output.viewport_output[&egui::ViewportId::ROOT]
+                .commands
+                .contains(&egui::ViewportCommand::RequestCopy)
+        });
     assert!(requested_copy, "Right-clicking must preserve the selection");
     let copied = frame(&mut app, &ctx, vec![egui::Event::Copy]);
     assert!(copied.platform_output.commands.iter().any(
@@ -101,20 +79,27 @@ fn text_fields_offer_mouse_clipboard_actions() {
             if text.contains("Mouse clipboard target"))
     ));
 
-    let mut requested_paste = false;
-    for pressed in [true, false] {
-        let output = frame(
-            &mut app,
-            &ctx,
-            vec![
-                egui::Event::PointerMoved(field),
-                pointer(field, egui::PointerButton::Middle, pressed),
-            ],
-        );
-        requested_paste |= output.viewport_output[&egui::ViewportId::ROOT]
-            .commands
-            .contains(&egui::ViewportCommand::RequestPaste);
-    }
+    pointer_click(&mut app, &ctx, field, egui::PointerButton::Secondary);
+    let menu = frame(&mut app, &ctx, vec![]);
+    let cut = label_center(&menu, "Cut");
+    let requested_cut = pointer_click(&mut app, &ctx, cut, egui::PointerButton::Primary)
+        .iter()
+        .any(|output| {
+            output.viewport_output[&egui::ViewportId::ROOT]
+                .commands
+                .contains(&egui::ViewportCommand::RequestCut)
+        });
+    assert!(requested_cut);
+    frame(&mut app, &ctx, vec![egui::Event::Cut]);
+    assert!(app.editor.as_ref().unwrap().button.label.is_empty());
+
+    let requested_paste = pointer_click(&mut app, &ctx, field, egui::PointerButton::Middle)
+        .iter()
+        .any(|output| {
+            output.viewport_output[&egui::ViewportId::ROOT]
+                .commands
+                .contains(&egui::ViewportCommand::RequestPaste)
+        });
     assert!(requested_paste);
     frame(&mut app, &ctx, vec![egui::Event::Paste(" pasted".into())]);
     assert!(app.editor.as_ref().unwrap().button.label.contains("pasted"));
