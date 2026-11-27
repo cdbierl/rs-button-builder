@@ -25,7 +25,7 @@ pub(crate) use checkbox::Checkbox;
 pub(crate) use layout_file_picker::{Action as LayoutFileAction, LayoutFilePicker};
 pub(crate) use style::{
     CORNER_RADIUS, dialog, dialog_footer, filled_button, font_picker, form, outlined_button, setup,
-    text_button, text_input,
+    text_button, text_edit_mouse_actions, text_input,
 };
 
 use style::styled_button;

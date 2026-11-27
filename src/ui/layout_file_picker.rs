@@ -159,12 +159,14 @@ impl LayoutFilePicker {
             |ui| {
                 crate::ui::form(ui, ctx, "layout_file_picker_form", |ui| {
                     ui.label("Config file (.yaml or .yml)");
-                    let response =
+                    let response = crate::ui::text_edit_mouse_actions(
                         ui.add(crate::ui::text_input(&mut self.path).hint_text(if saving {
                             "Enter a filename or path"
                         } else {
                             "Select a file below or enter its path"
-                        }));
+                        })),
+                        &self.path,
+                    );
                     if response.changed() {
                         self.overwrite_existing = false;
                     }

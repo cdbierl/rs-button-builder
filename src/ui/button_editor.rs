@@ -2,7 +2,7 @@
 
 use super::{
     Checkbox, button_colors, dialog, dialog_footer, filled_button, form, styled_button,
-    text_button, text_input,
+    text_button, text_edit_mouse_actions, text_input,
 };
 use crate::app::{ButtonBuilder, validate_button};
 use egui::Color32;
@@ -22,7 +22,8 @@ impl ButtonBuilder {
             |ui| {
                 form(ui, ctx, "button_editor_form", |ui| {
                     ui.label("Label");
-                    ui.add(text_input(&mut editor.button.label));
+                    let response = ui.add(text_input(&mut editor.button.label));
+                    text_edit_mouse_actions(response, &editor.button.label);
                     ui.add_space(8.0);
                     ui.horizontal_wrapped(|ui| {
                         ui.add(Checkbox::new(
@@ -38,27 +39,33 @@ impl ButtonBuilder {
                     });
                     if editor.button.shell {
                         ui.label("Command or pipeline");
-                        ui.add(
+                        let response = ui.add(
                             egui::TextEdit::multiline(&mut editor.button.command)
                                 .margin(egui::Margin::symmetric(10, 8))
                                 .font(egui::TextStyle::Monospace)
                                 .desired_rows(3)
                                 .desired_width(f32::INFINITY),
                         );
+                        text_edit_mouse_actions(response, &editor.button.command);
                         ui.small("Supports pipes, redirects, and shell quoting.");
                     } else {
                         ui.label("Program (full path or a name on PATH)");
-                        ui.add(text_input(&mut editor.button.command).hint_text("/usr/bin/top"));
+                        let response = ui
+                            .add(text_input(&mut editor.button.command).hint_text("/usr/bin/top"));
+                        text_edit_mouse_actions(response, &editor.button.command);
                         ui.label("Arguments (optional)");
-                        ui.add(text_input(&mut editor.button.arguments).hint_text("-d 1"));
+                        let response =
+                            ui.add(text_input(&mut editor.button.arguments).hint_text("-d 1"));
+                        text_edit_mouse_actions(response, &editor.button.arguments);
                         ui.small("Quote arguments containing spaces: --name \"two words\"");
                     }
                     ui.add_space(8.0);
                     ui.label("Working directory (optional)");
-                    ui.add(
+                    let response = ui.add(
                         text_input(&mut editor.button.working_directory)
                             .hint_text("Defaults to the app's working directory"),
                     );
+                    text_edit_mouse_actions(response, &editor.button.working_directory);
                     ui.small("Leave the command empty to make an unassigned button.");
                     ui.add_space(10.0);
                     ui.horizontal_wrapped(|ui| {

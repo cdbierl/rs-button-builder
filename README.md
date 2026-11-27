@@ -18,10 +18,9 @@ workflows, and teams that want consistent commands exposed through a focused UI.
 ## Features
 
 - Named YAML layouts with configurable grid dimensions, button labels, actions, and colors.
-- Multiple process terminals with independent output, scrollback, fonts, and colors.
-- Interactive commands, shell pipelines, and log following through Unix pseudo-terminals.
+- Interactive pseudo-terminal tabs in repeatedly nested horizontal and vertical panes.
+- Direct commands, shell pipelines, automatic startup, and configurable completion behavior.
 - Optional per-run output logs that retain output beyond the scrollback buffer.
-- Material controls with light/dark themes, five accent colors, and locally loaded fonts.
 
 ## Requirements
 
@@ -94,27 +93,16 @@ binary's glibc and Linux compatibility requirements.
 
 ## Usage
 
-- **Configure and arrange buttons:** click an empty slot or right-click a button to
-  edit it. Drag buttons to swap positions; right-click and choose **Reset** to clear
-  one. Use **Edit layout** to rename the layout or change its rows and columns. The
-  footer apps button collapses the button panel to make more room for terminals.
-- **Run commands:** click a configured button to start it or focus its running tab.
-  Ctrl+click starts another instance. Buttons support direct programs, `/bin/sh`
-  scripts, working directories, colors, auto start, logging, and close on success.
-- **Use terminals:** click a terminal to type. The toolbar controls appearance,
-  interrupt, stop, close, jump to live output, pause display updates, copy, and line
-  wrapping. Drag to select text, double-click a token, or triple-click a line; each
-  selection copies automatically. Ctrl+mouse wheel changes the terminal font size.
-  Ctrl+F pauses the display and opens find with case-sensitive and regular-expression
-  options.
-- **Split terminals:** right-click a tab and choose **Split right** or **Split below**.
-  Panes can be split repeatedly in either direction. Drag dividers to resize them,
-  move tabs between panes, or choose **Merge all panes**. Pane layouts are not saved.
-- **Save and load layouts:** open the footer menu for new, recent, load, edit, save,
-  save as, and exit actions. An asterisk marks unsaved changes in the title and menu.
-- **Change the theme:** use the footer palette for Light, Dark, System, and five
-  accent colors. Theme changes apply to existing terminals unless they use explicit
-  custom colors.
+- **Build reusable command layouts:** configure direct programs or `/bin/sh`
+  pipelines with labels, working directories, colors, automatic startup, logging,
+  and completion behavior. Resize the grid and drag buttons to reorder it.
+- **Run and monitor related commands:** a button starts its command or focuses its
+  existing terminal; Ctrl+click starts another instance. Display updates can be
+  paused for scrollback inspection without pausing the process or background log.
+  Terminal find supports case-sensitive and regular-expression searches.
+- **Organize terminal sessions:** tabs can move among repeatedly nested horizontal
+  and vertical panes, then merge back into one workspace. Pane arrangements are
+  runtime-only and are not stored in the layout.
 
 Successful commands with no meaningful output close automatically. **Close on
 success** closes any command that exits with status 0. Failures, interrupted or
@@ -151,9 +139,8 @@ stored in `$XDG_CONFIG_HOME/rs_button_builder/settings.yaml`, or
 `~/.config/rs_button_builder/settings.yaml`. They contain the theme, last layout,
 and recent layouts. Button layouts remain separate YAML files.
 
-On first launch, the app opens an empty layout.
-**Load config…** selects an existing layout. Save actions reuse the selected file;
-**Save layout as…** chooses another. Unsaved changes are not saved on exit.
+On first launch, the app opens an empty layout. Unsaved changes are not saved on
+exit.
 
 A minimal layout:
 
@@ -191,8 +178,7 @@ BUTTON_BUILDER_LOG_DIR=./logs
 Logs are created only after meaningful text appears. Each run receives a timestamped
 file under a directory derived from the button label. Logs contain plain UTF-8 text;
 ANSI formatting and terminal controls are removed. Logging runs off the UI thread
-and continues while pane updates are paused. Hover over terminal status text to see
-its log path or an error.
+and continues while pane updates are paused.
 
 ## Development
 

@@ -67,6 +67,71 @@ pub fn text_input(value: &mut String) -> egui::TextEdit<'_> {
         .desired_width(f32::INFINITY)
 }
 
+/// Add standard pointer clipboard actions to an editable text field.
+pub fn text_edit_mouse_actions(response: egui::Response, value: &str) -> egui::Response {
+    let selection_id = response.id.with("mouse_clipboard_selection");
+    let mut selection = egui::TextEdit::load_state(&response.ctx, response.id)
+        .and_then(|state| state.cursor.char_range())
+        .filter(|range| !range.is_empty());
+    if let Some(selection) = selection {
+        response
+            .ctx
+            .data_mut(|data| data.insert_temp(selection_id, selection));
+    } else if response.secondary_clicked() {
+        selection = response.ctx.data_mut(|data| data.get_temp(selection_id));
+        if let Some(selection) = selection
+            && let Some(mut state) = egui::TextEdit::load_state(&response.ctx, response.id)
+        {
+            state.cursor.set_char_range(Some(selection));
+            state.store(&response.ctx, response.id);
+        }
+    } else if !response
+        .ctx
+        .input(|input| input.pointer.button_down(egui::PointerButton::Secondary))
+    {
+        response
+            .ctx
+            .data_mut(|data| data.remove_temp::<egui::text::CCursorRange>(selection_id));
+    }
+
+    if let Some(selection) = selection
+        && (response.drag_stopped_by(egui::PointerButton::Primary)
+            || response.clicked_by(egui::PointerButton::Primary))
+    {
+        let range = selection.as_sorted_char_range();
+        response
+            .ctx
+            .copy_text(value.chars().skip(range.start).take(range.len()).collect());
+    }
+    if response.middle_clicked() {
+        response.request_focus();
+        response
+            .ctx
+            .send_viewport_cmd(egui::ViewportCommand::RequestPaste);
+    }
+    if response.secondary_clicked() {
+        response.request_focus();
+    }
+    let has_selection = selection.is_some();
+    response.context_menu(|ui| {
+        for (label, enabled, command) in [
+            ("Cut", has_selection, egui::ViewportCommand::RequestCut),
+            ("Copy", has_selection, egui::ViewportCommand::RequestCopy),
+            ("Paste", true, egui::ViewportCommand::RequestPaste),
+        ] {
+            if ui
+                .add_enabled(enabled, text_button(label).small())
+                .clicked()
+            {
+                response.request_focus();
+                ui.ctx().send_viewport_cmd(command);
+                ui.close();
+            }
+        }
+    });
+    response
+}
+
 /// Use Material buttons and a themed popup; MaterialSelect's selected fill uses invalid alpha.
 pub fn font_picker(ui: &mut egui::Ui, font: &mut String, fonts: &[String]) -> bool {
     ui.label("Font");

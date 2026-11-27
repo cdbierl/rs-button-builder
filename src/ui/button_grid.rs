@@ -2,7 +2,7 @@
 
 use super::shortcuts::Action;
 use super::style::{contrasting_text, rgb};
-use super::{CORNER_RADIUS, styled_button, text_button};
+use super::{CORNER_RADIUS, styled_button, text_button, text_edit_mouse_actions};
 use crate::app::ButtonBuilder;
 use crate::layout_config::{ButtonConfig, DEFAULT_LAYOUT_NAME, MAX_GRID_COLUMNS, MAX_GRID_ROWS};
 use egui::{PointerButton, RichText, Stroke, Vec2};
@@ -50,16 +50,18 @@ impl ButtonBuilder {
             state.store(ui.ctx(), id);
             self.focus_layout_name = false;
         }
-        let response = ui
-            .add(
+        let response = text_edit_mouse_actions(
+            ui.add(
                 egui::TextEdit::singleline(draft)
                     .id(id)
                     .font(egui::TextStyle::Heading)
                     .margin(egui::Margin::symmetric(6, 4))
                     .desired_width(ui.available_width())
                     .hint_text(DEFAULT_LAYOUT_NAME),
-            )
-            .on_hover_text("Enter to apply, Escape to cancel");
+            ),
+            draft,
+        )
+        .on_hover_text("Enter to apply, Escape to cancel");
         if ui.input(|input| input.key_pressed(egui::Key::Escape)) {
             self.layout_name_edit = None;
         } else if response.lost_focus() || ui.input(|input| input.key_pressed(egui::Key::Enter)) {

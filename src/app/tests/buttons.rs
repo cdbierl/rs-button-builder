@@ -1,7 +1,124 @@
 //! Application buttons tests.
 
-use super::super::MIN_BUTTON_PANEL_WIDTH;
+use super::super::{Editor, MIN_BUTTON_PANEL_WIDTH};
 use super::*;
+
+#[test]
+fn text_fields_offer_mouse_clipboard_actions() {
+    let ctx = egui::Context::default();
+    let mut app = ButtonBuilder::new(&ctx, None, Config::default());
+    app.editor = Some(Editor {
+        index: 0,
+        button: ButtonConfig {
+            label: "Mouse clipboard target".into(),
+            ..ButtonConfig::default()
+        },
+        error: None,
+    });
+
+    frame(&mut app, &ctx, vec![]);
+    let output = frame(&mut app, &ctx, vec![]);
+    let field_rect = output
+        .shapes
+        .iter()
+        .filter_map(|shape| {
+            let egui::Shape::Text(text) = &shape.shape else {
+                return None;
+            };
+            (text.galley.job.text == "Mouse clipboard target").then(|| {
+                egui::Rect::from_min_max(
+                    text.pos + text.galley.rect.min.to_vec2(),
+                    text.pos + text.galley.rect.max.to_vec2(),
+                )
+            })
+        })
+        .min_by(|left, right| left.center().y.total_cmp(&right.center().y))
+        .expect("missing editable label");
+    let field = field_rect.center();
+    let pointer = |pos, button, pressed| egui::Event::PointerButton {
+        pos,
+        button,
+        pressed,
+        modifiers: egui::Modifiers::NONE,
+    };
+    let selection_start = egui::pos2(field_rect.left() + 1.0, field.y);
+    let selection_end = egui::pos2(field_rect.right() - 1.0, field.y);
+    frame(
+        &mut app,
+        &ctx,
+        vec![
+            egui::Event::PointerMoved(selection_start),
+            pointer(selection_start, egui::PointerButton::Primary, true),
+        ],
+    );
+    frame(
+        &mut app,
+        &ctx,
+        vec![egui::Event::PointerMoved(selection_end)],
+    );
+    let selected = frame(
+        &mut app,
+        &ctx,
+        vec![pointer(selection_end, egui::PointerButton::Primary, false)],
+    );
+    assert!(selected.platform_output.commands.iter().any(
+        |command| matches!(command, egui::OutputCommand::CopyText(text)
+            if text.contains("Mouse clipboard target"))
+    ));
+
+    for pressed in [true, false] {
+        frame(
+            &mut app,
+            &ctx,
+            vec![
+                egui::Event::PointerMoved(field),
+                pointer(field, egui::PointerButton::Secondary, pressed),
+            ],
+        );
+    }
+    let menu = frame(&mut app, &ctx, vec![]);
+    label_center(&menu, "Cut");
+    let copy = label_center(&menu, "Copy");
+    label_center(&menu, "Paste");
+    let mut requested_copy = false;
+    for pressed in [true, false] {
+        let output = frame(
+            &mut app,
+            &ctx,
+            vec![
+                egui::Event::PointerMoved(copy),
+                pointer(copy, egui::PointerButton::Primary, pressed),
+            ],
+        );
+        requested_copy |= output.viewport_output[&egui::ViewportId::ROOT]
+            .commands
+            .contains(&egui::ViewportCommand::RequestCopy);
+    }
+    assert!(requested_copy, "Right-clicking must preserve the selection");
+    let copied = frame(&mut app, &ctx, vec![egui::Event::Copy]);
+    assert!(copied.platform_output.commands.iter().any(
+        |command| matches!(command, egui::OutputCommand::CopyText(text)
+            if text.contains("Mouse clipboard target"))
+    ));
+
+    let mut requested_paste = false;
+    for pressed in [true, false] {
+        let output = frame(
+            &mut app,
+            &ctx,
+            vec![
+                egui::Event::PointerMoved(field),
+                pointer(field, egui::PointerButton::Middle, pressed),
+            ],
+        );
+        requested_paste |= output.viewport_output[&egui::ViewportId::ROOT]
+            .commands
+            .contains(&egui::ViewportCommand::RequestPaste);
+    }
+    assert!(requested_paste);
+    frame(&mut app, &ctx, vec![egui::Event::Paste(" pasted".into())]);
+    assert!(app.editor.as_ref().unwrap().button.label.contains("pasted"));
+}
 
 #[test]
 fn footer_toggle_hides_buttons_and_expands_the_terminal_workspace() {

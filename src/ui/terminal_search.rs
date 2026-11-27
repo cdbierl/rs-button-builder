@@ -202,12 +202,15 @@ impl TerminalSearch {
                                 + if show_status { 70.0 } else { 0.0 }
                                 + if show_navigation { 72.0 } else { 0.0 };
                             let field_width = (ui.available_width() - reserved).max(90.0);
-                            let field = ui.add_sized(
-                                [field_width, 32.0],
-                                egui::TextEdit::singleline(&mut self.query)
-                                    .id(id.with("query"))
-                                    .vertical_align(egui::Align::Center)
-                                    .hint_text("Find"),
+                            let field = super::text_edit_mouse_actions(
+                                ui.add_sized(
+                                    [field_width, 32.0],
+                                    egui::TextEdit::singleline(&mut self.query)
+                                        .id(id.with("query"))
+                                        .vertical_align(egui::Align::Center)
+                                        .hint_text("Find"),
+                                ),
+                                &self.query,
                             );
                             if self.request_focus {
                                 field.request_focus();
