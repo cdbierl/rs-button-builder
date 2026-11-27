@@ -180,6 +180,7 @@ impl ButtonBuilder {
             response.id.with("selection"),
             egui::Sense::click_and_drag(),
         );
+        let middle_paste = response.middle_clicked() || selection_response.middle_clicked();
         let mut scrollbar_interacted = false;
         let mut close_search = false;
         if let Some(index) = active {
@@ -257,9 +258,15 @@ impl ButtonBuilder {
             tab.selection
                 .interact(ui, &selection_response, &viewport, screen);
         }
+        if middle_paste && active.is_some() {
+            response.request_focus();
+            ui.ctx()
+                .send_viewport_cmd(egui::ViewportCommand::RequestPaste);
+        }
         if response.clicked()
             || selection_response.clicked()
             || selection_response.drag_started()
+            || middle_paste
             || scrollbar_interacted
             || self.workspace.focus_requested(pane)
         {

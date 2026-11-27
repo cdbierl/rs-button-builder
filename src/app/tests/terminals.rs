@@ -820,6 +820,7 @@ fn terminal_mouse_selection_copies_words_lines_and_dragged_ranges() {
             )),
         "Selection must retain terminal keyboard focus"
     );
+
     let copy_pos = symbol_center(&copied, "content_copy");
     frame(
         &mut app,
@@ -837,6 +838,47 @@ fn terminal_mouse_selection_copies_words_lines_and_dragged_ranges() {
             )),
         "The toolbar should copy selected text"
     );
+    let mut requested_paste = false;
+    for pressed in [true, false] {
+        let output = frame(
+            &mut app,
+            &ctx,
+            vec![
+                egui::Event::PointerMoved(word),
+                egui::Event::PointerButton {
+                    pos: word,
+                    button: egui::PointerButton::Middle,
+                    pressed,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ],
+        );
+        requested_paste |= output.viewport_output[&egui::ViewportId::ROOT]
+            .commands
+            .contains(&egui::ViewportCommand::RequestPaste);
+    }
+    assert!(requested_paste);
+    frame(
+        &mut app,
+        &ctx,
+        vec![
+            egui::Event::Paste("middle-pasted".into()),
+            egui::Event::Key {
+                key: egui::Key::Enter,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: egui::Modifiers::NONE,
+            },
+        ],
+    );
+    wait_for_tabs(&mut app, &ctx, |app| {
+        app.workspace.tabs()[0]
+            .terminal
+            .screen
+            .text()
+            .contains("Alpha:middle-pasted")
+    });
     for _ in 0..40 {
         frame(&mut app, &ctx, vec![]);
     }
